@@ -1,0 +1,34 @@
+db=wp fts_query t=1031896 q="the"* rows=1089 hits=5006 first_ms=12 done_ms=78
+db=wp fts_query t=1032666 q="borodino" rows=84 hits=108 first_ms=2 done_ms=9
+db=wp fts_query t=1033417 q="borodinó" rows=84 hits=108 first_ms=2 done_ms=8
+db=wp fts_query t=1034256 q="borodino"* rows=84 hits=108 first_ms=2 done_ms=7
+db=wp fts_query t=1035028 q="zygote" rows=0 hits=0 first_ms=-1 done_ms=0
+db=wp fts_query t=1035859 q="zygote"* rows=0 hits=0 first_ms=-1 done_ms=1
+db=la fts_query t=1036709 q="augmented matrix" rows=136 hits=150 first_ms=1 done_ms=15
+db=la fts_query t=1037485 q="augmented"* "matrix"* rows=138 hits=473 first_ms=1 done_ms=10
+db=huge fts_query t=1038188 q="markerwordhuge" rows=138 hits=138 first_ms=1 done_ms=5
+db=wp fts_query t=1039069 q="the"* rows=1089 hits=5006 first_ms=11 done_ms=43
+db=wp fts_query t=1039870 q="borodino" rows=84 hits=108 first_ms=2 done_ms=8
+db=wp fts_query t=1040705 q="borodinó" rows=84 hits=108 first_ms=2 done_ms=8
+db=wp fts_query t=1041557 q="borodino"* rows=84 hits=108 first_ms=2 done_ms=7
+db=wp fts_query t=1042411 q="zygote" rows=0 hits=0 first_ms=-1 done_ms=2
+db=wp fts_query t=1043070 q="zygote"* rows=0 hits=0 first_ms=-1 done_ms=1
+db=la fts_query t=1043842 q="augmented matrix" rows=136 hits=150 first_ms=0 done_ms=4
+db=la fts_query t=1044659 q="augmented"* "matrix"* rows=138 hits=473 first_ms=0 done_ms=5
+db=huge fts_query t=1045493 q="markerwordhuge" rows=138 hits=138 first_ms=2 done_ms=6
+db=wp fts_query t=1046271 q="the"* rows=1089 hits=5006 first_ms=2 done_ms=11
+db=wp fts_query t=1047097 q="borodino" rows=84 hits=108 first_ms=2 done_ms=7
+db=wp fts_query t=1047907 q="borodinó" rows=84 hits=108 first_ms=1 done_ms=2
+db=wp fts_query t=1048614 q="borodino"* rows=84 hits=108 first_ms=2 done_ms=6
+db=wp fts_query t=1049446 q="zygote" rows=0 hits=0 first_ms=-1 done_ms=2
+db=wp fts_query t=1050235 q="zygote"* rows=0 hits=0 first_ms=-1 done_ms=1
+db=la fts_query t=1051076 q="augmented matrix" rows=136 hits=150 first_ms=1 done_ms=15
+db=la fts_query t=1051916 q="augmented"* "matrix"* rows=138 hits=473 first_ms=2 done_ms=14
+db=huge fts_query t=1052742 q="markerwordhuge" rows=138 hits=138 first_ms=3 done_ms=7
+db=wp fts_query t=1053450 q="borodino s" rows=0 hits=0 first_ms=-1 done_ms=2
+/system/bin/sh: no closing quote
+db=wp fts_query t=1071203 q="well-known" rows=24 hits=24 first_ms=1 done_ms=3
+db=wp fts_query t=1072052 q="well known" rows=24 hits=24 first_ms=3 done_ms=4
+db=wp fts_query t=1072899 q="well" "known" rows=35 hits=77 first_ms=1 done_ms=5
+fts_query t=1083776 q="prince s" rows=35 hits=37 first_ms=2 done_ms=4
+fts_query t=1083866 q="princes" rows=4 hits=6 first_ms=2 done_ms=2

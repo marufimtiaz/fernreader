@@ -1,0 +1,9 @@
+run=1 fts_build t=1006673 book=war-and-peace-epub3.epub rows=12551 chars=3612616 ms=1251 insert_ms=1250 bytes=6262784
+run=1 fts_build t=1010721 book=linear-algebra.epub rows=5974 chars=18002735 ms=2832 insert_ms=2832 bytes=20881408
+run=1 fts_build t=1012909 book=stress-huge-single-chapter.epub rows=25078 chars=10311008 ms=1506 insert_ms=1505 bytes=16134144
+run=2 fts_build t=1014584 book=war-and-peace-epub3.epub rows=12551 chars=3612616 ms=832 insert_ms=832 bytes=6262784
+run=2 fts_build t=1017733 book=linear-algebra.epub rows=5974 chars=18002735 ms=2623 insert_ms=2623 bytes=20881408
+run=2 fts_build t=1019682 book=stress-huge-single-chapter.epub rows=25078 chars=10311008 ms=1062 insert_ms=1061 bytes=16134144
+run=3 fts_build t=1021650 book=war-and-peace-epub3.epub rows=12551 chars=3612616 ms=685 insert_ms=685 bytes=6262784
+run=3 fts_build t=1023733 book=linear-algebra.epub rows=5974 chars=18002735 ms=1407 insert_ms=1406 bytes=20881408
+run=3 fts_build t=1025600 book=stress-huge-single-chapter.epub rows=25078 chars=10311008 ms=908 insert_ms=907 bytes=16134144
