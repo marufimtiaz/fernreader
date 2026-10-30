@@ -1,6 +1,7 @@
 // Thin host around foliate-js: loads the book through the Kotlin zip server and talks to Kotlin via `Android`.
 import '../foliate-js/view.js'
 import { EPUB } from '../foliate-js/epub.js'
+import { countAll } from './count.js'
 
 const A = window.Android
 const log = m => A.log(String(m))
@@ -57,6 +58,7 @@ window.openBook = async () => {
         r.setAttribute('margin', '24px')
         r.setAttribute('gap', '6%')
         r.setAttribute('max-column-count', '1')
+        if (A.preloadEnabled?.()) { r.setAttribute('preload', ''); log('preload_on') } // SPIKE S2
         r.setStyles?.(css())
         log('styled')
         const last = A.lastLocation()
@@ -105,6 +107,63 @@ window.search = async query => {
     if (searchGen === gen) A.searchDone()
 }
 window.cancelSearch = () => { searchGen?.return?.(); searchGen = null }
+
+// SPIKE (M0 S1): page counting commands.
+let counting = null
+window.countAll = async (strategy, arg) => {
+    const r = view.renderer
+    const layout = r.layout
+    log(`count_start strategy=${strategy} arg=${arg} w=${layout.width} h=${layout.height} gap=${layout.gap.toFixed(2)} col=${layout.columnWidth.toFixed(2)}`)
+    const opts = { strategy, layout, styles: r.styles, lang: view.language?.canonical,
+        dir: view.language?.isCJK ? '' : view.language?.direction }
+    if (strategy === 'batched' || strategy === 'stratified') opts.batch = arg || 24; else opts.lanes = arg || 2
+    if (strategy === 'stratified') { opts.strategy = 'batched'; opts.stratified = true }
+    // 'mixed': stratified first batch of 12, then batches of `arg` (default 96)
+    if (strategy === 'mixed') { opts.strategy = 'batched'; opts.stratified = 12; opts.batch = arg || 96 }
+    // Estimate after the first (stratified) batch: previous layout's exact counts scaled by the sample ratio
+    // when available, else the text-length model (chars per page from the sample, last page half full).
+    const prev = window.__lastCounts
+    const onBatch = (idx, res, ms, sample) => {
+        if (!sample) return
+        const S = new Set(sample)
+        let est
+        if (prev) {
+            const r = sample.reduce((a, i) => a + res[i], 0) / Math.max(1, sample.reduce((a, i) => a + prev[i], 0))
+            est = prev.reduce((a, p, i) => a + (S.has(i) ? res[i] : p * r), 0)
+        } else if (window.__chars) {
+            const ch = window.__chars, S2 = sample.filter(i => ch[i] >= 200)
+            const C = S2.reduce((a, i) => a + ch[i], 0) / Math.max(1, S2.reduce((a, i) => a + res[i] - 0.5, 0))
+            est = ch.reduce((a, c, i) => a + (S.has(i) ? res[i] : c < 200 ? 1 : Math.ceil(c / C)), 0)
+        }
+        log(`count_estimate ms=${Math.round(ms)} est=${Math.round(est)} basis=${prev ? 'scale' : 'text'}`)
+    }
+    counting = countAll(book, opts, (i, p) => { if (i % 50 === 0) log(`count_progress i=${i}`) }, onBatch)
+    const res = await counting
+    counting = null
+    window.__lastCounts = res.results
+    log(`count_done strategy=${strategy} arg=${arg} font=${fontScale} total=${res.total} ms=${Math.round(res.ms)}`)
+    log(`count_results ${JSON.stringify(res.results)}`)
+}
+// Visible paginator page count for one section (agreement check).
+window.sampleVisible = async index => {
+    await view.goTo(index)
+    await new Promise(r => setTimeout(r, 400))
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))
+    log(`visible_pages index=${index} pages=${view.renderer.pages - 2} counted=${window.__lastCounts?.[index]}`)
+}
+window.forgetCounts = () => { window.__lastCounts = null; log('counts_forgotten') }
+window.sampleMany = async list => { for (const i of list) await window.sampleVisible(i); log('sample_done') }
+// Text length and block-image count per section, from the DOM (for the estimator).
+window.sectionStats = async () => {
+    const out = []
+    for (const s of book.sections) {
+        if (s.linear === 'no' || !s.createDocument) { out.push([0, 0]); continue }
+        const d = await s.createDocument()
+        out.push([d.body?.textContent.length ?? 0, d.body?.querySelectorAll('img, svg').length ?? 0])
+    }
+    window.__chars = out.map(x => x[0])
+    log(`section_stats ${JSON.stringify(out)}`)
+}
 
 window.addEventListener('error', e => log('onerror ' + e.message))
 window.addEventListener('unhandledrejection', e => log('rejection ' + (e.reason?.stack ?? e.reason)))

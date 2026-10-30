@@ -1,0 +1,64 @@
+spikes/tools/s1_estimate_dev.sh: line 5: $4: unbound variable
+spikes/tools/s1_estimate_dev.sh: line 5: $4: unbound variable
+spikes/tools/s1_estimate_dev.sh: line 5: $4: unbound variable
+spikes/tools/s1_estimate_dev.sh: line 5: $4: unbound variable
+run=1 x->1.0 count_estimate ms=611 est=2365 basis=text count_done strategy=stratified arg=24 font=1 total=2341 ms=4045 
+run=2 x->1.0 count_estimate ms=616 est=2365 basis=text count_done strategy=stratified arg=24 font=1 total=2341 ms=4052 
+run=3 x->1.0 count_estimate ms=480 est=2365 basis=text count_done strategy=stratified arg=24 font=1 total=2341 ms=3569 
+run=1 x->1.3 count_estimate ms=655 est=3764 basis=text count_done strategy=stratified arg=24 font=1.3 total=3770 ms=4146 
+run=2 x->1.3 count_estimate ms=855 est=3764 basis=text count_done strategy=stratified arg=24 font=1.3 total=3770 ms=4309 
+run=3 x->1.3 count_estimate ms=631 est=3764 basis=text count_done strategy=stratified arg=24 font=1.3 total=3770 ms=3848 
+run=1 x->1.8 count_estimate ms=790 est=7088 basis=text count_done strategy=stratified arg=24 font=1.8 total=7111 ms=4132 
+run=2 x->1.8 count_estimate ms=637 est=7088 basis=text count_done strategy=stratified arg=24 font=1.8 total=7111 ms=3669 
+run=3 x->1.8 count_estimate ms=504 est=7088 basis=text count_done strategy=stratified arg=24 font=1.8 total=7111 ms=3955 
+k=24 run=1 1.0->1.3 count_estimate ms=482 est=3733 basis=scale count_done strategy=stratified arg=24 font=1.3 total=3770 ms=3611 
+k=24 run=2 1.0->1.3 count_estimate ms=409 est=3733 basis=scale count_done strategy=stratified arg=24 font=1.3 total=3770 ms=3807 
+k=24 run=3 1.0->1.3 count_estimate ms=426 est=3733 basis=scale count_done strategy=stratified arg=24 font=1.3 total=3770 ms=3863 
+k=24 run=1 1.3->1.8 count_estimate ms=327 est=7107 basis=scale count_done strategy=stratified arg=24 font=1.8 total=7111 ms=3733 
+k=24 run=2 1.3->1.8 count_estimate ms=280 est=7107 basis=scale count_done strategy=stratified arg=24 font=1.8 total=7111 ms=2867 
+k=24 run=3 1.3->1.8 count_estimate ms=342 est=7107 basis=scale count_done strategy=stratified arg=24 font=1.8 total=7111 ms=3128 
+k=24 run=1 1.8->1.0 count_estimate ms=439 est=2365 basis=scale count_done strategy=stratified arg=24 font=1 total=2341 ms=3241 
+k=24 run=2 1.8->1.0 count_estimate ms=422 est=2365 basis=scale count_done strategy=stratified arg=24 font=1 total=2341 ms=2814 
+k=24 run=3 1.8->1.0 count_estimate ms=272 est=2365 basis=scale count_done strategy=stratified arg=24 font=1 total=2341 ms=2880 
+k=24 run=1 1.0->1.1 count_estimate ms=448 est=2754 basis=scale count_done strategy=stratified arg=24 font=1.1 total=2771 ms=3905 
+k=24 run=2 1.0->1.1 count_estimate ms=370 est=2754 basis=scale count_done strategy=stratified arg=24 font=1.1 total=2771 ms=3875 
+k=24 run=3 1.0->1.1 count_estimate ms=455 est=2754 basis=scale count_done strategy=stratified arg=24 font=1.1 total=2771 ms=3390 
+k=12 run=1 1.0->1.3 count_estimate ms=84 est=3792 basis=scale count_done strategy=stratified arg=12 font=1.3 total=3770 ms=4815 
+k=12 run=2 1.0->1.3 count_estimate ms=343 est=3792 basis=scale count_done strategy=stratified arg=12 font=1.3 total=3770 ms=5117 
+k=12 run=3 1.0->1.3 count_estimate ms=308 est=3792 basis=scale count_done strategy=stratified arg=12 font=1.3 total=3770 ms=5213 
+k=12 run=1 1.3->1.8 count_estimate ms=206 est=7147 basis=scale count_done strategy=stratified arg=12 font=1.8 total=7111 ms=4670 
+k=12 run=2 1.3->1.8 count_estimate ms=228 est=7147 basis=scale count_done strategy=stratified arg=12 font=1.8 total=7111 ms=5124 
+k=12 run=3 1.3->1.8 count_estimate ms=173 est=7147 basis=scale count_done strategy=stratified arg=12 font=1.8 total=7111 ms=4497 
+k=12 run=1 1.8->1.0 count_estimate ms=362 est=2316 basis=scale count_done strategy=stratified arg=12 font=1 total=2341 ms=3880 
+k=12 run=2 1.8->1.0 count_estimate ms=136 est=2316 basis=scale count_done strategy=stratified arg=12 font=1 total=2341 ms=5046 
+k=12 run=3 1.8->1.0 count_estimate ms=212 est=2316 basis=scale count_done strategy=stratified arg=12 font=1 total=2341 ms=4262 
+k=12 run=1 1.0->1.1 count_estimate ms=356 est=2836 basis=scale count_done strategy=stratified arg=12 font=1.1 total=2771 ms=5402 
+k=12 run=2 1.0->1.1 count_estimate ms=305 est=2836 basis=scale count_done strategy=stratified arg=12 font=1.1 total=2771 ms=4711 
+k=12 run=3 1.0->1.1 count_estimate ms=339 est=2836 basis=scale count_done strategy=stratified arg=12 font=1.1 total=2771 ms=4994 
+k=12 run=1 x->1.0 count_estimate ms=457 est=2319 basis=text count_done strategy=stratified arg=12 font=1 total=2341 ms=5648 
+k=12 run=2 x->1.0 count_estimate ms=370 est=2319 basis=text count_done strategy=stratified arg=12 font=1 total=2341 ms=5631 
+k=12 run=3 x->1.0 count_estimate ms=92 est=2319 basis=text count_done strategy=stratified arg=12 font=1 total=2341 ms=4337 
+k=12 run=1 x->1.3 count_estimate ms=262 est=3741 basis=text count_done strategy=stratified arg=12 font=1.3 total=3770 ms=6047 
+k=12 run=2 x->1.3 count_estimate ms=380 est=3741 basis=text count_done strategy=stratified arg=12 font=1.3 total=3770 ms=5853 
+k=12 run=3 x->1.3 count_estimate ms=187 est=3741 basis=text count_done strategy=stratified arg=12 font=1.3 total=3770 ms=4934 
+k=12 run=1 x->1.8 count_estimate ms=366 est=7094 basis=text count_done strategy=stratified arg=12 font=1.8 total=7111 ms=5291 
+k=12 run=2 x->1.8 count_estimate ms=364 est=7094 basis=text count_done strategy=stratified arg=12 font=1.8 total=7111 ms=4421 
+k=12 run=3 x->1.8 count_estimate ms=350 est=7094 basis=text count_done strategy=stratified arg=12 font=1.8 total=7111 ms=5623 
+mixed12+96 
+mixed12+96 run=2 1.0->1.3 count_estimate ms=329 est=3792 basis=scale count_done strategy=mixed arg=96 font=1.3 total=3770 ms=3059 
+mixed12+96 run=3 1.0->1.3 count_estimate ms=326 est=3792 basis=scale count_done strategy=mixed arg=96 font=1.3 total=3770 ms=3262 
+mixed12+96 run=1 1.3->1.8 count_estimate ms=229 est=7147 basis=scale count_done strategy=mixed arg=96 font=1.8 total=7111 ms=3679 
+mixed12+96 run=2 1.3->1.8 count_estimate ms=145 est=7147 basis=scale count_done strategy=mixed arg=96 font=1.8 total=7111 ms=3373 
+mixed12+96 run=3 1.3->1.8 count_estimate ms=442 est=7147 basis=scale count_done strategy=mixed arg=96 font=1.8 total=7111 ms=3753 
+mixed12+96 run=1 1.8->1.0 count_estimate ms=114 est=2316 basis=scale count_done strategy=mixed arg=96 font=1 total=2341 ms=2830 
+mixed12+96 run=2 1.8->1.0 count_estimate ms=608 est=2316 basis=scale count_done strategy=mixed arg=96 font=1 total=2341 ms=3792 
+mixed12+96 run=3 1.8->1.0 count_estimate ms=383 est=2316 basis=scale count_done strategy=mixed arg=96 font=1 total=2341 ms=2725 
+mixed12+96 run=1 x->1.3 count_estimate ms=363 est=3741 basis=text count_done strategy=mixed arg=96 font=1.3 total=3770 ms=3226 
+mixed12+96 run=2 x->1.3 count_estimate ms=331 est=3741 basis=text count_done strategy=mixed arg=96 font=1.3 total=3770 ms=3483 
+mixed12+96 run=3 x->1.3 count_estimate ms=418 est=3741 basis=text count_done strategy=mixed arg=96 font=1.3 total=3770 ms=2946 
+mixed12+24 run=1 1.3->1.0 count_estimate ms=461 est=2328 basis=scale count_done strategy=mixed arg=24 font=1 total=2341 ms=2993 
+mixed12+24 run=2 1.3->1.0 count_estimate ms=250 est=2328 basis=scale count_done strategy=mixed arg=24 font=1 total=2341 ms=2717 
+mixed12+24 run=3 1.3->1.0 count_estimate ms=195 est=2328 basis=scale count_done strategy=mixed arg=24 font=1 total=2341 ms=2904 
+mixed12+24 run=1 1.3->1.8 count_estimate ms=213 est=7147 basis=scale count_done strategy=mixed arg=24 font=1.8 total=7111 ms=3498 
+mixed12+24 run=2 1.3->1.8 count_estimate ms=259 est=7147 basis=scale count_done strategy=mixed arg=24 font=1.8 total=7111 ms=3483 
+mixed12+24 run=3 1.3->1.8 count_estimate ms=158 est=7147 basis=scale count_done strategy=mixed arg=24 font=1.8 total=7111 ms=3908 

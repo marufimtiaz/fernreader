@@ -68,6 +68,7 @@ class ReaderActivity : BaseReaderActivity() {
         }
         web.webChromeClient = object : android.webkit.WebChromeClient() {
             override fun onConsoleMessage(m: android.webkit.ConsoleMessage): Boolean {
+                if (m.message().startsWith("An iframe which has both")) return true // SPIKE: noise from count lanes
                 Probe.ev("console", "${m.messageLevel()} ${m.message()} @${m.sourceId()}:${m.lineNumber()}"); return true
             }
         }
@@ -125,6 +126,23 @@ class ReaderActivity : BaseReaderActivity() {
         js("search(${JSONObject.quote(query)})")
     }
 
+    // SPIKE (M0): extra debug commands.
+    override fun onExtraCommand(cmd: String, arg: String) {
+        val a = arg.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+        when (cmd) {
+            "count" -> js("countAll(${JSONObject.quote(a.getOrElse(0) { "sequential" })}, ${a.getOrElse(1) { "0" }.toIntOrNull() ?: 0})")
+            "sample" -> js("sampleMany([${a.joinToString(",")}])")
+            "stats" -> js("sectionStats()")
+            "js" -> js(arg)
+            "scan" -> Thread { ScanSpike.run(a.getOrElse(0) { "recursive" }, a.getOrElse(1) { "full" }, a.getOrElse(2) { "1" }.toInt()) }.start()
+            "digest" -> Thread { ScanSpike.digestOne(a[0]) }.start()
+            "ftsinfo" -> Thread { FtsSpike.info(java.io.File(filesDir, "fts-info.db")) }.start()
+            "ftsbuild" -> Thread { FtsSpike.build(a[0], java.io.File(filesDir, "fts-${a.getOrElse(1) { "spike" }}.db")) }.start()
+            "ftsquery" -> Thread { FtsSpike.query(java.io.File(filesDir, "fts-${a[0]}.db"), arg.trim().substringAfter(' ').substringBeforeLast(" #").trim(),
+                arg.substringAfterLast(" #", "5000").trim().toIntOrNull() ?: 5000) }.start()
+        }
+    }
+
     override fun cancelSearch() { sink = null; js("cancelSearch && cancelSearch()") }
 
     override fun onDestroy() {
@@ -139,6 +157,7 @@ class ReaderActivity : BaseReaderActivity() {
             Probe.ev("host_ready"); hostReady = true
             if (openRequested) js("openBook()")
         }
+        @JavascriptInterface fun preloadEnabled(): Boolean = intent.getBooleanExtra("preload", false)
         @JavascriptInterface fun lastLocation(): String = prefs.getString(bookPath, "") ?: ""
         @JavascriptInterface fun opened(info: String) = Probe.ev("book_opened", info)
         @JavascriptInterface fun error(m: String) = runOnUiThread { showError(m) }
