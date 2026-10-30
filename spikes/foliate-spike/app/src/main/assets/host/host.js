@@ -151,6 +151,7 @@ window.sampleVisible = async index => {
     await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))
     log(`visible_pages index=${index} pages=${view.renderer.pages - 2} counted=${window.__lastCounts?.[index]}`)
 }
+window.logCfi = () => log(`cfi index=${view.lastLocation?.index ?? view.renderer.getContents()[0]?.index} page=${view.renderer.page} ${view.lastLocation?.cfi}`) // SPIKE S2
 window.forgetCounts = () => { window.__lastCounts = null; log('counts_forgotten') }
 window.sampleMany = async list => { for (const i of list) await window.sampleVisible(i); log('sample_done') }
 // Text length and block-image count per section, from the DOM (for the estimator).

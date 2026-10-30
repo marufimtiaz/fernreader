@@ -1,0 +1,18 @@
+foliate s2-pre-1 video_ms=154 log_ms=246 video=results/raw/s2/foliate-s2-pre-1.mp4 from=9/9 # min_ink=0.004956427015250545
+foliate s2-pre-2 video_ms=114 log_ms=158 video=results/raw/s2/foliate-s2-pre-2.mp4 from=5/5 # min_ink=0.01056644880174292
+foliate s2-pre-3 video_ms=112 log_ms=127 video=results/raw/s2/foliate-s2-pre-3.mp4 from=6/6 # min_ink=0.007026143790849673
+foliate s2-pre-4 video_ms=213 log_ms=219 video=results/raw/s2/foliate-s2-pre-4.mp4 from=6/6 # min_ink=0.00522875816993464
+foliate s2-pre-5 video_ms=125 log_ms=184 video=results/raw/s2/foliate-s2-pre-5.mp4 from=8/8 # min_ink=0.00528322440087146
+Error (UNKNOWN): Android screenrecord ownership could not be confirmed for pid 20997
+Hint: Unexpected internal error. Retry with --debug and report the diagnostics log if it persists.
+Diagnostic ID: mvv9spyb-e6f2ec16
+Diagnostics Log: ~/.agent-device/remote-diagnostics/t3-257d676556c4e33cc0b64853/requests/87b5ca9d539e408e.ndjson
+foliate s2-pre-6 video_ms=NA log_ms=229 video=results/raw/s2/foliate-s2-pre-6.mp4 from=6/6 # min_ink=None
+Error (INVALID_ARGS): recording already in progress
+Hint: Check command arguments and run --help for usage examples.
+Diagnostic ID: mvv9sv1o-09bc1ba4
+Diagnostics Log: ~/.agent-device/remote-diagnostics/t3-257d676556c4e33cc0b64853/requests/f248af4fc1c10316.ndjson
+foliate s2-pre-7 video_ms=NA log_ms=207 video=results/raw/s2/foliate-s2-pre-7.mp4 from=5/5 # min_ink=None
+foliate s2-pre-8 video_ms=114 log_ms=148 video=results/raw/s2/foliate-s2-pre-8.mp4 from=5/5 # min_ink=0.003431372549019608
+foliate s2-pre-9 video_ms=149 log_ms=281 video=results/raw/s2/foliate-s2-pre-9.mp4 from=8/8 # min_ink=0.00724400871459695
+foliate s2-pre-10 video_ms=250 log_ms=276 video=results/raw/s2/foliate-s2-pre-10.mp4 from=7/7 # min_ink=0.0016339869281045752

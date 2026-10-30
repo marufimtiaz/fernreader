@@ -1,0 +1,7 @@
+Error (INVALID_ARGS): recording already in progress
+Hint: Check command arguments and run --help for usage examples.
+Diagnostic ID: mvvadioc-97abd92e
+Diagnostics Log: ~/.agent-device/remote-diagnostics/t3-257d676556c4e33cc0b64853/requests/89943d66bd333a39.ndjson
+foliate s2-pre3-1 video_ms=NA log_ms=57 video=results/raw/s2/foliate-s2-pre3-1.mp4 from=9/9 # min_ink=None cfi index=3 page=1 epubcfi(/6/8!/4/2[pgepubid00004],/2,/10/1:109)
+foliate s2-pre3-2 video_ms=188 log_ms=228 video=results/raw/s2/foliate-s2-pre3-2.mp4 from=5/5 # min_ink=0.01056644880174292 cfi index=4 page=1 epubcfi(/6/10!/4/2[pgepubid00005],/2,/6/1:776)
+foliate s2-pre3-3 video_ms=110 log_ms=177 video=results/raw/s2/foliate-s2-pre3-3.mp4 from=6/6 # min_ink=0.007026143790849673 cfi index=5 page=1 epubcfi(/6/12!/4/2[pgepubid00006],/2,/16/3:96)

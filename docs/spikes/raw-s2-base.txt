@@ -1,0 +1,5 @@
+foliate s2-base-1 video_ms=489 log_ms=627 video=results/raw/s2/foliate-s2-base-1.mp4 from=9/9 # min_ink=0.0
+foliate s2-base-2 video_ms=526 log_ms=709 video=results/raw/s2/foliate-s2-base-2.mp4 from=5/5 # min_ink=0.0
+foliate s2-base-3 video_ms=577 log_ms=675 video=results/raw/s2/foliate-s2-base-3.mp4 from=6/6 # min_ink=0.0
+foliate s2-base-4 video_ms=668 log_ms=702 video=results/raw/s2/foliate-s2-base-4.mp4 from=6/6 # min_ink=0.0
+foliate s2-base-5 video_ms=624 log_ms=620 video=results/raw/s2/foliate-s2-base-5.mp4 from=8/8 # min_ink=0.0

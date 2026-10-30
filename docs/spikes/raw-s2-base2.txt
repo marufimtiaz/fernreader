@@ -1,0 +1,18 @@
+foliate s2-base2-1 video_ms=613 log_ms=619 video=results/raw/s2/foliate-s2-base2-1.mp4 from=9/9 # min_ink=0.0 cfi index=3 page=1 epubcfi(/6/8!/4/2[pgepubid00004],/2,/10/1:109)
+foliate s2-base2-2 video_ms=585 log_ms=683 video=results/raw/s2/foliate-s2-base2-2.mp4 from=5/5 # min_ink=0.0 cfi index=4 page=1 epubcfi(/6/10!/4/2[pgepubid00005],/2,/6/1:776)
+Error (UNKNOWN): Android screenrecord ownership could not be confirmed for pid 24725
+Hint: Unexpected internal error. Retry with --debug and report the diagnostics log if it persists.
+Diagnostic ID: mvv9wf1r-e16b1d81
+Diagnostics Log: ~/.agent-device/remote-diagnostics/t3-257d676556c4e33cc0b64853/requests/f563314e18a6bb85.ndjson
+foliate s2-base2-3 video_ms=NA log_ms=715 video=results/raw/s2/foliate-s2-base2-3.mp4 from=6/6 # min_ink=None cfi index=5 page=1 epubcfi(/6/12!/4/2[pgepubid00006],/2,/16/3:96)
+Error (INVALID_ARGS): recording already in progress
+Hint: Check command arguments and run --help for usage examples.
+Diagnostic ID: mvv9wlmu-30396600
+Diagnostics Log: ~/.agent-device/remote-diagnostics/t3-257d676556c4e33cc0b64853/requests/d5a163d3d8c5cce2.ndjson
+foliate s2-base2-4 video_ms=NA log_ms=800 video=results/raw/s2/foliate-s2-base2-4.mp4 from=6/6 # min_ink=None cfi index=6 page=1 epubcfi(/6/14!/4/2[pgepubid00007],/2,/14/1:430)
+foliate s2-base2-5 video_ms=651 log_ms=710 video=results/raw/s2/foliate-s2-base2-5.mp4 from=6/6 # min_ink=0.0 cfi index=8 page=1 epubcfi(/6/18!/4/2[pgepubid00009],/2,/12/1:383)
+foliate s2-base2-6 video_ms=626 log_ms=634 video=results/raw/s2/foliate-s2-base2-6.mp4 from=5/5 # min_ink=0.0 cfi index=9 page=1 epubcfi(/6/20!/4/2[pgepubid00010],/2,/10/1:720)
+foliate s2-base2-7 video_ms=654 log_ms=733 video=results/raw/s2/foliate-s2-base2-7.mp4 from=5/5 # min_ink=0.0 cfi index=10 page=1 epubcfi(/6/22!/4/2[pgepubid00011],/2,/8/1:772)
+foliate s2-base2-8 video_ms=582 log_ms=5810 video=results/raw/s2/foliate-s2-base2-8.mp4 from=8/8 # min_ink=0.0 cfi index=11 page=1 epubcfi(/6/24!/4/2[pgepubid00012],/2,/6/1:436)
+foliate s2-base2-9 video_ms=176 log_ms=5262 video=results/raw/s2/foliate-s2-base2-9.mp4 from=7/7 # min_ink=0.7362200435729848 cfi index=12 page=1 epubcfi(/6/26!/4/2[pgepubid00013],/2,/12/1:175)
+foliate s2-base2-10 video_ms=522 log_ms=619 video=results/raw/s2/foliate-s2-base2-10.mp4 from=4/4 # min_ink=0.0 cfi index=13 page=1 epubcfi(/6/28!/4/2[pgepubid00014],/2,/6/1:173)

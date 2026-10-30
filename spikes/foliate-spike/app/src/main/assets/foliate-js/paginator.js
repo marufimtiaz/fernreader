@@ -12,6 +12,7 @@
 //   - #goTo: a cached target is swapped in; otherwise #display as before, with #createView keeping the old view.
 //   - #display/#swapTo end with #afterSwap(): evict views farther than one linear section, preload neighbours.
 //   - render(), setStyles(), destroy(): applied to every cached view.
+//   - getContents(): also returns loaded hidden views (current first) so annotations/search hits reach them.
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 const debounce = (f, wait, immediate) => {
@@ -1225,7 +1226,11 @@ export class Paginator extends HTMLElement {
             index: this.#index,
             overlayer: this.#view.overlayer,
             doc: this.#view.document,
-        }]
+        // SPIKE S2: loaded hidden neighbours too (current first), so view.js draws annotations and search
+        // results into them; otherwise a preloaded section shows no highlights after the swap.
+        }, ...[...this.#cache.values()].filter(e => e.view !== this.#view && e.loaded).map(e => ({
+            index: e.index, overlayer: e.view.overlayer, doc: e.view.document,
+        }))]
         return []
     }
     setStyles(styles) {

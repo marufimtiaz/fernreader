@@ -1,0 +1,6 @@
+base boundaries_crossed=13 app_kb=59597 renderer_kb=57335 total_mb=114
+base boundaries_crossed=13 app_kb=60518 renderer_kb=59359 total_mb=117
+base boundaries_crossed=13 app_kb=60166 renderer_kb=59375 total_mb=116
+preload boundaries_crossed=11 app_kb=59926 renderer_kb=60601 total_mb=117
+preload boundaries_crossed=11 app_kb=60977 renderer_kb=62637 total_mb=120
+preload boundaries_crossed=11 app_kb=60786 renderer_kb=62653 total_mb=120
