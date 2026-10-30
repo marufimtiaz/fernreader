@@ -1,0 +1,19 @@
+P-040 foliate q="the" run=1 first_ms=262 done_ms=4271 hits=5170
+P-040 foliate q="the" run=2 first_ms=297 done_ms=4211 hits=5170
+P-040 foliate q="the" run=3 first_ms=428 done_ms=4398 hits=5170
+P-041 foliate q="Borodinó" run=1 first_ms=7535 done_ms=12572 hits=108
+P-041 foliate q="Borodinó" run=2 first_ms=7440 done_ms=12335 hits=108
+P-041 foliate q="Borodinó" run=3 first_ms=7468 done_ms=12612 hits=108
+F-050-diacritics foliate q="Borodino" run=1 first_ms=8878 done_ms=14232 hits=108
+P-042 foliate q="zygote" run=1 first_ms=NA done_ms=11936 hits=0
+P-042 foliate q="zygote" run=2 first_ms=NA done_ms=12374 hits=0
+P-042 foliate q="zygote" run=3 first_ms=NA done_ms=14742 hits=0
+P-043 foliate q="augmented matrix" run=1 first_ms=528 done_ms=12370 hits=150
+P-043 foliate q="augmented matrix" run=2 first_ms=695 done_ms=13193 hits=150
+P-043 foliate q="augmented matrix" run=3 first_ms=598 done_ms=11957 hits=150
+F-050-2000ch foliate q="MARKERWORDMANY" run=1 first_ms=13941 done_ms=14889 hits=1
+P-060 app_kb=95310 renderer_kb=122411 total_mb=212
+cat: /proc/28154/cmdline: No such file or directory
+P-061 peak_sampled_mb=1352 steady app_kb=102035 renderer_kb=800517 total_mb=881 deaths=11
+P-044 foliate q="MARKERWORDHUGE" run=1 first_ms=18008 done_ms=18008 hits=138
+P-062 after10 app_kb=101311 renderer_kb=137071 total_mb=232 | after50 app_kb=97257 renderer_kb=141058 total_mb=232 deaths=30

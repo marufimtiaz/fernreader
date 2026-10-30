@@ -1,0 +1,6 @@
+foliate stress-huge-single-chapter inplace-first run=1 shell_ms=0 engine_ms=912 total_ms=912 log_ms=1017
+foliate stress-huge-single-chapter inplace-reopen run=1 shell_ms=0 engine_ms=1032 total_ms=1032 log_ms=1154
+foliate stress-huge-single-chapter inplace-first run=2 shell_ms=0 engine_ms=811 total_ms=811 log_ms=879
+foliate stress-huge-single-chapter inplace-reopen run=2 shell_ms=0 engine_ms=1508 total_ms=1508 log_ms=895
+foliate stress-huge-single-chapter inplace-first run=3 shell_ms=0 engine_ms=863 total_ms=863 log_ms=978
+foliate stress-huge-single-chapter inplace-reopen run=3 shell_ms=0 engine_ms=1000 total_ms=1000 log_ms=1153

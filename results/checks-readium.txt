@@ -1,0 +1,26 @@
+== rtl-arabic: I PROTO   : EVT pub_opened t=14067244 readingOrder=3 layout=REFLOWABLE I PROTO   : EVT first_page_cb t=14068550 1/1 · pos 1/18 
+== vertical-ja: I PROTO   : EVT pub_opened t=14078594 readingOrder=15 layout=REFLOWABLE I PROTO   : EVT first_page_cb t=14081174 1/1 · pos 1/170 
+== fxl-page-blanche: I PROTO   : EVT pub_opened t=14093103 readingOrder=10 layout=FIXED 
+== fxl-haruko: I PROTO   : EVT pub_opened t=14102569 readingOrder=13 layout=FIXED 
+== mathml: I PROTO   : EVT pub_opened t=14114548 readingOrder=94 layout=REFLOWABLE I PROTO   : EVT first_page_cb t=14115899 1/1 · pos 1/1077 
+== font-obf: I PROTO   : EVT pub_opened t=14148596 readingOrder=1 layout=REFLOWABLE I PROTO   : EVT first_page_cb t=14150309 1/25 · pos 1/16 
+== font-woff: I PROTO   : EVT pub_opened t=14159609 readingOrder=1 layout=REFLOWABLE I PROTO   : EVT first_page_cb t=14161147 1/25 · pos 1/16 
+== svg-spine: I PROTO   : EVT pub_opened t=14170431 readingOrder=6 layout=FIXED 
+== svg-spine-2: I PROTO   : EVT pub_opened t=14179926 readingOrder=13 layout=FIXED 
+== epub2-ncx: I PROTO   : EVT pub_opened t=14191080 readingOrder=20 layout=REFLOWABLE I PROTO   : EVT first_page_cb t=14192475 1/7 · pos 1/80 
+== script-test: I PROTO   : EVT pub_opened t=14200963 readingOrder=1 layout=REFLOWABLE I PROTO   : EVT first_page_cb t=14202379 1/1 · pos 1/1 
+== malformed-missing-files-bad-xml: I PROTO   : EVT pub_opened t=14209060 readingOrder=4 layout=REFLOWABLE I PROTO   : EVT first_page_cb t=14210337 1/5 · pos 1/6 
+== malformed-broken-opf: I PROTO   : EVT open_error t=14216603 open: An error occurred while trying to read asset. 
+== malformed-no-container: I PROTO   : EVT open_error t=14224413 open: An error occurred while trying to read asset. 
+== malformed-not-a-zip: I PROTO   : EVT open_error t=14232095 asset: An error occurred when trying to read asset. 
+== malformed-truncated: I PROTO   : EVT open_error t=14238953 asset: An error occurred when trying to read asset. 
+== malformed-empty-spine: I PROTO   : EVT pub_opened t=14247360 readingOrder=0 layout=REFLOWABLE I PROTO   : EVT open_error t=14247360 The book has no readable content (empty spine). 
+== bad-xml-page1: I PROTO   : EVT pub_opened t=14255183 readingOrder=4 layout=REFLOWABLE I PROTO   : EVT first_page_cb t=14256493 1/5 · pos 1/6 
+== bad-xml-page2: I PROTO   : EVT pub_opened t=14265195 readingOrder=4 layout=REFLOWABLE I PROTO   : EVT first_page_cb t=14266475 1/5 · pos 1/6 
+== bad-xml-page3: I PROTO   : EVT pub_opened t=14276322 readingOrder=4 layout=REFLOWABLE I PROTO   : EVT first_page_cb t=14277690 1/5 · pos 1/6 
+== bad-xml-page4: I PROTO   : EVT pub_opened t=14289509 readingOrder=4 layout=REFLOWABLE I PROTO   : EVT first_page_cb t=14290988 1/5 · pos 1/6 
+== bad-xml-page5: I PROTO   : EVT pub_opened t=14304031 readingOrder=4 layout=REFLOWABLE I PROTO   : EVT first_page_cb t=14305569 1/5 · pos 1/6 
+== bad-xml-toc-missing: I PROTO   : EVT pub_opened t=14319981 readingOrder=4 layout=REFLOWABLE I PROTO   : EVT first_page_cb t=14321385 1/5 · pos 1/6 
+== fake: I PROTO   : EVT open_error t=14328280 asset: An error occurred when trying to read asset. 
+== rot-before: I PROTO   : EVT pub_opened t=14336975 readingOrder=368 layout=REFLOWABLE I PROTO   : EVT first_page_cb t=14339200 1/1 · pos 1/1789 
+== rot-after: I PROTO   : EVT pub_opened t=14351086 readingOrder=368 layout=REFLOWABLE I PROTO   : EVT first_page_cb t=14353178 1/1 · pos 1/1789 

@@ -1,0 +1,32 @@
+P-020 run=1 foliate font-up-1 video_ms=54 log_ms=128 video=results/raw/action/foliate-font-up-1.mp4
+P-020 run=1 foliate font-down-1 video_ms=202 log_ms=441 video=results/raw/action/foliate-font-down-1.mp4
+P-020 run=2 foliate font-up-2 video_ms=112 log_ms=312 video=results/raw/action/foliate-font-up-2.mp4
+P-020 run=2 foliate font-down-2 video_ms=141 log_ms=203 video=results/raw/action/foliate-font-down-2.mp4
+P-020 run=3 foliate font-up-3 video_ms=100 log_ms=132 video=results/raw/action/foliate-font-up-3.mp4
+P-020 run=3 foliate font-down-3 video_ms=189 log_ms=397 video=results/raw/action/foliate-font-down-3.mp4
+P-022 run=1 foliate rot-land-1 video_ms=309 log_ms=793 video=results/raw/action/foliate-rot-land-1.mp4
+P-022 run=1 foliate rot-port-1 video_ms=403 log_ms=1022 video=results/raw/action/foliate-rot-port-1.mp4
+P-022 run=2 foliate rot-land-2 video_ms=356 log_ms=770 video=results/raw/action/foliate-rot-land-2.mp4
+P-022 run=2 foliate rot-port-2 video_ms=357 log_ms=940 video=results/raw/action/foliate-rot-port-2.mp4
+P-022 run=3 foliate rot-land-3 video_ms=572 log_ms=974 video=results/raw/action/foliate-rot-land-3.mp4
+P-022 run=3 foliate rot-port-3 video_ms=334 log_ms=789 video=results/raw/action/foliate-rot-port-3.mp4
+P-020 run=1 readium font-up-1 video_ms=87 log_ms=NA video=results/raw/action/readium-font-up-1.mp4
+P-020 run=1 readium font-down-1 video_ms=112 log_ms=NA video=results/raw/action/readium-font-down-1.mp4
+P-020 run=2 readium font-up-2 video_ms=81 log_ms=NA video=results/raw/action/readium-font-up-2.mp4
+P-020 run=2 readium font-down-2 video_ms=82 log_ms=NA video=results/raw/action/readium-font-down-2.mp4
+P-020 run=3 readium font-up-3 video_ms=52 log_ms=NA video=results/raw/action/readium-font-up-3.mp4
+P-020 run=3 readium font-down-3 video_ms=69 log_ms=NA video=results/raw/action/readium-font-down-3.mp4
+P-022 run=1 readium rot-land-1 video_ms=459 log_ms=1035 video=results/raw/action/readium-rot-land-1.mp4
+P-022 run=1 readium rot-port-1 video_ms=379 log_ms=1072 video=results/raw/action/readium-rot-port-1.mp4
+P-022 run=2 readium rot-land-2 video_ms=446 log_ms=1131 video=results/raw/action/readium-rot-land-2.mp4
+P-022 run=2 readium rot-port-2 video_ms=438 log_ms=1110 video=results/raw/action/readium-rot-port-2.mp4
+Error (UNKNOWN): Android screenrecord ownership could not be confirmed for pid 16773
+Hint: Unexpected internal error. Retry with --debug and report the diagnostics log if it persists.
+Diagnostic ID: mvv0xbut-d926cfb7
+Diagnostics Log: ~/.agent-device/remote-diagnostics/t3-79e46ea84ad3e2167acd204f/requests/9824403e8f22f863.ndjson
+P-022 run=3 readium rot-land-3 video_ms=432 log_ms=1085 video=results/raw/action/readium-rot-land-3.mp4
+Error (INVALID_ARGS): recording already in progress
+Hint: Check command arguments and run --help for usage examples.
+Diagnostic ID: mvv0xcqe-2587a2e9
+Diagnostics Log: ~/.agent-device/remote-diagnostics/t3-79e46ea84ad3e2167acd204f/requests/0b6fda265145cc33.ndjson
+P-022 run=3 readium rot-port-3 video_ms=525 log_ms=959 video=results/raw/action/readium-rot-port-3.mp4

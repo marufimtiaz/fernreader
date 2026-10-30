@@ -16,7 +16,7 @@ openbook() {
 died() { $A logcat -d | grep -cE "Process $PKG.*(has died|killed)|lowmemorykiller.*$PKG|FATAL EXCEPTION" ; }
 # P-060: War and Peace, after 20 page turns
 openbook /sdcard/Books/gutenberg/war-and-peace-epub3.epub; sleep 6
-cmd toc "BOOK THREE: 1812" 3
+cmd toc "BOOK THREE: 1805" 3
 for i in $(seq 20); do cmd next "" 0.7; done; sleep 3
 echo "P-060 $(tools/mem_total.sh)"
 # P-061: huge single chapter, peak while loading (sampled every ~2 s) and steady state

@@ -27,6 +27,7 @@ class ReaderActivity : BaseReaderActivity() {
     private val prefs by lazy { getSharedPreferences("positions", MODE_PRIVATE) }
 
     private var hostReady = false
+    private var chunker: Chunker? = null
     private var openRequested = false
 
     /** In-place mode: create the WebView and load the host page + foliate-js modules before a book is chosen. */
@@ -34,7 +35,12 @@ class ReaderActivity : BaseReaderActivity() {
 
     override fun openBook(path: String) {
         Executors.newSingleThreadExecutor().execute {
-            try { zip.complete(ZipFile(path)) } catch (e: Exception) { zip.completeExceptionally(e) }
+            try {
+                val z = ZipFile(path)
+                if (intent.getBooleanExtra("chunk", false))
+                    chunker = runCatching { Chunker(z).apply { run() } }.onFailure { Probe.ev("chunk_failed", "$it") }.getOrNull()
+                zip.complete(z)
+            } catch (e: Exception) { zip.completeExceptionally(e) }
         }
         ensureWebView()
         if (hostReady) js("openBook()") else openRequested = true
@@ -72,8 +78,10 @@ class ReaderActivity : BaseReaderActivity() {
     private fun metaEntries(): WebResourceResponse = try {
         val z = zip.get()
         val arr = JSONArray()
-        for (e in z.entries()) if (!e.isDirectory)
+        val virtual = chunker?.virtual ?: emptyMap()
+        for (e in z.entries()) if (!e.isDirectory && e.name !in virtual)
             arr.put(JSONObject().put("filename", e.name).put("size", e.size))
+        for ((name, bytes) in virtual) arr.put(JSONObject().put("filename", name).put("size", bytes.size))
         Probe.ev("zip_index", "entries=${arr.length()}")
         WebResourceResponse("application/json", "utf-8", ByteArrayInputStream(arr.toString().toByteArray()))
     } catch (e: Exception) {
@@ -84,6 +92,7 @@ class ReaderActivity : BaseReaderActivity() {
 
     private fun bookEntry(name: String): WebResourceResponse? {
         val z = runCatching { zip.get() }.getOrNull() ?: return null
+        chunker?.virtual?.get(name)?.let { return WebResourceResponse(mime(name), null, ByteArrayInputStream(it)) }
         val e = z.getEntry(name) ?: return WebResourceResponse("text/plain", "utf-8", 404, "Not found", null, null)
         return WebResourceResponse(mime(name), null, z.getInputStream(e))
     }

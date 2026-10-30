@@ -1,0 +1,36 @@
+P-020 run=1 foliate font-up-1 video_ms=80 log_ms=112 video=results/raw/action/foliate-font-up-1.mp4
+P-020 run=1 foliate font-down-1 video_ms=135 log_ms=266 video=results/raw/action/foliate-font-down-1.mp4
+P-020 run=2 foliate font-up-2 video_ms=254 log_ms=486 video=results/raw/action/foliate-font-up-2.mp4
+P-020 run=2 foliate font-down-2 video_ms=104 log_ms=221 video=results/raw/action/foliate-font-down-2.mp4
+P-020 run=3 foliate font-up-3 video_ms=121 log_ms=428 video=results/raw/action/foliate-font-up-3.mp4
+P-020 run=3 foliate font-down-3 video_ms=278 log_ms=405 video=results/raw/action/foliate-font-down-3.mp4
+P-022 run=1 foliate rot-land-1 video_ms=223 log_ms=1050 video=results/raw/action/foliate-rot-land-1.mp4
+P-022 run=1 foliate rot-port-1 video_ms=183 log_ms=947 video=results/raw/action/foliate-rot-port-1.mp4
+P-022 run=2 foliate rot-land-2 video_ms=303 log_ms=801 video=results/raw/action/foliate-rot-land-2.mp4
+P-022 run=2 foliate rot-port-2 video_ms=256 log_ms=896 video=results/raw/action/foliate-rot-port-2.mp4
+P-022 run=3 foliate rot-land-3 video_ms=309 log_ms=1060 video=results/raw/action/foliate-rot-land-3.mp4
+P-022 run=3 foliate rot-port-3 video_ms=241 log_ms=877 video=results/raw/action/foliate-rot-port-3.mp4
+P-030 run=1 foliate toc-1 video_ms=167 log_ms=533 video=results/raw/action/foliate-toc-1.mp4
+P-030 run=2 foliate toc-2 video_ms=75 log_ms=146 video=results/raw/action/foliate-toc-2.mp4
+P-030 run=3 foliate toc-3 video_ms=76 log_ms=194 video=results/raw/action/foliate-toc-3.mp4
+P-026 run=1 foliate boundary-1 video_ms=633 log_ms=702 video=results/raw/action/foliate-boundary-1.mp4 min_ink=0.0
+P-026 run=2 foliate boundary-2 video_ms=633 log_ms=671 video=results/raw/action/foliate-boundary-2.mp4 min_ink=0.0
+P-026 run=3 foliate boundary-3 video_ms=469 log_ms=670 video=results/raw/action/foliate-boundary-3.mp4 min_ink=0.0
+P-020 run=1 readium font-up-1 video_ms=192 log_ms=335 video=results/raw/action/readium-font-up-1.mp4
+P-020 run=1 readium font-down-1 video_ms=118 log_ms=NA video=results/raw/action/readium-font-down-1.mp4
+P-020 run=2 readium font-up-2 video_ms=100 log_ms=NA video=results/raw/action/readium-font-up-2.mp4
+P-020 run=2 readium font-down-2 video_ms=120 log_ms=NA video=results/raw/action/readium-font-down-2.mp4
+P-020 run=3 readium font-up-3 video_ms=86 log_ms=NA video=results/raw/action/readium-font-up-3.mp4
+P-020 run=3 readium font-down-3 video_ms=84 log_ms=NA video=results/raw/action/readium-font-down-3.mp4
+P-022 run=1 readium rot-land-1 video_ms=131 log_ms=1156 video=results/raw/action/readium-rot-land-1.mp4
+P-022 run=1 readium rot-port-1 video_ms=490 log_ms=1174 video=results/raw/action/readium-rot-port-1.mp4
+P-022 run=2 readium rot-land-2 video_ms=443 log_ms=NA video=results/raw/action/readium-rot-land-2.mp4
+P-022 run=2 readium rot-port-2 video_ms=460 log_ms=NA video=results/raw/action/readium-rot-port-2.mp4
+P-022 run=3 readium rot-land-3 video_ms=432 log_ms=NA video=results/raw/action/readium-rot-land-3.mp4
+P-022 run=3 readium rot-port-3 video_ms=525 log_ms=NA video=results/raw/action/readium-rot-port-3.mp4
+P-030 run=1 readium toc-1 video_ms=285 log_ms=758 video=results/raw/action/readium-toc-1.mp4
+P-030 run=2 readium toc-2 video_ms=238 log_ms=632 video=results/raw/action/readium-toc-2.mp4
+P-030 run=3 readium toc-3 video_ms=336 log_ms=794 video=results/raw/action/readium-toc-3.mp4
+P-026 run=1 readium boundary-1 video_ms=174 log_ms=667 video=results/raw/action/readium-boundary-1.mp4 min_ink=0.0008714596949891067
+P-026 run=2 readium boundary-2 video_ms=240 log_ms=538 video=results/raw/action/readium-boundary-2.mp4 min_ink=0.0004901960784313725
+P-026 run=3 readium boundary-3 video_ms=282 log_ms=560 video=results/raw/action/readium-boundary-3.mp4 min_ink=0.0005446623093681918

@@ -1,0 +1,10 @@
+foliate stress-huge-single-chapter inplace-first run=1 shell_ms=0 engine_ms=10628 total_ms=10628 log_ms=7262
+foliate stress-huge-single-chapter inplace-reopen run=1 shell_ms=0 engine_ms=10229 total_ms=10229 log_ms=6818
+foliate stress-huge-single-chapter inplace-first run=2 shell_ms=0 engine_ms=10835 total_ms=10835 log_ms=7402
+foliate stress-huge-single-chapter inplace-reopen run=2 shell_ms=0 engine_ms=9884 total_ms=9884 log_ms=6587
+foliate stress-huge-single-chapter inplace-first run=3 shell_ms=0 engine_ms=9969 total_ms=9969 log_ms=6666
+foliate stress-huge-single-chapter inplace-reopen run=3 shell_ms=0 engine_ms=9645 total_ms=9645 log_ms=6443
+readium stress-huge-single-chapter inplace-first run=1 shell_ms=0 engine_ms=78676 total_ms=78676 log_ms=78740
+readium stress-huge-single-chapter inplace-reopen run=1 shell_ms=0 engine_ms=82813 total_ms=82813 log_ms=83104
+readium stress-huge-single-chapter inplace-first run=2 shell_ms=0 engine_ms=90136 total_ms=90136 log_ms=90400
+readium stress-huge-single-chapter inplace-reopen run=2 shell_ms=0 engine_ms=87067 total_ms=87067 log_ms=87284

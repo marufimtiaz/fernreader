@@ -1,0 +1,26 @@
+== rtl-arabic: I PROTO   : EVT first_page_cb t=13763842 1/1 · sec 1/3 · loc 0/38 I PROTO   : EVT book_opened t=13763864 {"sections":3,"fxl":false,"dir":"rtl"} 
+== vertical-ja: I PROTO   : EVT first_page_cb t=13774964 1/2 · sec 1/16 · loc 0/342 I PROTO   : EVT book_opened t=13775009 {"sections":16,"fxl":false,"dir":"rtl"} 
+== fxl-page-blanche: I PROTO   : EVT book_opened t=13790129 {"sections":10,"fxl":true,"dir":null} I PROTO   : EVT first_page_cb t=13790212 ?/0 · sec 1/10 · loc 0/4 
+== fxl-haruko: I PROTO   : EVT book_opened t=13799786 {"sections":13,"fxl":true,"dir":"rtl"} I PROTO   : EVT first_page_cb t=13799911 ?/0 · sec 1/13 · loc 0/7 
+== mathml: I PROTO   : EVT first_page_cb t=13810961 1/0 · sec 1/94 · loc NaN/16965 I PROTO   : EVT book_opened t=13811133 {"sections":94,"fxl":false,"dir":null} 
+== font-obf: I PROTO   : EVT first_page_cb t=13845747 1/25 · sec 1/1 · loc 0/34 I PROTO   : EVT book_opened t=13845850 {"sections":1,"fxl":false,"dir":null} 
+== font-woff: I PROTO   : EVT first_page_cb t=13856859 1/25 · sec 1/1 · loc 0/34 I PROTO   : EVT book_opened t=13856968 {"sections":1,"fxl":false,"dir":null} 
+== svg-spine: I PROTO   : EVT book_opened t=13867297 {"sections":6,"fxl":true,"dir":null} I PROTO   : EVT first_page_cb t=13867405 ?/0 · sec 1/6 · loc 0/146 
+== svg-spine-2: I PROTO   : EVT book_opened t=13877289 {"sections":13,"fxl":true,"dir":null} I PROTO   : EVT first_page_cb t=13877374 ?/0 · sec 1/13 · loc 0/56 
+== epub2-ncx: I PROTO   : EVT first_page_cb t=13888662 1/6 · sec 1/20 · loc 0/132 I PROTO   : EVT book_opened t=13888765 {"sections":20,"fxl":false,"dir":null} 
+== script-test: I PROTO   : EVT first_page_cb t=13898144 1/0 · sec 1/1 · loc NaN/1 I PROTO   : EVT book_opened t=13898210 {"sections":1,"fxl":false,"dir":null} 
+== malformed-missing-files-bad-xml: I PROTO   : EVT first_page_cb t=13906215 1/0 · sec 1/4 · loc NaN/10 I PROTO   : EVT book_opened t=13906309 {"sections":4,"fxl":false,"dir":null} 
+== malformed-broken-opf: I PROTO   : EVT open_error t=13914058 XML parsing error: OEBPS/content.opf This page contains the following errors:error on line 1 at column 64: Namespace prefix dc on title is not defined Below is a rendering of the page up to the first 
+== malformed-no-container: I PROTO   : EVT open_error t=13922477 Failed to load container file 
+== malformed-not-a-zip: I PROTO   : EVT open_error t=13930387 Not a readable EPUB archive (ZipException: zip END header not found) 
+== malformed-truncated: I PROTO   : EVT open_error t=13937787 Not a readable EPUB archive (ZipException: zip END header not found) 
+== malformed-empty-spine: I PROTO   : EVT open_error t=13945793 Cannot destructure property 'parentNode' of 'elements[0]' as it is undefined. 
+== bad-xml-page1: I PROTO   : EVT first_page_cb t=13954174 1/0 · sec 1/4 · loc NaN/10 I PROTO   : EVT book_opened t=13954346 {"sections":4,"fxl":false,"dir":null} 
+== bad-xml-page2: I PROTO   : EVT first_page_cb t=13964146 1/0 · sec 1/4 · loc NaN/10 I PROTO   : EVT book_opened t=13964334 {"sections":4,"fxl":false,"dir":null} 
+== bad-xml-page3: I PROTO   : EVT first_page_cb t=13975400 1/0 · sec 1/4 · loc NaN/10 I PROTO   : EVT book_opened t=13975556 {"sections":4,"fxl":false,"dir":null} 
+== bad-xml-page4: I PROTO   : EVT first_page_cb t=13988421 1/0 · sec 1/4 · loc NaN/10 I PROTO   : EVT book_opened t=13988456 {"sections":4,"fxl":false,"dir":null} 
+== bad-xml-page5: I PROTO   : EVT book_opened t=14002354 {"sections":4,"fxl":false,"dir":null} I PROTO   : EVT first_page_cb t=14002450 1/4 · sec 1/4 · loc 0/10 
+== bad-xml-toc-missing: I PROTO   : EVT book_opened t=14018390 {"sections":4,"fxl":false,"dir":null} I PROTO   : EVT first_page_cb t=14018502 1/0 · sec 1/4 · loc NaN/10 
+== fake: I PROTO   : EVT open_error t=14028134 Not a readable EPUB archive (ZipException: zip END header not found) 
+== rot-before: I PROTO   : EVT first_page_cb t=14037086 1/1 · sec 1/368 · loc 0/2693 I PROTO   : EVT book_opened t=14037112 {"sections":368,"fxl":false,"dir":null} 
+== rot-after: I PROTO   : EVT first_page_cb t=14051095 1/1 · sec 1/368 · loc 0/2693 I PROTO   : EVT book_opened t=14051171 {"sections":368,"fxl":false,"dir":null} 

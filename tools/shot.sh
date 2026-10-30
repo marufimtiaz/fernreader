@@ -12,7 +12,7 @@ $A shell am start -W -n "$PKG/proto.common.LibraryActivity" --ez reset true --es
 $A shell am start -n "$PKG/.ReaderActivity" --es path "$BOOK" >/dev/null
 sleep "$WAIT"
 for c in "$@"; do
-  $A shell am broadcast -a "$PKG.CMD" --es cmd "${c%%=*}" --es arg "'${c#*=}'" >/dev/null
+  a=""; [[ "$c" == *=* ]] && a=${c#*=}; $A shell am broadcast -a "$PKG.CMD" --es cmd "${c%%=*}" --es arg "'$a'" >/dev/null
   sleep "${STEP:-1.5}"
 done
 $AD screenshot "$PNG" >/dev/null

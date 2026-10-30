@@ -16,21 +16,21 @@ openbook() {
 }
 WP=/sdcard/Books/gutenberg/war-and-peace-epub3.epub
 openbook $WP
-cmd toc "BOOK THREE: 1812" 4
+cmd toc "BOOK THREE: 1805" 4
 cmd next "" 2; cmd next "" 2
-for r in 1 2 3; do
+[ "${ONLY:-all}" = all ] || [ "$ONLY" = reflow ] && for r in 1 2 3; do
   tools/bench_action.sh "$PKG" "font-up-$r" 4 fontUp | sed "s/^/P-020 run=$r /"
   tools/bench_action.sh "$PKG" "font-down-$r" 4 fontDown | sed "s/^/P-020 run=$r /"
 done
-for r in 1 2 3; do
+[ "${ONLY:-all}" = all ] || [ "$ONLY" = reflow ] && for r in 1 2 3; do
   tools/bench_action.sh "$PKG" "rot-land-$r" 5 rotate land | sed "s/^/P-022 run=$r /"
   tools/bench_action.sh "$PKG" "rot-port-$r" 5 rotate port | sed "s/^/P-022 run=$r /"
 done
-for r in 1 2 3; do
+[ "${ONLY:-all}" = all ] && for r in 1 2 3; do
   cmd toc "#0" 4
   tools/bench_action.sh "$PKG" "toc-$r" 6 toc "SECOND EPILOGUE" | sed "s/^/P-030 run=$r /"
 done
-for r in 1 2 3; do
+[ "${ONLY:-all}" = all ] && for r in 1 2 3; do
   ch=$((20 + r * 7))
   cmd toc "#$ch" 4      # start of a chapter
   cmd prev "" 4         # -> last page of the previous chapter

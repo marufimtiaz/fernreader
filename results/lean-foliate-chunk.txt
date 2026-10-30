@@ -1,0 +1,18 @@
+P-040 foliate q="the" run=1 first_ms=333 done_ms=4272 hits=5170
+P-040 foliate q="the" run=2 first_ms=133 done_ms=4411 hits=5170
+P-040 foliate q="the" run=3 first_ms=488 done_ms=4436 hits=5170
+P-041 foliate q="Borodinó" run=1 first_ms=7403 done_ms=12263 hits=108
+P-041 foliate q="Borodinó" run=2 first_ms=6587 done_ms=11856 hits=108
+P-041 foliate q="Borodinó" run=3 first_ms=6769 done_ms=11819 hits=108
+F-050-diacritics foliate q="Borodino" run=1 first_ms=7113 done_ms=12678 hits=108
+P-042 foliate q="zygote" run=1 first_ms=NA done_ms=12349 hits=0
+P-042 foliate q="zygote" run=2 first_ms=NA done_ms=12014 hits=0
+P-042 foliate q="zygote" run=3 first_ms=NA done_ms=11944 hits=0
+P-043 foliate q="augmented matrix" run=1 first_ms=384 done_ms=13316 hits=150
+P-043 foliate q="augmented matrix" run=2 first_ms=541 done_ms=14984 hits=150
+P-043 foliate q="augmented matrix" run=3 first_ms=324 done_ms=12521 hits=150
+F-050-2000ch foliate q="MARKERWORDMANY" run=1 first_ms=14513 done_ms=16104 hits=1
+P-060 app_kb=92187 renderer_kb=101471 total_mb=189
+P-061 peak_sampled_mb=354 steady app_kb=110370 renderer_kb=253487 total_mb=355 deaths=9
+P-044 foliate q="MARKERWORDHUGE" run=1 first_ms=11171 done_ms=15444 hits=138
+P-062 after10 app_kb=102173 renderer_kb=136275 total_mb=232 | after50 app_kb=97406 renderer_kb=138884 total_mb=230 deaths=29

@@ -1,0 +1,18 @@
+P-040 readium q="the" run=1 first_ms=251 done_ms=53436 hits=47358
+P-040 readium q="the" run=2 first_ms=269 done_ms=53213 hits=47358
+P-040 readium q="the" run=3 first_ms=320 done_ms=53528 hits=47358
+P-041 readium q="Borodinó" run=1 first_ms=3306 done_ms=6106 hits=108
+P-041 readium q="Borodinó" run=2 first_ms=2454 done_ms=5455 hits=108
+P-041 readium q="Borodinó" run=3 first_ms=2714 done_ms=5532 hits=108
+F-050-diacritics readium q="Borodino" run=1 first_ms=2764 done_ms=5501 hits=108
+P-042 readium q="zygote" run=1 first_ms=NA done_ms=5470 hits=0
+P-042 readium q="zygote" run=2 first_ms=NA done_ms=3985 hits=0
+P-042 readium q="zygote" run=3 first_ms=NA done_ms=6332 hits=0
+P-043 readium q="augmented matrix" run=1 first_ms=578 done_ms=3699 hits=150
+P-043 readium q="augmented matrix" run=2 first_ms=398 done_ms=3813 hits=150
+P-043 readium q="augmented matrix" run=3 first_ms=373 done_ms=3652 hits=150
+F-050-2000ch readium q="MARKERWORDMANY" run=1 first_ms=52125 done_ms=65420 hits=1
+P-060 app_kb=117770 renderer_kb=124181 total_mb=236
+P-061 peak_sampled_mb=1280 steady app_kb=107888 renderer_kb=839008 total_mb=924 deaths=36
+P-044 readium q="MARKERWORDHUGE" run=1 first_ms=2091 done_ms=2091 hits=138
+P-062 after10 app_kb=112738 renderer_kb=104393 total_mb=212 | after50 app_kb=115699 renderer_kb=104167 total_mb=214 deaths=29

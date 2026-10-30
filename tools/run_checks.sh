@@ -25,3 +25,6 @@ for i in 1 2 3 4 5; do
 done
 s bad-xml-toc-missing $B/generated/malformed-missing-files-bad-xml.epub $D/bad-xml-toc-missing.png 6 "toc=#2"
 s fake              $B/generated/fake.epub $D/fake.png 6
+# F-037: same passage before and after a rotation round trip
+s rot-before        $B/gutenberg/war-and-peace-epub3.epub $D/rot-before.png 6 "toc=BOOK THREE: 1805" next next next
+s rot-after         $B/gutenberg/war-and-peace-epub3.epub $D/rot-after.png 6 "toc=BOOK THREE: 1805" next next next "rotate=land" "rotate=port"

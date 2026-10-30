@@ -18,7 +18,7 @@ logms() {
 }
 one() {
   local v="$OUT/${PKG##*.}-$N-$1-$2.mp4"; rm -f "$v"
-  $A shell am start -W -n "$PKG/.ReaderActivity" --esa inplace "$BOOK" >/dev/null
+  $A shell am start -W -n "$PKG/.ReaderActivity" --esa inplace "$BOOK" --ez chunk "${CHUNK:-false}" >/dev/null
   sleep 4
   $AD record stop >/dev/null 2>&1
   $A logcat -c

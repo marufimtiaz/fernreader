@@ -7,8 +7,8 @@ A=${ADB:-$HOME/Android/Sdk/platform-tools/adb}
 for r in $(seq 1 "$RUNS"); do
   $A shell am force-stop "$PKG"
   $A shell am start -W -n "$PKG/proto.common.LibraryActivity" --ez reset true --ez prewarm true --es only x >/dev/null
-  $A shell am start -W -n "$PKG/.ReaderActivity" --es path "$BOOK" >/dev/null
-  sleep 6
+  $A shell am start -W -n "$PKG/.ReaderActivity" --es path "$BOOK" --ez chunk "${CH:-false}" >/dev/null
+  sleep ${OPENWAIT:-6}
   $A logcat -c
   $A shell am broadcast -a "$PKG.CMD" --es cmd search --es arg "'$Q'" >/dev/null
   for _ in $(seq 1 "$TMO"); do sleep 1; $A logcat -d -s PROTO:I | grep -q "EVT search_done" && break; done
