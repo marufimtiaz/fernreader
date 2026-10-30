@@ -48,9 +48,11 @@ abstract class BaseReaderActivity : AppCompatActivity() {
     private lateinit var spinner: ProgressBar
     private var firstPageSeen = false
     protected var fontScale = 1.0
-    protected val bookPath: String by lazy { intent.getStringExtra("path") ?: intent.data?.path ?: "" }
+    protected var bookPath: String = ""
 
     abstract fun openBook(path: String)
+    /** In-place mode: called while the book list is on screen, before any book is chosen. */
+    open fun prepare() {}
     abstract fun next()
     abstract fun prev()
     abstract fun applyFontScale(scale: Double)
@@ -90,7 +92,38 @@ abstract class BaseReaderActivity : AppCompatActivity() {
         root.post { Probe.ev("reader_frame") }
         ContextCompat.registerReceiver(this, receiver, IntentFilter("$packageName.CMD"),
             ContextCompat.RECEIVER_EXPORTED)
-        openBook(bookPath)
+        val pick = intent.getStringArrayExtra("inplace")
+        if (pick != null) showInPlaceList(root, pick) else {
+            bookPath = intent.getStringExtra("path") ?: intent.data?.path ?: ""
+            openBook(bookPath)
+        }
+    }
+
+    /**
+     * In-place mode (`--esa inplace <path>,<path>`): the book list is shown inside the reader activity and
+     * the engine is prepared behind it, so opening a book needs no activity start (what a real app would do).
+     */
+    @android.annotation.SuppressLint("ClickableViewAccessibility")
+    private fun showInPlaceList(root: FrameLayout, paths: Array<String>) {
+        val list = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(0, 160, 0, 0); setBackgroundColor(Color.WHITE)
+            isClickable = true
+        }
+        for (p in paths) list.addView(Button(this).apply {
+            text = p.substringAfterLast('/'); isAllCaps = false
+            setOnTouchListener { _, e ->
+                if (e.action == android.view.MotionEvent.ACTION_DOWN) Probe.ev("tap_down", "book=${p.substringAfterLast('/')}")
+                false
+            }
+            setOnClickListener {
+                Probe.ev("tap_click")
+                root.removeView(list)
+                bookPath = p
+                openBook(p)
+            }
+        })
+        root.addView(list, FrameLayout.LayoutParams(-1, -1))
+        prepare()
     }
 
     override fun onDestroy() {

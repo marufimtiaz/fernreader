@@ -38,6 +38,11 @@ class ReaderActivity : BaseReaderActivity(),
     private var searchJob: Job? = null
     private val prefs by lazy { getSharedPreferences("positions", MODE_PRIVATE) }
 
+    private var warm: android.webkit.WebView? = null
+
+    /** In-place mode: initialise Chromium and its renderer while the book list is shown. */
+    override fun prepare() { warm = android.webkit.WebView(this).apply { loadUrl("about:blank") } }
+
     override fun openBook(path: String) {
         lifecycleScope.launch {
             val pub = withContext(Dispatchers.IO) {

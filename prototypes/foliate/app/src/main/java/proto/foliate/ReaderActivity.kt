@@ -26,10 +26,22 @@ class ReaderActivity : BaseReaderActivity() {
     private var sink: SearchSink? = null
     private val prefs by lazy { getSharedPreferences("positions", MODE_PRIVATE) }
 
+    private var hostReady = false
+    private var openRequested = false
+
+    /** In-place mode: create the WebView and load the host page + foliate-js modules before a book is chosen. */
+    override fun prepare() = ensureWebView()
+
     override fun openBook(path: String) {
         Executors.newSingleThreadExecutor().execute {
             try { zip.complete(ZipFile(path)) } catch (e: Exception) { zip.completeExceptionally(e) }
         }
+        ensureWebView()
+        if (hostReady) js("openBook()") else openRequested = true
+    }
+
+    private fun ensureWebView() {
+        if (::web.isInitialized) return
         val loader = WebViewAssetLoader.Builder()
             .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
             .addPathHandler("/meta/", { metaEntries() })
@@ -114,7 +126,10 @@ class ReaderActivity : BaseReaderActivity() {
 
     inner class Bridge {
         @JavascriptInterface fun log(m: String) = Probe.ev("js", m)
-        @JavascriptInterface fun hostReady() { Probe.ev("host_ready"); js("openBook()") }
+        @JavascriptInterface fun hostReady() = runOnUiThread {
+            Probe.ev("host_ready"); hostReady = true
+            if (openRequested) js("openBook()")
+        }
         @JavascriptInterface fun lastLocation(): String = prefs.getString(bookPath, "") ?: ""
         @JavascriptInterface fun opened(info: String) = Probe.ev("book_opened", info)
         @JavascriptInterface fun error(m: String) = runOnUiThread { showError(m) }
