@@ -5,13 +5,18 @@
 
 **Goal:** A production repository skeleton that builds both flavors, proves the risky toolchain combination
 (AGP 9 KMP library plugin + Room KMP + bundled SQLite FTS5 + Compose Multiplatform + Vite-built reader assets),
-runs a pre-warmed reader host page that handshakes over the typed bridge, and a benchmark harness that gates
-P-001/P-002 on the emulator.
+runs a pre-warmed reader host page that handshakes over the typed bridge, a per-build smoke test, and a lean
+milestone benchmark harness with its first group (P-001/P-002).
+
+**Revision 2 (2026-10-31, C-015):** Task 1.5 now builds a per-build smoke test (`tools/smoke.sh`) and a lean
+milestone harness: Must targets only, no baseline/regression file, no jank groups. The bench command receiver
+moves to M2 Task 2.8, where it is first used. navigation-compose and lifecycle-viewmodel are no longer
+dependencies (master plan: route stack in `ui`).
 
 **Architecture:** See master plan "Module map". This milestone creates every module with minimal real content
 (no throwaway code): `core:epub` (empty API package), `core:data` (Room DB with the `setting` table), `core:search`
-(FTS5 capability check), `ui` (theme + placeholder library), `app` (single activity, ReaderEngine with pre-warm,
-flavors, benchmark build type), `reader-web` (host page + bridge v0), `bench/`.
+(FTS5 capability check), `ui` (theme + placeholder home), `app` (single activity, ReaderEngine with pre-warm,
+flavors, benchmark build type), `reader-web` (host page + bridge v0), `bench/`, `tools/smoke.sh`.
 
 **Tech Stack:** Kotlin 2.4.20, AGP 9.1.0, Gradle 9.3.1, Room KMP, androidx.sqlite bundled, Compose Multiplatform,
 kotlinx.serialization, androidx.webkit, TypeScript, Vite, Vitest, Python 3 (stdlib) for the gate.
@@ -33,8 +38,9 @@ CSP `script-src 'self'`; commit trailer `Co-Authored-By: Claude Opus 5.5 <norepl
 2. Reader assets stale after editing TS (Gradle up-to-date check misses inputs) → testing old JS. Pinned: Task 1.3
    declares `src/`, `vendor/`, `package-lock.json`, `vite.config.ts` as inputs; Step 9 verifies a rebuild after a change.
 3. Unknown bridge message types from a newer JS bundle crash Kotlin. Pinned: `ProtocolFixtureTest.unknown_type_is_ignored`.
-4. Emulator timing noise making gates flaky. Pinned: `gate.py` uses medians and a single retry policy is in
-   `run_all.sh`; `test_gate.py` covers median/threshold/regression maths.
+4. Emulator timing noise making milestone gates flaky. Pinned: `gate.py` uses medians of ≥ 3 runs against the Must
+   value only (no regression-vs-baseline rule); `bench/README.md` says to re-run a failing group once before acting;
+   `test_gate.py` covers median/threshold maths. Gates never run per build (C-015).
 5. `checkFdroidClean` silently passing because the configuration name changed. Pinned: Task 1.1 Step 6 proves it fails
    with a forbidden dependency.
 
@@ -116,8 +122,6 @@ serialization = "1.9.0"          # †
 coil = "3.3.0"                   # †
 work = "2.11.0"                  # †
 webkit = "1.15.0"
-navigationCompose = "2.9.1"      # † org.jetbrains.androidx.navigation
-lifecycle = "2.9.6"              # † org.jetbrains.androidx.lifecycle
 activityCompose = "1.11.0"       # †
 junit = "4.13.2"
 androidxTestRunner = "1.7.0"     # †
@@ -135,8 +139,6 @@ serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-jso
 coil-compose = { module = "io.coil-kt.coil3:coil-compose", version.ref = "coil" }
 work-runtime = { module = "androidx.work:work-runtime-ktx", version.ref = "work" }
 webkit = { module = "androidx.webkit:webkit", version.ref = "webkit" }
-navigation-compose = { module = "org.jetbrains.androidx.navigation:navigation-compose", version.ref = "navigationCompose" }
-lifecycle-viewmodel-compose = { module = "org.jetbrains.androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "lifecycle" }
 activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
 junit = { module = "junit:junit", version.ref = "junit" }
 androidx-test-runner = { module = "androidx.test:runner", version.ref = "androidxTestRunner" }
@@ -249,7 +251,7 @@ kotlin {
         compileSdk = 37
         minSdk = 26
     }
-    jvm() // host tests for view models and the bridge protocol; no desktop app is built
+    jvm() // host tests for state holders and the bridge protocol; no desktop app is built
     sourceSets {
         commonMain.dependencies {
             implementation(project(":core:epub"))
@@ -259,8 +261,6 @@ kotlin {
             implementation(compose.foundation)
             implementation(compose.material3)
             implementation(compose.components.resources)
-            implementation(libs.navigation.compose)
-            implementation(libs.lifecycle.viewmodel.compose)
             implementation(libs.coroutines.core)
             implementation(libs.serialization.json)
         }
@@ -660,8 +660,10 @@ object Fts5Capability {
 - [ ] **Step 5: Run the JVM tests**
 
 Run: `./gradlew :core:data:jvmTest :core:search:jvmTest`
-Expected: PASS (2 + 1 tests). `core/data/schemas/app.epubreader.core.data.AppDatabase/1.json` exists.
-If FTS5 is missing: STOP and report to the user — M6 then uses the fallback recorded in S4.
+Expected: PASS (2 + 1 tests). `core/data/schemas/app.epubreader.core.data.AppDatabase/1.json` exists (M2 adds
+version 2 with an AutoMigration from this file; never delete it).
+If FTS5 is missing: STOP and report to the user. S4 found FTS5 in the spike app's bundled SQLite 3.50.1, so a
+failure here means the production dependency set differs (check the `sqlite` version).
 
 - [ ] **Step 6: Write and run the instrumented toolchain test**
 
@@ -729,7 +731,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Produces (Kotlin, package `app.epubreader.reader.bridge`): `sealed interface ToWeb`, `sealed interface FromWeb`,
   `val BridgeJson: Json`, `fun decodeFromWeb(text: String): FromWeb?` (null for unknown/invalid), `fun encodeToWeb(m: ToWeb): String`.
 - Produces (TS): `type ToWeb`, `type FromWeb`, `class Bridge { send(m: FromWeb); onMessage(h) }`, `window.__reader.receive(json: string)`.
-- Produces (Android): `class ReaderEngine(context) { val webView: WebView; val events: SharedFlow<FromWeb>; fun prewarm(); fun send(m: ToWeb) }`.
+- Produces (Android): `class ReaderEngine(context) { val webView: WebView; val events: SharedFlow<FromWeb>; val isReady: StateFlow<Boolean>; fun prewarm(); fun send(m: ToWeb) }`.
 - Asset URL: `https://appassets.androidplatform.net/assets/reader/index.html`.
 
 - [ ] **Step 1: Create the reader-web project**
@@ -1034,7 +1036,9 @@ import app.epubreader.reader.bridge.decodeFromWeb
 import app.epubreader.reader.bridge.encodeToWeb
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
 import org.json.JSONObject
 
 /**
@@ -1045,6 +1049,9 @@ class ReaderEngine(private val context: Context) {
     private var view: WebView? = null
     private val _events = MutableSharedFlow<FromWeb>(extraBufferCapacity = 256, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     val events: SharedFlow<FromWeb> = _events
+    private val _ready = MutableStateFlow(false)
+    /** True once the host page sent `ready` (events has no replay, so late subscribers wait on this). */
+    val isReady: StateFlow<Boolean> = _ready
 
     val webView: WebView get() = view ?: create().also { view = it }
 
@@ -1076,7 +1083,7 @@ class ReaderEngine(private val context: Context) {
         WebViewCompat.addWebMessageListener(w, "ReaderBridge", setOf("https://$ORIGIN_HOST")) { _, msg, _, _, _ ->
             val text = msg.data ?: return@addWebMessageListener
             val m = decodeFromWeb(text) ?: run { Probe.ev("bridge_unknown", text.take(80)); return@addWebMessageListener }
-            if (m is FromWeb.Ready) Probe.ev("reader_ready")
+            if (m is FromWeb.Ready) { _ready.value = true; Probe.ev("reader_ready") }
             _events.tryEmit(m)
         }
         Probe.ev("webview_created")
@@ -1124,7 +1131,7 @@ class EpubReaderApp : Application() {
     }
 }
 ```
-`BenchHooks` is created per build type in Task 1.5 Step 4; until then create
+`BenchHooks` gets its benchmark version in Task 1.5 Step 4; until then create
 `app/src/{debug,release,benchmark}/kotlin/app/epubreader/bench/BenchHooks.kt` each containing:
 ```kotlin
 package app.epubreader.bench
@@ -1144,7 +1151,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-// Our own palette (placeholder values until the design pass in M4; never copied from another reader).
+// Our own palette (placeholder values until the design pass in M3; never copied from another reader).
 private val Light = lightColorScheme(primary = Color(0xFF2F5D50), secondary = Color(0xFF8A6D3B), background = Color(0xFFFBFAF7))
 private val Dark = darkColorScheme(primary = Color(0xFF8CC7B4), secondary = Color(0xFFD6B77E), background = Color(0xFF151716))
 
@@ -1166,7 +1173,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import app.epubreader.ui.theme.AppTheme
 
-/** Root composable. M1: placeholder library; real navigation arrives in M3. */
+/** Root composable. M1: placeholder home; the home screen and the reader route arrive in M2. */
 @Composable
 fun App(dark: Boolean) = AppTheme(dark) {
     Surface(Modifier.fillMaxSize()) {
@@ -1220,6 +1227,8 @@ import androidx.test.platform.app.InstrumentationRegistry
 import app.epubreader.reader.ReaderEngine
 import app.epubreader.reader.bridge.FromWeb
 import app.epubreader.reader.bridge.ToWeb
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -1234,17 +1243,18 @@ class HostPageTest {
         val inst = InstrumentationRegistry.getInstrumentation()
         lateinit var engine: ReaderEngine
         inst.runOnMainSync { engine = ReaderEngine(inst.targetContext).also { it.prewarm() } }
-        withTimeout(10_000) { engine.events.filterIsInstance<FromWeb.Ready>().first() }
+        withTimeout(10_000) { engine.isReady.first { it } }
+        // Subscribe before sending: events has no replay.
+        val pong = async(start = CoroutineStart.UNDISPATCHED) {
+            withTimeout(5_000) { engine.events.filterIsInstance<FromWeb.Pong>().first() }
+        }
         engine.send(ToWeb.Ping(id = 42))
-        val pong = withTimeout(5_000) { engine.events.filterIsInstance<FromWeb.Pong>().first() }
-        assertEquals(42, pong.id)
+        assertEquals(42, pong.await().id)
         inst.runOnMainSync { engine.destroy() }
     }
 }
 ```
-Note: `ready` may be emitted before the collector subscribes; `events` has no replay. If the test is flaky for that
-reason, give `_events` `replay = 1` for `Ready` only by tracking `val ready = MutableStateFlow(false)` set on Ready, and
-wait on that instead (keep the API: add `val isReady: StateFlow<Boolean>`).
+(`ready` may be emitted before a collector subscribes, which is why the test waits on `isReady`.)
 Run: `./gradlew :app:connectedPlayDebugAndroidTest` → Expected: PASS.
 Also: if `WEBVIEW_TOO_OLD` is thrown on a device, `MainActivity` must show a full-screen message asking the user to
 update "Android System WebView" (wrap `prewarm()` in `runCatching`, expose the failure to `App` as a state; the
@@ -1388,21 +1398,80 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 
-### Task 1.5: Benchmark harness skeleton (P-001, P-002)
+
+### Task 1.5: Per-build smoke test and lean milestone benchmark harness (P-001, P-002)
+
+C-015: only Must targets count; the full suite runs at milestone end and before release, and any per-build check
+stays small and fast. This task therefore builds two things of very different weight:
+
+- **Per build** — `tools/smoke.sh`: host tests plus one instrumented `SmokeTest` (app starts, reader host page
+  ready; M2 extends it to open one small book and turn a page). No timing assertions. Run it before every commit
+  that touches `app/`, `ui/`, `core/` or `reader-web/`. Budget: a few minutes.
+- **Per milestone** — `bench/run_all.sh <group...>`: medians of 3 runs vs the Must value. No baseline file, no
+  regression rule, no jank/frame-time groups (P-025/P-027 are a real-device check in M9).
 
 **Files:**
-- Create: `bench/{lib.sh, targets.json, gate.py, test_gate.py, start.sh, run_all.sh, baseline.json, README.md}`
-- Create: `app/src/benchmark/kotlin/app/epubreader/bench/{BenchHooks.kt, BenchCommandReceiver.kt}` (replace the no-op)
-- Create: `app/src/benchmark/AndroidManifest.xml`
+- Create: `app/src/androidTest/kotlin/app/epubreader/SmokeTest.kt`, `tools/smoke.sh`
+- Create: `bench/{lib.sh, targets.json, gate.py, test_gate.py, run_all.sh, README.md}`, `bench/groups/start.sh`
+- Modify: `app/src/benchmark/kotlin/app/epubreader/bench/BenchHooks.kt` (replace the no-op from Task 1.3)
 
 **Interfaces:**
-- Produces: result lines (JSON Lines) `{"id":"P-001","value":812,"unit":"ms","run":1,"note":"..."}`;
-  `bench/gate.py RESULTS TARGETS BASELINE` exit 0/1; `bench/run_all.sh <group...>` where group ∈ `start` now
-  (later: `open action mem search scan pagetotal jank r005 r006 checks`); bench broadcast action
-  `app.epubreader.BENCH` with extras `cmd`, `arg`; logcat tag `EPR` events `EVT <name> t=<ms> k=v…`.
-- `targets.json` holds **every** Must target from performance.md now (later milestones only add scripts).
+- Produces: result lines (JSON Lines) `{"id":"P-001","value":812,"run":1,"note":"..."}`;
+  `python3 -I bench/gate.py RESULTS TARGETS` exit 0/1; `bench/run_all.sh <group...|all> [--release]` where a group is
+  a script `bench/groups/<group>.sh` (`start` now; M2 adds `open action mem`, M3 `scan`, M4 `pagetotal`, M5
+  `search`); `--release` sets `BENCH_RELEASE=1` so groups also measure their release-stage items (M9).
+  Logcat tag `EPR` events `EVT <name> t=<uptimeMs> k=v…` (Probe, benchmark build type only).
+- `targets.json` holds every **Must** target from performance.md with `stage` (`milestone` | `release`) and the
+  milestone that first gates it (`owner`). Not in the file: P-025, P-027, P-031's scroll clause and P-063, which
+  are checked once on a real device or by eye in M9 (C-015; master plan open questions R2-1/R2-2).
 
-- [ ] **Step 1: Write the failing gate tests**
+- [ ] **Step 1: Smoke test**
+
+```kotlin
+// app/src/androidTest/kotlin/app/epubreader/SmokeTest.kt
+package app.epubreader
+
+import androidx.test.core.app.ActivityScenario
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import app.epubreader.reader.ReaderEngine
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import org.junit.Test
+import org.junit.runner.RunWith
+
+/**
+ * Per-build smoke test (tools/smoke.sh). Functional only, no timing assertions (C-015).
+ * M1: the app starts and the pre-warmed reader host page becomes ready. M2 extends it (open, turn, back).
+ */
+@RunWith(AndroidJUnit4::class)
+class SmokeTest {
+    @Test fun app_starts_and_reader_host_is_ready() = runBlocking {
+        ActivityScenario.launch(MainActivity::class.java).use { sc ->
+            lateinit var engine: ReaderEngine
+            sc.onActivity { engine = it.reader }
+            withTimeout(15_000) { engine.isReady.first { it } }
+        }
+    }
+}
+```
+Add `androidTestImplementation("androidx.test:core:<version>")` to the catalog (`androidx-test-core`) and
+`app/build.gradle.kts` if `ActivityScenario` does not resolve through `androidx.test.ext:junit`.
+
+```bash
+#!/usr/bin/env bash
+# tools/smoke.sh — per-build check (C-015): host tests + the instrumented smoke test. Needs the emulator running.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+./gradlew check
+(cd reader-web && npx vitest run)
+./gradlew :app:connectedPlayDebugAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=app.epubreader.SmokeTest
+echo "smoke: OK"
+```
+Run: `chmod +x tools/smoke.sh && tools/smoke.sh` → Expected: `smoke: OK`.
+
+- [ ] **Step 2: Write the failing gate tests**
 
 ```python
 # bench/test_gate.py  — run: python3 -I -m unittest bench/test_gate.py  (from repo root)
@@ -1421,54 +1490,45 @@ class GateTest(unittest.TestCase):
         self.assertEqual(gate.median([4, 1, 3, 2]), 2.5)
 
     def test_pass_when_median_within_must(self):
-        res = gate.evaluate(self.rows(1300, 900, 1000), TARGETS, {})
-        self.assertEqual(res["P-001"]["status"], "PASS")
+        self.assertEqual(gate.evaluate(self.rows(1300, 900, 1000), TARGETS)["P-001"]["status"], "PASS")
 
     def test_fail_when_median_above_must(self):
-        res = gate.evaluate(self.rows(1300, 1250, 900), TARGETS, {})
-        self.assertEqual(res["P-001"]["status"], "FAIL")
+        self.assertEqual(gate.evaluate(self.rows(1300, 1250, 900), TARGETS)["P-001"]["status"], "FAIL")
 
     def test_fail_when_fewer_than_three_runs(self):
-        res = gate.evaluate(self.rows(100, 100), TARGETS, {})
+        res = gate.evaluate(self.rows(100, 100), TARGETS)
         self.assertEqual(res["P-001"]["status"], "FAIL")
         self.assertIn("runs", res["P-001"]["reason"])
 
-    def test_regression_against_baseline(self):
-        res = gate.evaluate(self.rows(700, 700, 700), TARGETS, {"P-001": 500})
-        self.assertEqual(res["P-001"]["status"], "FAIL")      # 700 > 500 * 1.25
-        res = gate.evaluate(self.rows(600, 600, 600), TARGETS, {"P-001": 500})
-        self.assertEqual(res["P-001"]["status"], "PASS")
-
     def test_unknown_id_is_reported_not_ignored(self):
-        res = gate.evaluate(self.rows(1, 1, 1, id="P-999"), TARGETS, {})
-        self.assertEqual(res["P-999"]["status"], "FAIL")
+        self.assertEqual(gate.evaluate(self.rows(1, 1, 1, id="P-999"), TARGETS)["P-999"]["status"], "FAIL")
 
     def test_main_exit_code(self):
         with tempfile.TemporaryDirectory() as d:
-            r, t, b = (os.path.join(d, n) for n in ("r.jsonl", "t.json", "b.json"))
+            r, t = os.path.join(d, "r.jsonl"), os.path.join(d, "t.json")
             open(r, "w").write("\n".join(json.dumps(x) for x in self.rows(900, 900, 900)))
-            json.dump(TARGETS, open(t, "w")); json.dump({}, open(b, "w"))
-            self.assertEqual(gate.main([r, t, b]), 0)
+            json.dump(TARGETS, open(t, "w"))
+            self.assertEqual(gate.main([r, t]), 0)
+            open(r, "w").write("\n".join(json.dumps(x) for x in self.rows(1900, 1900, 1900)))
+            self.assertEqual(gate.main([r, t]), 1)
 
 if __name__ == "__main__":
     unittest.main()
 ```
 Run: `python3 -I -m unittest bench/test_gate.py` → Expected: FAIL (`No module named 'gate'`).
 
-- [ ] **Step 2: Implement `bench/gate.py`**
+- [ ] **Step 3: Implement `bench/gate.py`**
 
 ```python
 #!/usr/bin/env python3
-"""Release gate: medians of benchmark results vs performance.md Must targets and the stored baseline.
+"""Milestone/release gate: medians of benchmark results vs performance.md Must values (C-015: Must only).
 
-Usage: python3 -I bench/gate.py RESULTS.jsonl bench/targets.json bench/baseline.json
-Every target is an upper bound (ms, MB, ratio, count). A result id fails when: fewer than 3 runs, median > must,
-or median > baseline * REGRESSION (when a baseline exists). Exit code 1 if anything fails.
+Usage: python3 -I bench/gate.py RESULTS.jsonl bench/targets.json
+Every target is an upper bound (ms, MB, ratio, count, pct). A result id fails when it has no target, fewer than
+3 runs, or a median above the Must value. Exit code 1 if anything fails.
 """
 import json
 import sys
-
-REGRESSION = 1.25  # performance.md: expect ±20% run-to-run variation
 
 
 def median(xs):
@@ -1477,7 +1537,7 @@ def median(xs):
     return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2
 
 
-def evaluate(rows, targets, baseline):
+def evaluate(rows, targets):
     by_id = {}
     for r in rows:
         by_id.setdefault(r["id"], []).append(float(r["value"]))
@@ -1491,20 +1551,18 @@ def evaluate(rows, targets, baseline):
             out[id_] = {"status": "FAIL", "median": m, "reason": f"only {len(vals)} runs (need >= 3)"}
         elif m > t["must"]:
             out[id_] = {"status": "FAIL", "median": m, "reason": f"median {m:g} > must {t['must']:g}"}
-        elif id_ in baseline and m > baseline[id_] * REGRESSION:
-            out[id_] = {"status": "FAIL", "median": m, "reason": f"regression: {m:g} > baseline {baseline[id_]:g} x {REGRESSION}"}
         else:
             out[id_] = {"status": "PASS", "median": m, "reason": ""}
     return out
 
 
 def main(argv):
-    results, targets, baseline = argv
+    results, targets = argv
     rows = [json.loads(l) for l in open(results, encoding="utf-8") if l.strip()]
-    res = evaluate(rows, json.load(open(targets, encoding="utf-8")), json.load(open(baseline, encoding="utf-8")))
+    res = evaluate(rows, json.load(open(targets, encoding="utf-8")))
     bad = 0
     for id_, r in res.items():
-        print(f"{r['status']:4}  {id_:14} median={r['median']:g}  {r['reason']}")
+        print(f"{r['status']:4}  {id_:24} median={r['median']:g}  {r['reason']}")
         bad += r["status"] != "PASS"
     return 1 if bad else 0
 
@@ -1512,55 +1570,50 @@ def main(argv):
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))
 ```
-Run: `python3 -I -m unittest bench/test_gate.py` → Expected: 7 tests OK.
+Run: `python3 -I -m unittest bench/test_gate.py` → Expected: 6 tests OK.
 
-- [ ] **Step 3: Write `bench/targets.json` (every Must target) and an empty baseline**
+- [ ] **Step 4: Write `bench/targets.json` (Must only, with stage and owner)**
 
 ```json
 {
-  "P-001": {"must": 1200, "unit": "ms", "desc": "cold start to library visible (am start -W TotalTime)"},
-  "P-002": {"must": 250, "unit": "ms", "desc": "hot start"},
-  "P-003": {"must": 320, "unit": "ms", "desc": "open-with intent to reader frame (warm)"},
-  "P-010": {"must": 1500, "unit": "ms", "desc": "tap to first page: Alice"},
-  "P-011": {"must": 1500, "unit": "ms", "desc": "tap to first page: War and Peace"},
-  "P-012": {"must": 2000, "unit": "ms", "desc": "tap to first page: 2000 chapters"},
-  "P-013": {"must": 2000, "unit": "ms", "desc": "tap to first page: 200 images"},
-  "P-014": {"must": 3000, "unit": "ms", "desc": "tap to first page: huge single chapter"},
-  "P-015": {"must": 100, "unit": "ms", "desc": "tap to reader frame + progress indicator"},
-  "P-016": {"must": 0.5, "unit": "ratio", "desc": "reopen / first open of the same book (per book, worst)"},
-  "P-020": {"must": 100, "unit": "ms", "desc": "text size change to reflowed page"},
-  "P-021": {"must": 5000, "unit": "ms", "desc": "layout change to exact book-wide total (War and Peace)"},
-  "P-021.estimate_error_pct": {"must": 5, "unit": "pct", "desc": "|estimate - exact| / exact"},
-  "P-022": {"must": 900, "unit": "ms", "desc": "rotation, War and Peace"},
-  "P-023": {"must": 3000, "unit": "ms", "desc": "rotation, huge chapter"},
-  "P-025.blank_frames": {"must": 0, "unit": "count", "desc": "blank/partial frames during in-chapter turns"},
-  "P-026": {"must": 400, "unit": "ms", "desc": "chapter-boundary turn"},
-  "P-026.blank_frames": {"must": 0, "unit": "count", "desc": "blank frames during boundary turns"},
-  "P-027.p90_ratio": {"must": 1.3, "unit": "ratio", "desc": "p90 frame time / Settings baseline p90 (same session)"},
-  "P-030": {"must": 700, "unit": "ms", "desc": "TOC jump to Second Epilogue"},
-  "P-031": {"must": 200, "unit": "ms", "desc": "TOC panel open, 2000 entries"},
-  "P-031.p90_ratio": {"must": 1.3, "unit": "ratio", "desc": "TOC scroll p90 / Settings baseline p90"},
-  "P-040": {"must": 500, "unit": "ms", "desc": "search 'the' W&P: first results"},
-  "P-041": {"must": 1500, "unit": "ms", "desc": "search 'Borodinó' W&P: complete list"},
-  "P-042": {"must": 1200, "unit": "ms", "desc": "search 'zygote' W&P: 0 results shown"},
-  "P-043": {"must": 3000, "unit": "ms", "desc": "search 'augmented matrix' Linear Algebra: first results"},
-  "P-044.first": {"must": 2000, "unit": "ms", "desc": "search MARKERWORDHUGE: first results"},
-  "P-044.all": {"must": 5000, "unit": "ms", "desc": "search MARKERWORDHUGE: all 138"},
-  "P-050": {"must": 7000, "unit": "ms", "desc": "first full scan complete"},
-  "P-050.first": {"must": 500, "unit": "ms", "desc": "first full scan: first book visible"},
-  "P-051": {"must": 300, "unit": "ms", "desc": "rescan, no changes"},
-  "P-052": {"must": 1200, "unit": "ms", "desc": "rescan after adding 14 small books"},
-  "P-060": {"must": 215, "unit": "MB", "desc": "PSS reading War and Peace"},
-  "P-061.steady": {"must": 300, "unit": "MB", "desc": "PSS huge chapter steady"},
-  "P-061.peak": {"must": 400, "unit": "MB", "desc": "PSS huge chapter peak while loading"},
-  "P-062": {"must": 300, "unit": "MB", "desc": "PSS paging 50 plates of 200-image book"},
-  "P-062.growth_pct": {"must": 10, "unit": "pct", "desc": "growth after the first 10 plates"},
-  "P-063.p90_ratio": {"must": 1.3, "unit": "ratio", "desc": "1000-book grid scroll p90 / Settings baseline p90"}
+  "P-001": {"must": 1200, "unit": "ms", "stage": "milestone", "owner": "M1", "desc": "cold start to home visible (am start -W TotalTime)"},
+  "P-002": {"must": 250, "unit": "ms", "stage": "milestone", "owner": "M1", "desc": "hot start"},
+  "P-003": {"must": 320, "unit": "ms", "stage": "milestone", "owner": "M3", "desc": "open-with intent to reader frame (warm)"},
+  "P-010": {"must": 1500, "unit": "ms", "stage": "milestone", "owner": "M2", "desc": "tap to first page: Alice"},
+  "P-011": {"must": 1500, "unit": "ms", "stage": "milestone", "owner": "M2", "desc": "tap to first page: War and Peace"},
+  "P-012": {"must": 2000, "unit": "ms", "stage": "milestone", "owner": "M2", "desc": "tap to first page: 2000 chapters"},
+  "P-013": {"must": 2000, "unit": "ms", "stage": "milestone", "owner": "M2", "desc": "tap to first page: 200 images"},
+  "P-014": {"must": 3000, "unit": "ms", "stage": "release", "owner": "M9", "desc": "tap to first page: huge single chapter"},
+  "P-015": {"must": 100, "unit": "ms", "stage": "milestone", "owner": "M2", "desc": "tap to reader frame + progress indicator"},
+  "P-016": {"must": 0.5, "unit": "ratio", "stage": "milestone", "owner": "M2", "desc": "reopen / first open of the same book (C-014; worst book per run)"},
+  "P-020": {"must": 100, "unit": "ms", "stage": "milestone", "owner": "M4", "desc": "text size change to reflowed page"},
+  "P-021": {"must": 5000, "unit": "ms", "stage": "milestone", "owner": "M4", "desc": "layout change to exact book-wide total (War and Peace only, C-016)"},
+  "P-021.estimate_error_pct": {"must": 5, "unit": "pct", "stage": "milestone", "owner": "M4", "desc": "|estimate - exact| / exact, War and Peace (corpus-wide: release)"},
+  "P-022": {"must": 900, "unit": "ms", "stage": "milestone", "owner": "M4", "desc": "rotation, War and Peace"},
+  "P-023": {"must": 3000, "unit": "ms", "stage": "release", "owner": "M9", "desc": "rotation, huge chapter"},
+  "P-026": {"must": 400, "unit": "ms", "stage": "milestone", "owner": "M4", "desc": "chapter-boundary turn"},
+  "P-026.blank_frames": {"must": 0, "unit": "count", "stage": "milestone", "owner": "M4", "desc": "blank frames during boundary turns"},
+  "P-030": {"must": 700, "unit": "ms", "stage": "milestone", "owner": "M2", "desc": "TOC jump to Second Epilogue"},
+  "P-031": {"must": 200, "unit": "ms", "stage": "milestone", "owner": "M2", "desc": "TOC panel open, 2000 entries"},
+  "P-040": {"must": 500, "unit": "ms", "stage": "milestone", "owner": "M5", "desc": "search 'the' W&P: first results"},
+  "P-041": {"must": 1500, "unit": "ms", "stage": "milestone", "owner": "M5", "desc": "search 'Borodinó' W&P: complete list"},
+  "P-042": {"must": 1200, "unit": "ms", "stage": "milestone", "owner": "M5", "desc": "search 'zygote' W&P: 0 results shown"},
+  "P-043": {"must": 3000, "unit": "ms", "stage": "milestone", "owner": "M5", "desc": "search 'augmented matrix' Linear Algebra: first results"},
+  "P-044.first": {"must": 2000, "unit": "ms", "stage": "release", "owner": "M9", "desc": "search MARKERWORDHUGE: first results"},
+  "P-044.all": {"must": 5000, "unit": "ms", "stage": "release", "owner": "M9", "desc": "search MARKERWORDHUGE: all 138"},
+  "P-050": {"must": 7000, "unit": "ms", "stage": "milestone", "owner": "M3", "desc": "first full scan complete"},
+  "P-050.first": {"must": 500, "unit": "ms", "stage": "milestone", "owner": "M3", "desc": "first full scan: first book visible"},
+  "P-051": {"must": 300, "unit": "ms", "stage": "milestone", "owner": "M3", "desc": "rescan, no changes"},
+  "P-052": {"must": 1200, "unit": "ms", "stage": "milestone", "owner": "M3", "desc": "rescan after adding 14 small books"},
+  "P-060": {"must": 215, "unit": "MB", "stage": "milestone", "owner": "M2", "desc": "PSS reading War and Peace"},
+  "P-061.steady": {"must": 300, "unit": "MB", "stage": "release", "owner": "M9", "desc": "PSS huge chapter steady"},
+  "P-061.peak": {"must": 400, "unit": "MB", "stage": "release", "owner": "M9", "desc": "PSS huge chapter peak while loading"},
+  "P-062": {"must": 300, "unit": "MB", "stage": "release", "owner": "M9", "desc": "PSS paging 50 plates of 200-image book"},
+  "P-062.growth_pct": {"must": 10, "unit": "pct", "stage": "release", "owner": "M9", "desc": "growth after the first 10 plates"}
 }
 ```
-`bench/baseline.json`: `{}` (filled at the end of M3 and updated deliberately with `--update-baseline`).
 
-- [ ] **Step 4: Benchmark-only hooks: Probe on, command receiver**
+- [ ] **Step 5: Benchmark-only hook: Probe on**
 
 ```kotlin
 // app/src/benchmark/kotlin/app/epubreader/bench/BenchHooks.kt
@@ -1568,63 +1621,17 @@ package app.epubreader.bench
 
 import android.app.Application
 
-/** Benchmark build type only: enable Probe events. The receiver is declared in this build type's manifest. */
+/** Benchmark build type only: enable Probe events for the milestone suite. */
 object BenchHooks {
     fun install(app: Application) { Probe.enabled = true; Probe.ev("app_create") }
 }
 ```
+(The broadcast receiver for bench commands is added in M2 Task 2.8, where the first group needs it.)
 
-```kotlin
-// app/src/benchmark/kotlin/app/epubreader/bench/BenchCommandReceiver.kt
-package app.epubreader.bench
-
-import android.content.BroadcastReceiver
-import android.content.Context
-import android.content.Intent
-
-/**
- * Debug commands for the harness: adb shell am broadcast -a app.epubreader.BENCH -n app.epubreader/.bench.BenchCommandReceiver
- *   --es cmd <name> [--es arg <value>]. Commands are dispatched to BenchCommands (registered by screens as they appear).
- */
-class BenchCommandReceiver : BroadcastReceiver() {
-    override fun onReceive(context: Context, intent: Intent) {
-        val cmd = intent.getStringExtra("cmd") ?: return
-        val arg = intent.getStringExtra("arg") ?: ""
-        Probe.ev("cmd", "$cmd $arg")
-        BenchCommands.dispatch(cmd, arg)
-    }
-}
-```
-
-```kotlin
-// app/src/main/kotlin/app/epubreader/bench/BenchCommands.kt
-package app.epubreader.bench
-
-/** Registry of bench command handlers (screens register while visible). Unused outside the benchmark build. */
-object BenchCommands {
-    private val handlers = java.util.concurrent.ConcurrentHashMap<String, (String) -> Unit>()
-    fun register(cmd: String, h: (String) -> Unit) { handlers[cmd] = h }
-    fun unregister(cmd: String) { handlers.remove(cmd) }
-    fun dispatch(cmd: String, arg: String) { handlers[cmd]?.invoke(arg) ?: Probe.ev("cmd_unknown", cmd) }
-}
-```
-
-```xml
-<!-- app/src/benchmark/AndroidManifest.xml -->
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <application>
-        <receiver android:name=".bench.BenchCommandReceiver" android:exported="true">
-            <intent-filter><action android:name="app.epubreader.BENCH" /></intent-filter>
-        </receiver>
-    </application>
-</manifest>
-```
-Delete `app/src/benchmark/kotlin/app/epubreader/bench/BenchHooks.kt`'s no-op version from Task 1.3 (replaced above).
-
-- [ ] **Step 5: Harness scripts**
+- [ ] **Step 6: Harness scripts**
 
 ```bash
-# bench/lib.sh — sourced by every bench script
+# bench/lib.sh — sourced by every bench group
 set -u
 A=${ADB:-$HOME/Android/Sdk/platform-tools/adb}
 PKG=${PKG:-app.epubreader}
@@ -1632,13 +1639,13 @@ ACT=${ACT:-app.epubreader.MainActivity}
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 SPEC_TOOLS=$ROOT/tools/spec-tools
 RESULTS=${RESULTS:?run through bench/run_all.sh (sets RESULTS)}
+RELEASE=${BENCH_RELEASE:-0}
 
 require_ad() { : "${AD:?export AD = the agent-device command returned by the T3 device_open tool (host local, device Medium_Phone)}"; }
 emit() { # id value [note]
   printf '{"id":"%s","value":%s,"run":%s,"note":"%s"}\n' "$1" "$2" "${RUN:-0}" "${3:-}" >> "$RESULTS"
   echo "  $1 = $2 ${3:-}"
 }
-bench_cmd() { $A shell am broadcast -a app.epubreader.BENCH -n "$PKG/.bench.BenchCommandReceiver" --es cmd "$1" --es arg "'${2:-}'" >/dev/null; }
 # ev_delta <from-event> <to-event>: ms between the first <from> and the first following <to> in logcat (tag EPR)
 ev_delta() {
   $A logcat -d -s EPR:I | awk -v a="EVT $1 " -v b="EVT $2 " '
@@ -1650,8 +1657,8 @@ ev_delta() {
 
 ```bash
 #!/usr/bin/env bash
-# bench/start.sh — P-001 cold start, P-002 hot start (performance.md: am start -W TotalTime). 3 runs each.
-source "$(dirname "$0")/lib.sh"
+# bench/groups/start.sh — P-001 cold start, P-002 hot start (performance.md: am start -W TotalTime). 3 runs each.
+source "$(dirname "$0")/../lib.sh"
 for RUN in 1 2 3; do
   $A shell am force-stop "$PKG"; sleep 1
   v=$($A shell am start -W -n "$PKG/$ACT" | awk '/TotalTime/ {print $2}')
@@ -1664,59 +1671,57 @@ for RUN in 1 2 3; do
 done
 ```
 (`input keyevent HOME` is a measurement step of the project's runner, matching performance.md's method; taps in
-later scripts go through `$AD`.)
+later groups go through `$AD`.)
 
 ```bash
 #!/usr/bin/env bash
-# bench/run_all.sh <group...> [--update-baseline] — runs bench/<group>.sh, then the gate. Groups: start (M1); more per milestone.
+# bench/run_all.sh <group...|all> [--release] — runs bench/groups/<group>.sh, then the gate (Must only).
+# Run at the end of each milestone (all groups built so far) and before release (all --release). Not per build.
 set -u
 ROOT=$(cd "$(dirname "$0")/.." && pwd); cd "$ROOT"
-UPDATE=0; GROUPS=()
-for g in "$@"; do [ "$g" = "--update-baseline" ] && UPDATE=1 || GROUPS+=("$g"); done
+GROUPS=(); export BENCH_RELEASE=0
+for g in "$@"; do
+  case "$g" in
+    --release) BENCH_RELEASE=1 ;;
+    all) for f in bench/groups/*.sh; do GROUPS+=("$(basename "$f" .sh)"); done ;;
+    *) GROUPS+=("$g") ;;
+  esac
+done
 mkdir -p bench/results
 export RESULTS="$ROOT/bench/results/$(date -u +%Y%m%dT%H%M%SZ)-$(git rev-parse --short HEAD).jsonl"
 : > "$RESULTS"
-for g in "${GROUPS[@]}"; do echo "== $g"; bash "bench/$g.sh" || echo "WARN: $g exited non-zero" >&2; done
-python3 -I bench/gate.py "$RESULTS" bench/targets.json bench/baseline.json; rc=$?
-if [ $UPDATE = 1 ] && [ $rc = 0 ]; then
-  python3 -I - "$RESULTS" bench/baseline.json <<'EOF'
-import json, sys
-sys.path.insert(0, "bench"); import gate
-rows = [json.loads(l) for l in open(sys.argv[1]) if l.strip()]
-base = json.load(open(sys.argv[2]))
-ids = {}
-for r in rows: ids.setdefault(r["id"], []).append(float(r["value"]))
-base.update({k: gate.median(v) for k, v in ids.items()})
-json.dump(base, open(sys.argv[2], "w"), indent=2, sort_keys=True)
-EOF
-fi
+for g in "${GROUPS[@]}"; do echo "== $g"; bash "bench/groups/$g.sh" || echo "WARN: $g exited non-zero" >&2; done
+python3 -I bench/gate.py "$RESULTS" bench/targets.json; rc=$?
 echo "results: $RESULTS"; exit $rc
 ```
-Add `bench/results/` to `.gitignore` except a `.gitkeep`; milestone notes copy the relevant gate output.
+Add `bench/results/` to `.gitignore`; milestone notes copy the gate output.
 
-`bench/README.md`: prerequisites (emulator `Medium_Phone` running; `device_open` → `export AD=...`; benchmark APK
-installed: `./gradlew :app:installPlayBenchmark`; corpus pushed), how to run a group, how to update the baseline,
-what each group measures (table mapping group → spec IDs, filled in as groups are added).
+`bench/README.md`: when to run (end of milestone: every group built so far; M9: `all --release`; never per build —
+use `tools/smoke.sh` for that); prerequisites (emulator `Medium_Phone` running; `device_open` → `export AD=...`;
+benchmark APK installed: `./gradlew :app:installPlayBenchmark`; corpus pushed with `bench/push_corpus.sh`); the
+rule "a failing group is re-run once before acting (±20 % emulator noise)"; a table group → spec IDs, filled in as
+groups are added; the list of checks that are **not** in the harness and happen once in M9 on a real device or by
+eye (P-025, P-027, P-031 scroll, P-063).
 
-- [ ] **Step 6: Run the start group on the emulator**
+- [ ] **Step 7: Run the start group on the emulator**
 
 ```bash
 ./gradlew :app:installPlayBenchmark
-chmod +x bench/*.sh && bench/run_all.sh start
+chmod +x bench/*.sh bench/groups/*.sh && bench/run_all.sh start
 ```
 Expected: six `emit` lines, then `PASS  P-001 …` and `PASS  P-002 …`; exit code 0. If `P-001` fails here (empty
 app), stop and investigate before building features on top.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add bench app/src/benchmark app/src/main/kotlin/app/epubreader/bench .gitignore
-git commit -m "bench: harness skeleton with Must-target gate and start-time group (P-001, P-002)
+git add bench tools/smoke.sh app/src/benchmark app/src/androidTest .gitignore
+git commit -m "test: per-build smoke test and lean Must-only milestone bench harness (P-001, P-002)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
-- [ ] **Step 8: Milestone note**
+- [ ] **Step 9: Milestone note**
 
-Write `docs/milestones/M1.md`: toolchain versions actually resolved, FTS5 report (`sqlite_version`), gate output of
-`bench/run_all.sh start`, anything deferred. Commit with the same trailer.
+Write `docs/milestones/M1.md`: toolchain versions actually resolved, FTS5 report (`sqlite_version`), `tools/smoke.sh`
+duration, gate output of `bench/run_all.sh start`, anything deferred. Commit with the same trailer.
