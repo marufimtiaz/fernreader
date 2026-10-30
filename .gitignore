@@ -1,0 +1,7 @@
+corpus/
+.gradle/
+build/
+local.properties
+*.iml
+.idea/
+results/raw/

@@ -1,0 +1,15 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Book content is loaded into blob: iframes that inherit this policy: no book scripts run (R-007). -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' blob: data:; script-src 'self'; style-src 'self' 'unsafe-inline' blob: data:; img-src 'self' blob: data:; font-src 'self' blob: data:; media-src 'self' blob: data:; frame-src blob: 'self'; connect-src 'self' blob: data:">
+<style>
+html, body { margin: 0; height: 100%; overflow: hidden; background: #fff; }
+foliate-view { display: block; height: 100%; }
+</style>
+<script type="module" src="host.js"></script>
+</head>
+<body></body>
+</html>
