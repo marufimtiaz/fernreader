@@ -1,0 +1,9 @@
+many5000 run=1 scan_spike t=221740 strategy=parallel mode=full workers=4 files=63 ok=59 meta=58 walk_ms=227 total_ms=249 first_ms=229 max_file_ms=4 max_file=stress-2000-chapters.epub
+many5000 run=2 scan_spike t=228460 strategy=parallel mode=full workers=4 files=63 ok=59 meta=58 walk_ms=567 total_ms=676 first_ms=576 max_file_ms=20 max_file=stress-2000-chapters.epub
+many5000 run=3 scan_spike t=235415 strategy=parallel mode=full workers=4 files=63 ok=59 meta=58 walk_ms=588 total_ms=696 first_ms=597 max_file_ms=19 max_file=stress-2000-chapters.epub
+many5000 run=1 scan_spike t=241924 strategy=parallel mode=stat workers=1 files=63 ok=0 meta=0 walk_ms=203 total_ms=204 first_ms=-1 max_file_ms=1 max_file=malformed-empty-spine.epub
+many5000 run=2 scan_spike t=248286 strategy=parallel mode=stat workers=1 files=63 ok=0 meta=0 walk_ms=177 total_ms=180 first_ms=-1 max_file_ms=1 max_file=alice-epub3-images.epub
+many5000 run=3 scan_spike t=254493 strategy=parallel mode=stat workers=1 files=63 ok=0 meta=0 walk_ms=204 total_ms=205 first_ms=-1 max_file_ms=1 max_file=wasteland-woff.epub
+many5000 run=1 scan_spike t=261543 strategy=recursive mode=full workers=1 files=63 ok=59 meta=58 walk_ms=621 total_ms=867 first_ms=630 max_file_ms=12 max_file=frankenstein-epub3.epub
+many5000 run=2 scan_spike t=267870 strategy=recursive mode=full workers=1 files=63 ok=59 meta=58 walk_ms=155 total_ms=219 first_ms=157 max_file_ms=3 max_file=stress-2000-chapters.epub
+many5000 run=3 scan_spike t=274130 strategy=recursive mode=full workers=1 files=63 ok=59 meta=58 walk_ms=274 total_ms=330 first_ms=276 max_file_ms=3 max_file=jlreq-in-japanese.epub

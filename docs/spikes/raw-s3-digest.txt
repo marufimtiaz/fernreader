@@ -1,0 +1,3 @@
+scan_digest t=287419 file=stress-200-images.epub size=127279081 digest_ms=2 meta_ms=3 ok=true
+scan_digest t=289489 file=stress-200-images.epub size=127279081 digest_ms=3 meta_ms=4 ok=true
+scan_digest t=291518 file=stress-200-images.epub size=127279081 digest_ms=1 meta_ms=1 ok=true

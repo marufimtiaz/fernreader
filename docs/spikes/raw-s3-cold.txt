@@ -1,0 +1,6 @@
+cold=1 scan_spike t=45804 strategy=parallel mode=full workers=4 files=63 ok=59 meta=58 walk_ms=59 total_ms=287 first_ms=73 max_file_ms=39 max_file=stress-200-images.epub
+cold=1-rescan scan_spike t=52136 strategy=parallel mode=stat workers=1 files=63 ok=0 meta=0 walk_ms=42 total_ms=44 first_ms=-1 max_file_ms=1 max_file=pride-and-prejudice-epub2-noimages.epub
+cold=2 scan_spike t=45484 strategy=parallel mode=full workers=4 files=63 ok=59 meta=58 walk_ms=69 total_ms=300 first_ms=80 max_file_ms=34 max_file=stress-2000-chapters.epub
+cold=2-rescan scan_spike t=51857 strategy=parallel mode=stat workers=1 files=63 ok=0 meta=0 walk_ms=46 total_ms=49 first_ms=-1 max_file_ms=1 max_file=frankenstein-epub3.epub
+cold=3 scan_spike t=45305 strategy=parallel mode=full workers=4 files=63 ok=59 meta=58 walk_ms=89 total_ms=299 first_ms=107 max_file_ms=43 max_file=jlreq-in-japanese.epub
+cold=3-rescan scan_spike t=51636 strategy=parallel mode=stat workers=1 files=63 ok=0 meta=0 walk_ms=57 total_ms=60 first_ms=-1 max_file_ms=1 max_file=shakespeare-complete-epub3.epub
