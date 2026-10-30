@@ -244,3 +244,17 @@ Risks of the recommendation:
 - Open timings use 3 runs; a few recordings failed (agent-device "screenrecord ownership could not be confirmed")
   and are reported from the remaining runs (n=2 where shown).
 - Gutenberg files downloaded 2026-10-30.
+
+## 11. Questions for the gatekeeper
+
+1. `tools/summarize_open.sh` drops frames whose mean-abs-diff is ≥ 100 (awk `$3` vs `mad=112.70` without a
+   space), which can under-report open times (one War and Peace run: 1405 ms reported vs 2885 ms actual). Were the
+   reference numbers computed with this script, and should we use the fixed rule (`tools/summarize_open_fixed.sh`)?
+2. P-010..P-014 "tap → first page": may the app keep the reader pre-created behind the library (no activity
+   transition), as measured in the in-place mode? Both reference-style (activity) and in-place numbers are reported.
+3. P-021: is an estimated total shown as "≈ N" acceptable as long as the exact total follows, and is the 5 s bound
+   for the exact value firm for 2000-page books?
+4. corpus.md says `MARKERWORDHUGE` is planted in section 40; the generator plants it 138 times there. Is P-044
+   "first results" or "all 138"?
+5. R-001 "TOC entries to missing targets … show a brief notice": is landing on the nearest readable chapter plus
+   a notice acceptable?
