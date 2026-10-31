@@ -16,6 +16,9 @@ describe('readerCss', () => {
     expect(css).toContain('url("https://appassets.androidplatform.net/assets/reader/fonts/literata.ttf")')
     expect(css).not.toMatch(/url\("?\.\.?\//)
   })
+  it('sets no color-scheme: a frame whose scheme differs from the host page gets an opaque #121212 canvas', () => {
+    expect(css).not.toContain('color-scheme')
+  })
   it('is written against variables and attributes only', () => {
     expect(css).toContain('var(--er-font-scale')
     expect(css).toContain('var(--er-line-height')

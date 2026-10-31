@@ -48,7 +48,7 @@ export function readerCss(base: string): string {
     face('Atkinson Hyperlegible', 'atkinson-bolditalic.ttf', 'italic', '700', base),
   ]
   const themes = Object.entries(THEMES).map(([id, t]) =>
-    `html[data-er-theme="${id}"] { --er-bg: ${t.bg}; --er-fg: ${t.fg}; --er-link: ${t.link}; --er-rule: ${t.rule}; color-scheme: ${t.dark ? 'dark' : 'light'}; }`)
+    `html[data-er-theme="${id}"] { --er-bg: ${t.bg}; --er-fg: ${t.fg}; --er-link: ${t.link}; --er-rule: ${t.rule}; }`)
   const recolor = Object.entries(THEMES).filter(([id]) => id !== 'light').map(([id]) => `html[data-er-theme="${id}"]`)
   const any = (sel: string) => recolor.map(h => `${h} ${sel}`).join(', ')
   return [
