@@ -77,6 +77,11 @@ export class Reader {
         const el = [...(doc?.querySelectorAll('p, li, blockquote, h1, h2, h3, h4, h5, h6, div') ?? [])].find(e => e.textContent?.trim().startsWith(text))
         return !!el && r.intersectsNode(el)
       },
+      firstBlockText: (index: number) => {
+        const d = this.view?.renderer?.getContents?.().find((x: any) => x.index === index)?.doc
+        return [...(d?.body?.querySelectorAll('h1, h2, h3, h4, p') ?? [])].map(e => e.textContent?.trim()).find(Boolean) ?? null
+      },
+      slots: () => this.view?.renderer?.debugSlots ?? null,
       htmlVar: (index: number, name: string) => this.view?.renderer?.getContents?.().find((x: any) => x.index === index)?.doc?.documentElement.style.getPropertyValue(name) ?? null,
       overlayCount: (index: number) => this.view?.renderer?.getContents?.().find((x: any) => x.index === index)?.overlayer?.element?.childElementCount ?? -1,
     }

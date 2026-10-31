@@ -465,20 +465,68 @@ export class Paginator extends HTMLElement {
     #lastVisibleRange
     #lastLayout
     #cache = new Map()
-    get #preload() { return this.hasAttribute('preload') && !this.scrolled }
+    // Stack mode: scrolled flow, horizontal writing. Slots are stacked in reading order in one scroller, so
+    // scrolling continues across sections; the current section is the one at the top of the viewport.
+    get #stack() { return this.hasAttribute('preload') && this.scrolled && !this.#vertical }
+    get #preload() { return this.hasAttribute('preload') && (!this.scrolled || this.#stack) }
+    #mode = null // 'paged' | 'stack' | null: what the cached slots are laid out for
+    #stackTop = 0 // offsetTop of the current slot when the scroll position was last set or fixed
     #slotStyle(slot, current) {
-        slot.style.cssText = current ? 'height: 100%'
+        slot.style.cssText = this.#stack ? ''
+            : current ? 'height: 100%'
             : 'position: absolute; inset: 0; overflow: hidden; visibility: hidden; pointer-events: none'
+    }
+    #slotOffset() {
+        return this.#stack ? (this.#cache.get(this.#index)?.slot.offsetTop ?? 0) : 0
+    }
+    /**
+     * Runs [mutate] (adding or removing a slot) without moving what is on screen. The position inside the current
+     * section is taken before: removing content can make the browser clamp scrollTop first.
+     */
+    #keepStack(mutate) {
+        if (!this.#stack || !this.#cache.has(this.#index)) { mutate(); this.#fixStack(); return }
+        const cur = this.#cache.get(this.#index)
+        const rel = this.#container.scrollTop - cur.slot.offsetTop
+        mutate()
+        if (this.#cache.get(this.#index) !== cur) { this.#fixStack(); return }
+        this.#container.scrollTop = cur.slot.offsetTop + rel
+        this.#stackTop = cur.slot.offsetTop
+    }
+    /** Keeps what is on screen in place when slots above the current one change height. */
+    #fixStack() {
+        if (!this.#stack) return
+        const top = this.#slotOffset()
+        const delta = top - this.#stackTop
+        if (delta) this.#container.scrollTop += delta
+        this.#stackTop = top
+    }
+    /** Stack mode: the slot at the top of the viewport becomes the current section (no scrolling). */
+    #followStack() {
+        if (!this.#stack) return false
+        const y = this.#container.scrollTop + 1
+        for (const e of this.#cache.values()) {
+            const { offsetTop, offsetHeight } = e.slot
+            if (e.loaded && e.index !== this.#index && y >= offsetTop && y < offsetTop + offsetHeight) {
+                this.#view = e.view
+                this.#index = e.index
+                this.#stackTop = offsetTop
+                this.#background.style.background = getBackground(e.view.document)
+                return true
+            }
+        }
+        return false
     }
     #newEntry(index, current) {
         const slot = document.createElement('div')
         this.#slotStyle(slot, current)
         const view = new View({
             container: this,
-            onExpand: () => { if (this.#view === view) this.#scrollToAnchor(this.#anchor) },
+            onExpand: () => { if (this.#view === view) this.#scrollToAnchor(this.#anchor); else this.#fixStack() },
         })
         slot.append(view.element)
-        this.#container.append(slot)
+        // in reading order, so stacked slots read top to bottom
+        const after = [...this.#cache.values()].filter(e => e.index > index).sort((a, b) => a.index - b.index)[0]
+        this.#keepStack(() => this.#container.insertBefore(slot, after?.slot ?? null))
         const entry = { index, slot, view, loaded: false }
         this.#cache.set(index, entry)
         return entry
@@ -488,7 +536,7 @@ export class Paginator extends HTMLElement {
         if (!e) return
         this.#cache.delete(index)
         e.view.destroy()
-        e.slot.remove()
+        this.#keepStack(() => e.slot.remove())
         this.sections[index]?.unload?.()
     }
     #afterLoadFor(index) {
@@ -532,8 +580,10 @@ export class Paginator extends HTMLElement {
             entry.loaded = true
         })().catch(e => { if (!entry.mismatch) console.warn(e); if (this.#cache.get(index) === entry) this.#evict(index) })
     }
-    #afterSwap() {
+    /** [below]: only preload the next section (safe while the user scrolls; nothing above moves). */
+    #afterSwap(below = false) {
         if (!this.#preload) return
+        if (below) { this.#preloadIndex(this.#adjacentIndex(1)); return }
         const keep = new Set([this.#index, this.#adjacentIndex(-1), this.#adjacentIndex(1)])
         for (const i of [...this.#cache.keys()]) if (!keep.has(i)) this.#evict(i)
         this.#preloadIndex(this.#adjacentIndex(1))
@@ -556,6 +606,14 @@ export class Paginator extends HTMLElement {
         return true
     }
     get layout() { return this.#lastLayout }
+    /** Diagnostics for tests: the slots in DOM order and the scroll position. */
+    get debugSlots() {
+        return { scrollTop: this.#container.scrollTop, viewport: this.#container.clientHeight, current: this.#index, stackTop: this.#stackTop, mode: this.#mode,
+            slots: [...this.#container.children].map(el => {
+                const e = [...this.#cache.values()].find(x => x.slot === el)
+                return { index: e?.index, top: el.offsetTop, height: el.offsetHeight, loaded: e?.loaded, css: e ? undefined : el.style.cssText.slice(0, 90), raw: el === this.#view?.element }
+            }) }
+    }
     /** True while a page turn or a jump is running (navigation is locked). */
     get busy() { return this.#locked }
     get styles() { return this.#styles }
@@ -624,6 +682,7 @@ export class Paginator extends HTMLElement {
             grid-column: 1 / -1;
             grid-row: 1 / -1;
             overflow: auto;
+            overflow-anchor: none; /* stack mode anchors itself (#fixStack); the browser's anchoring would add to it */
         }
         #header {
             grid-column: 3 / 4;
@@ -669,7 +728,11 @@ export class Paginator extends HTMLElement {
 
         this.#observer.observe(this.#container)
         this.#container.addEventListener('scroll', () => this.dispatchEvent(new Event('scroll')))
+        // Stack mode: follow the section at the top while scrolling, keep the next one ready below; work above the
+        // viewport (eviction, preloading the previous section) waits until scrolling has stopped.
+        this.#container.addEventListener('scroll', () => { if (this.#followStack()) this.#afterSwap(true) })
         this.#container.addEventListener('scroll', debounce(() => {
+            if (this.#stack) this.#afterSwap()
             if (this.scrolled) {
                 if (this.#justAnchored) this.#justAnchored = false
                 else this.#afterScroll('scroll')
@@ -776,8 +839,13 @@ export class Paginator extends HTMLElement {
         })
     }
     #createView(index) {
+        if (!this.#preload && this.#cache.size) { // flow or writing mode left preloading: drop every slot
+            for (const i of [...this.#cache.keys()]) this.#evict(i)
+            this.#view = null
+        }
         if (this.#preload) {
-            const cur = this.#cache.get(this.#index)
+            // by view, not by #index: #display has already set #index to the target when it gets here
+            const cur = [...this.#cache.values()].find(e => e.view === this.#view)
             if (cur) this.#slotStyle(cur.slot, false)
             else if (this.#view) { this.#view.destroy(); this.#view.element.remove() }
             this.#evict(index)
@@ -844,6 +912,7 @@ export class Paginator extends HTMLElement {
             this.#header.replaceChildren()
             this.#footer.replaceChildren()
 
+            this.#lastLayout = { flow, margin, gap, columnWidth }
             return { flow, margin, gap, columnWidth }
         }
 
@@ -877,10 +946,19 @@ export class Paginator extends HTMLElement {
             vertical: this.#vertical,
             rtl: this.#rtl,
         })
+        const mode = this.#stack ? 'stack' : this.#preload ? 'paged' : null
+        const switched = this.#mode !== mode
+        if (switched) { // paged <-> scrolled: neighbours are laid out again for the new flow
+            for (const i of [...this.#cache.keys()]) if (i !== this.#index) this.#evict(i)
+            const cur = this.#cache.get(this.#index)
+            this.#mode = mode
+            if (cur) this.#slotStyle(cur.slot, true)
+        }
         this.#view.render(layout)
         for (const e of this.#cache.values())
             if (e.view !== this.#view && e.loaded) e.view.render(layout)
         this.#scrollToAnchor(this.#anchor)
+        if (switched) this.#afterSwap()
     }
     get scrolled() {
         return this.getAttribute('flow') === 'scrolled'
@@ -902,7 +980,7 @@ export class Paginator extends HTMLElement {
         return this.#view.element.getBoundingClientRect()[this.sideProp]
     }
     get start() {
-        return Math.abs(this.#container[this.scrollProp])
+        return Math.abs(this.#container[this.scrollProp]) - this.#slotOffset()
     }
     get end() {
         return this.start + this.size
@@ -1014,6 +1092,10 @@ export class Paginator extends HTMLElement {
     async #scrollTo(offset, reason, smooth) {
         const element = this.#container
         const { scrollProp, size } = this
+        if (this.#stack) { // offsets are relative to the current section; the scroller holds the whole stack
+            offset = Math.max(0, offset + this.#slotOffset())
+            this.#stackTop = this.#slotOffset()
+        }
         if (element[scrollProp] === offset) {
             this.#scrollBounds = [offset, this.atStart ? 0 : size, this.atEnd ? 0 : size]
             this.#afterScroll(reason)
@@ -1056,7 +1138,8 @@ export class Paginator extends HTMLElement {
         }
         // if anchor is a fraction
         if (this.scrolled) {
-            await this.#scrollTo(anchor * this.viewSize, reason)
+            // the end of a section is its last screen (in stack mode the next section starts right below)
+            await this.#scrollTo(Math.min(anchor * this.viewSize, Math.max(0, this.viewSize - this.size)), reason)
             return
         }
         const { pages } = this
@@ -1154,6 +1237,10 @@ export class Paginator extends HTMLElement {
     }
     #scrollPrev(distance) {
         if (!this.#view) return true
+        if (this.#stack) { // one screen up, across sections; only the very top goes to an unloaded section
+            if (this.#container.scrollTop > 0) return this.#scrollTo(this.start - (distance ?? this.size), null, true)
+            return true
+        }
         if (this.scrolled) {
             if (this.start > 0) return this.#scrollTo(
                 Math.max(0, this.start - (distance ?? this.size)), null, true)
@@ -1165,6 +1252,11 @@ export class Paginator extends HTMLElement {
     }
     #scrollNext(distance) {
         if (!this.#view) return true
+        if (this.#stack) {
+            const el = this.#container
+            if (el.scrollTop + el.clientHeight < el.scrollHeight - 2) return this.#scrollTo(this.start + (distance ?? this.size), null, true)
+            return true
+        }
         if (this.scrolled) {
             if (this.viewSize - this.end > 2) return this.#scrollTo(
                 Math.min(this.viewSize, distance ? this.start + distance : this.end), null, true)
@@ -1189,7 +1281,7 @@ export class Paginator extends HTMLElement {
         if (this.#locked) return
         this.#locked = true
         const prev = dir === -1
-        if (this.#preload && this.#view) { // no view yet: the first `next()` of an open displays section 0
+        if (this.#preload && this.#view && !this.scrolled) { // no view yet: the first `next()` of an open displays section 0
             const target = this.#adjacentIndex(dir)
             const atEdge = prev ? this.page <= 1 : this.page >= this.pages - 2
             if (atEdge && target != null && this.#cache.has(target)
