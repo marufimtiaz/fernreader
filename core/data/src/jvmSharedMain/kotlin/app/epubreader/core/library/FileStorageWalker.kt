@@ -18,16 +18,21 @@ class FileStorageWalker(
     override suspend fun walk(scope: ScanScope, emit: suspend (FoundFile) -> Unit) {
         val visited = HashSet<String>()
         when (scope) {
-            is ScanScope.Folder -> walkTree(File(scope.path), visited, emptySet(), emit)
+            is ScanScope.Folder -> walkTree(File(scope.path), visited, emptySet(), emit, required = true)
             ScanScope.Everywhere -> {
                 val first = firstDirs.map { File(root, it) }
                 for (d in first) walkTree(d, visited, emptySet(), emit)
-                walkTree(File(root), visited, first.map { it.path }.toSet(), emit)
+                walkTree(File(root), visited, first.map { it.path }.toSet(), emit, required = true)
             }
         }
     }
 
-    private suspend fun walkTree(top: File, visited: MutableSet<String>, skip: Set<String>, emit: suspend (FoundFile) -> Unit) {
+    /**
+     * [required]: the scan root or the chosen folder. If it cannot be listed (storage unmounted, folder removed), the
+     * walk fails instead of "finding nothing", so the scanner prunes nothing (final review M1).
+     */
+    private suspend fun walkTree(top: File, visited: MutableSet<String>, skip: Set<String>, emit: suspend (FoundFile) -> Unit, required: Boolean = false) {
+        if (required && top.listFiles() == null) throw java.io.IOException("cannot list ${top.path}")
         val stack = ArrayDeque<File>().apply { add(top) }
         while (stack.isNotEmpty()) {
             currentCoroutineContext().ensureActive()

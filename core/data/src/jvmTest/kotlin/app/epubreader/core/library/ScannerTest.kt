@@ -190,4 +190,30 @@ class ScannerTest {
         scanner().scan(ScanScope.Everywhere)
         assertFalse("Folder Test download" in titles())
     }
+
+    // Review M1: an unreadable root prunes nothing.
+    @Test fun unreadable_root_prunes_nothing() = runBlocking {
+        scanner().scan(ScanScope.Everywhere)
+        val before = titles()
+        runCatching { scanner(FileStorageWalker(File(root, "missing-root").path)).scan(ScanScope.Everywhere) }
+        assertEquals(before, titles())
+    }
+
+    // Review M2: a known file that cannot be read right now keeps its entry.
+    @Test fun momentarily_unreadable_file_keeps_its_entry() = runBlocking {
+        scanner().scan(ScanScope.Everywhere)
+        val p = f("Download/download.epub"); p.setLastModified(System.currentTimeMillis() + 9_000)
+        scanner(open = { if (it == p.path) throw java.io.IOException("busy") else openFileSource(it) }).scan(ScanScope.Everywhere)
+        assertTrue("Folder Test download" in titles())
+    }
+
+    // Review M3: two different books without identifiers at the same path are two books.
+    @Test fun identifier_less_books_are_not_merged() = runBlocking {
+        val p = f("Books/noid.epub").apply { writeBytes(ScanFixtures.epub("", "First")) }
+        scanner().scan(ScanScope.Everywhere)
+        val a = bookOf(p.path)!!
+        p.writeBytes(ScanFixtures.epub("", "Second", extra = "x")); p.setLastModified(System.currentTimeMillis() + 9_000)
+        scanner().scan(ScanScope.Everywhere)
+        assertNotEquals(a, bookOf(p.path))
+    }
 }

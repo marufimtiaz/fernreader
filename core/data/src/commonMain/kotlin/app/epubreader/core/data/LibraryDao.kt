@@ -93,7 +93,9 @@ abstract class LibraryDao {
         var book = byIdentity(s.identityKey)
         if (book == null) {
             val prev = bookIdForPath(s.path)?.let { byId(it) }
-            if (prev != null && prev.identityKey.substringBefore('-') == s.identityKey.substringBefore('-')) {
+            val idHash = s.identityKey.substringBefore('-')
+            // Only for books that have a package identifier: all identifier-less books share one hash (review M3).
+            if (prev != null && idHash != NO_IDENTIFIER_HASH && prev.identityKey.substringBefore('-') == idHash) {
                 setIdentity(prev.id, s.identityKey, now)
                 book = prev
             }
@@ -134,6 +136,9 @@ abstract class LibraryDao {
     @Transaction
     open suspend fun removeBook(id: String, now: Long) { deleteFiles(id); tombstone(id, now) }
 }
+
+/** The identity-key half of a book with no package identifier. */
+private val NO_IDENTIFIER_HASH = app.epubreader.core.epub.meta.BookIdentity.of(null, "").substringBefore('-')
 
 private const val LIBRARY_QUERY =
     "SELECT b.id AS id, b.title AS title, b.authors AS authors, b.titleDirection AS titleDirection, b.coverThumb AS coverThumb, " +

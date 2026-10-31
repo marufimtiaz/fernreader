@@ -76,7 +76,8 @@ class Scanner(
                         failed.incrementAndFetch()
                         onEvent(ScanEvent.Failed(f.path, r.reason))
                     }
-                    Loaded.Unreadable -> Unit // gone or not readable right now: not seen, a later scan retries
+                    // Not readable right now (still being written, busy): keep what we knew until a scan can read it (M2).
+                    Loaded.Unreadable -> if (row != null) seenLock.withLock { unchanged += f.path }
                 }
             }
 

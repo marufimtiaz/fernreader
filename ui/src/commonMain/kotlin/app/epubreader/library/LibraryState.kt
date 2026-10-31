@@ -52,7 +52,7 @@ class LibraryState(
     compute: CoroutineDispatcher = Dispatchers.Default,
 ) {
     private data class Prefs(val query: String = "", val layout: LibraryLayout = LibraryLayout.GRID, val sort: LibrarySort = LibrarySort.RECENT,
-                             val dismissed: ScanEvent.Complete? = null, val missing: LibraryBook? = null)
+                             val dismissed: ScanEvent.Complete? = null, val missing: LibraryBook? = null, val loaded: Boolean = false)
     private val prefs = MutableStateFlow(Prefs())
 
     val ui: StateFlow<LibraryUi> = combine(books, failures, scan, prefs) { all, fails, s, p ->
@@ -60,7 +60,7 @@ class LibraryState(
             books = arrange(all, p.query, p.sort), total = all.size, query = p.query, layout = p.layout, sort = p.sort, scan = s,
             failures = fails,
             failureNoticeVisible = fails.isNotEmpty() && !s.running && s.lastComplete != null && s.lastComplete !== p.dismissed,
-            loaded = true, missing = p.missing,
+            loaded = p.loaded, missing = p.missing, // shown once the saved layout/sort are known (no flash)
         )
     }.flowOn(compute).stateIn(scope, SharingStarted.Eagerly, LibraryUi()) // R-005: sorting off the main thread
 
@@ -71,7 +71,7 @@ class LibraryState(
         scope.launch {
             val layout = settings.get(SettingsStore.LIBRARY_LAYOUT)?.let { v -> LibraryLayout.entries.firstOrNull { it.name == v } }
             val sort = settings.get(SettingsStore.LIBRARY_SORT)?.let { v -> LibrarySort.entries.firstOrNull { it.name == v } }
-            prefs.value = prefs.value.copy(layout = layout ?: prefs.value.layout, sort = sort ?: prefs.value.sort)
+            prefs.value = prefs.value.copy(layout = layout ?: prefs.value.layout, sort = sort ?: prefs.value.sort, loaded = true)
         }
     }
 
