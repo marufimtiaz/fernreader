@@ -89,15 +89,18 @@ class ZipReader private constructor(
             var cdSize = u32(tail, i + 12)
             var cdOff = u32(tail, i + 16)
             if (total == 0xFFFFL || cdSize == 0xFFFFFFFFL || cdOff == 0xFFFFFFFFL) {
-                if (eocdPos < 20) throw damaged("zip64 locator missing")
-                val loc = src.readFully(eocdPos - 20, 20)
-                if (u32(loc, 0) != Z64_LOC_SIG) throw damaged("zip64 locator missing")
-                val recPos = u64(loc, 8)
-                if (recPos < 0 || recPos + 56 > size) throw damaged("zip64 record out of range")
-                val rec = src.readFully(recPos, 56)
-                if (u32(rec, 0) != Z64_EOCD_SIG) throw damaged("bad zip64 end record")
-                total = u64(rec, 32); cdSize = u64(rec, 40); cdOff = u64(rec, 48)
+                val loc = if (eocdPos >= 20) src.readFully(eocdPos - 20, 20) else null
+                if (loc != null && u32(loc, 0) == Z64_LOC_SIG) {
+                    val recPos = u64(loc, 8)
+                    if (recPos < 0 || recPos + 56 > size) throw damaged("zip64 record out of range")
+                    val rec = src.readFully(recPos, 56)
+                    if (u32(rec, 0) != Z64_EOCD_SIG) throw damaged("bad zip64 end record")
+                    total = u64(rec, 32); cdSize = u64(rec, 40); cdOff = u64(rec, 48)
+                } else if (cdSize == 0xFFFFFFFFL || cdOff == 0xFFFFFFFFL) {
+                    throw damaged("zip64 locator missing")
+                } // else: exactly 65535 entries in a plain archive; the 32-bit values are valid
             }
+            if (total < 0) throw damaged("invalid entry count")
             if (cdOff < 0 || cdSize < 0 || cdOff + cdSize > eocdPos) throw damaged("central directory out of range")
             if (total > MAX_ENTRIES || cdSize > MAX_CD_BYTES) throw damaged("archive too large ($total entries)")
             val cd = src.readFully(cdOff, cdSize.toInt())
@@ -129,6 +132,7 @@ class ZipReader private constructor(
                     }
                     e += 4 + len
                 }
+                if (csize < 0 || usize < 0 || lho < 0 || lho + 30 > size) throw damaged("invalid size or offset for $name")
                 entries += ZipEntry(name, method, csize, usize, crc, lho, encrypted = flags and 1 != 0)
                 p = extraEnd + commentLen
             }

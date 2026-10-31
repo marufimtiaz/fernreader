@@ -11,7 +11,7 @@ fun ByteStream.readAllBytes(limit: Long): ByteArray {
     var n = 0
     while (true) {
         if (n == buf.size) {
-            if (buf.size.toLong() >= limit) throw ZipFormatException(ZipError.DAMAGED, "entry exceeds $limit bytes")
+            if (buf.size.toLong() > limit) throw ZipFormatException(ZipError.DAMAGED, "entry exceeds $limit bytes")
             buf = buf.copyOf(minOf(buf.size.toLong() * 2, limit + 1).toInt())
         }
         val r = read(buf, n, buf.size - n)
