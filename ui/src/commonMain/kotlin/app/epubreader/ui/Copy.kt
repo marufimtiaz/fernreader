@@ -152,7 +152,7 @@ object Copy {
     const val privacyTitle = "Privacy"
     val privacyPoints = listOf(
         "Everything works without an account and without a network connection.",
-        "The app does not connect to the internet. Links in books open in your browser only after you confirm.",
+        "The app does not connect to the internet.",
         "No analytics, no tracking, no ads.",
         "Books are only read, never changed or uploaded. Backups are files you save yourself.",
     )

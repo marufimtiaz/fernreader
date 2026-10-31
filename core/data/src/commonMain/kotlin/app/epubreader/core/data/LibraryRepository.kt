@@ -1,6 +1,10 @@
 package app.epubreader.core.data
 
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
@@ -22,17 +26,19 @@ data class DeleteResult(val deleted: Int, val failed: Int)
 
 /**
  * [deleteFile] deletes one local file (platform); [onBookFilesDeleted] drops what the app derived from a book's file
- * outside the database (its cover thumbnail).
+ * outside the database (its cover thumbnail, passed in).
  */
 class LibraryRepository(
     private val db: AppDatabase,
     private val clock: HybridClock,
     private val deleteFile: (String) -> Boolean = { false },
-    private val onBookFilesDeleted: (bookId: String) -> Unit = {},
+    private val onBookFilesDeleted: (bookId: String, coverThumb: String?) -> Unit = { _, _ -> },
     /** Whether the app holds a lasting read grant for a content:// source (open-with grants often can't be kept). */
     private val grantPersisted: (uri: String) -> Boolean = { true },
     /** Awaited before recording an open (the start-up [dropSessionFiles] must not remove a source opened just now). */
     private val beforeRecordOpened: suspend () -> Unit = {},
+    /** Where file deletion runs (R-005: never the main thread). */
+    private val io: CoroutineDispatcher = Dispatchers.IO,
 ) : LibraryOps {
     suspend fun knownBookId(ref: SourceRef): String? = db.libraryDao().bookIdForPath(ref.key)
 
@@ -108,8 +114,8 @@ class LibraryRepository(
      * is deleted and the entry removed; reading data stays keyed by the id, so the same book found later resumes.
      * A book with a file that could not be deleted (or a content:// copy) is hidden instead, so it does not return.
      */
-    override suspend fun deleteBooks(bookIds: List<String>, deleteFiles: Boolean): DeleteResult {
-        if (!deleteFiles) { hide(bookIds); return DeleteResult(0, 0) }
+    override suspend fun deleteBooks(bookIds: List<String>, deleteFiles: Boolean): DeleteResult = withContext(io) {
+        if (!deleteFiles) { hide(bookIds); return@withContext DeleteResult(0, 0) }
         val dao = db.libraryDao()
         var deleted = 0; var failed = 0
         for (id in bookIds) {
@@ -119,9 +125,12 @@ class LibraryRepository(
             }
             failed += kept
             dao.deleteCache(id)
-            if (kept == 0) { dao.removeBook(id, clock.now()); onBookFilesDeleted(id) } else hide(listOf(id))
+            if (kept == 0) {
+                val thumb = dao.byId(id)?.coverThumb?.takeIf { it.isNotEmpty() }
+                dao.removeBook(id, clock.now()); onBookFilesDeleted(id, thumb)
+            } else hide(listOf(id))
         }
-        return DeleteResult(deleted, failed)
+        DeleteResult(deleted, failed)
     }
 
     /** F-015 / F-021 details, or null for an unknown id. */

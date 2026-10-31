@@ -3,6 +3,7 @@ package app.epubreader
 import android.app.Application
 import app.epubreader.core.data.Backup
 import app.epubreader.core.data.HybridClock
+import app.epubreader.core.data.seedClock
 import app.epubreader.core.data.LibraryRepository
 import app.epubreader.core.data.PositionWriter
 import app.epubreader.core.data.SearchHistoryStore
@@ -50,7 +51,7 @@ class AppGraph(app: Application) {
     val clock = HybridClock(System::currentTimeMillis)
     val library = LibraryRepository(
         db, clock, deleteFile = { java.io.File(it).delete() }, // F-025 "also delete the file"
-        onBookFilesDeleted = { covers.dropThumb(it) },
+        onBookFilesDeleted = { _, thumb -> thumb?.let { java.io.File(it).delete() } },
         grantPersisted = { uri -> app.contentResolver.persistedUriPermissions.any { it.isReadPermission && it.uri.toString() == uri } },
         beforeRecordOpened = { sessionCleanup.await() },
     )
@@ -58,7 +59,11 @@ class AppGraph(app: Application) {
      * M3 deferred: open-with sources whose grant could not be kept are dropped at process start. Runs first on IO;
      * [LibraryRepository.recordOpened] waits for it so a cold open-with is never dropped.
      */
-    val sessionCleanup: Deferred<Unit> = io.async { runCatching { library.dropSessionFiles() }; Unit }
+    val sessionCleanup: Deferred<Unit> = io.async {
+        runCatching { library.dropSessionFiles() }
+        runCatching { seedClock(db, clock) } // restored stamps may be ahead of this clock (C-011)
+        Unit
+    }
     /** Created on IO when first awaited: PositionWriter.create seeds the clock from the stored positions. */
     val positions: Deferred<PositionWriter> = io.async(start = CoroutineStart.LAZY) { PositionWriter.create(db, clock, io) }
     val server = BookContentServer()

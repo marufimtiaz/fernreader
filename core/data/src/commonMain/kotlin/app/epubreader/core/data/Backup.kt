@@ -53,12 +53,34 @@ class Backup(
         return JSON.encodeToString(BackupFileV1.serializer(), file)
     }
 
-    suspend fun restore(text: String): RestoreResult {
-        val file = parse(text)
-        val newest = (file.books.map { maxOf(it.updatedAt, it.hiddenUpdatedAt) } + file.positions.map { it.updatedAt } + file.collections.map { it.updatedAt } +
-            file.collectionBooks.map { it.updatedAt } + file.settings.map { it.updatedAt }).maxOrNull() ?: 0L
-        clock.observe(newest) // later local changes get later stamps than anything restored
-        return db.useWriterConnection { t -> t.immediateTransaction { merge(file) } }
+    suspend fun restore(text: String): RestoreResult = restore(parse(text))
+
+    /** Restores a file already [parse]d (off the main thread). One transaction: all of it or nothing. */
+    suspend fun restore(parsed: BackupFileV1): RestoreResult {
+        val file = bounded(parsed, clock.wallNow() + MAX_SKEW_MS)
+        val result = db.useWriterConnection { t -> t.immediateTransaction { merge(file) } }
+        // Later local changes get later stamps than anything restored (seedClock repeats this at every start).
+        clock.observe(newestStamp(file))
+        return result
+    }
+
+    private fun newestStamp(f: BackupFileV1): Long =
+        (f.books.map { maxOf(it.updatedAt, it.hiddenUpdatedAt) } + f.positions.map { it.updatedAt } + f.collections.map { it.updatedAt } +
+            f.collectionBooks.map { it.updatedAt } + f.settings.map { it.updatedAt }).maxOrNull() ?: 0L
+
+    /**
+     * Stamps from another device's clock are accepted up to [limit] (a day ahead of this device): a damaged or hostile
+     * file with a far-future stamp would otherwise make its rows impossible to change here.
+     */
+    private fun bounded(f: BackupFileV1, limit: Long): BackupFileV1 {
+        fun b(x: Long) = minOf(x, limit)
+        return f.copy(
+            books = f.books.map { it.copy(updatedAt = b(it.updatedAt), hiddenUpdatedAt = b(it.hiddenUpdatedAt), addedAt = b(it.addedAt), lastOpenedAt = it.lastOpenedAt?.let(::b)) },
+            positions = f.positions.map { it.copy(updatedAt = b(it.updatedAt)) },
+            collections = f.collections.map { it.copy(updatedAt = b(it.updatedAt), createdAt = b(it.createdAt)) },
+            collectionBooks = f.collectionBooks.map { it.copy(updatedAt = b(it.updatedAt)) },
+            settings = f.settings.map { it.copy(updatedAt = b(it.updatedAt)) },
+        )
     }
 
     private suspend fun merge(f: BackupFileV1): RestoreResult {
@@ -67,7 +89,8 @@ class Backup(
         val bookIds = HashMap<String, String>()
         var matched = 0; var waiting = 0
         for (b in f.books) {
-            val local = lib.byIdentity(b.identityKey)
+            // Same stable id = same book (F-115), even if its file changed in place since the backup (new identity, C-009).
+            val local = lib.byIdentity(b.identityKey) ?: lib.byId(b.id)
             if (local != null) {
                 bookIds[b.id] = local.id
                 if (!local.deleted || lib.filesOf(local.id).isNotEmpty()) matched++ else waiting++
@@ -102,7 +125,9 @@ class Backup(
             val bookId = bookIds[p.bookId] ?: continue
             val cur = db.positionDao().anyRow(bookId)
             if (cur == null || p.updatedAt > cur.updatedAt) {
-                db.positionDao().upsert(p.copy(id = cur?.id ?: p.id, bookId = bookId)); positions++
+                // A row id another book already uses here is never taken over (upsert would move that row).
+                val id = cur?.id ?: if (d.positionIdTaken(p.id)) newId() else p.id
+                db.positionDao().upsert(p.copy(id = id, bookId = bookId)); positions++
             }
         }
         // Collections: by id, else by name among this device's live collections (no doubled "Classics").
@@ -140,6 +165,8 @@ class Backup(
     companion object {
         const val FORMAT = "app.epubreader.backup"
         const val VERSION = 1
+        /** How far ahead of this device's clock a restored stamp may be. */
+        const val MAX_SKEW_MS = 86_400_000L
         private val JSON = Json { ignoreUnknownKeys = true; encodeDefaults = true; prettyPrint = false }
 
         /**
@@ -152,6 +179,7 @@ class Backup(
         fun fileName(year: Int, month: Int, day: Int) = "epub-reader-backup-%04d-%02d-%02d.json".format(year, month, day)
 
         fun parse(text: String): BackupFileV1 {
+            if (!text.contains(FORMAT)) throw BackupException.NotABackup("format") // cheap check before building a JSON tree
             var o = runCatching { Json.parseToJsonElement(text) }.getOrNull() as? JsonObject ?: throw BackupException.NotABackup("not JSON")
             if ((o["format"] as? kotlinx.serialization.json.JsonPrimitive)?.content != FORMAT) throw BackupException.NotABackup("format")
             var v = (o["version"] as? kotlinx.serialization.json.JsonPrimitive)?.intOrNull ?: throw BackupException.NotABackup("version")
@@ -162,6 +190,12 @@ class Backup(
         }
     }
 }
+
+/**
+ * Seeds [clock] with the newest stamp stored in any synced table, so every change made in this process is stamped
+ * later than everything already stored, including rows restored from a device whose clock ran ahead (C-011).
+ */
+suspend fun seedClock(db: AppDatabase, clock: HybridClock) { clock.observe(db.backupDao().maxStamp() ?: 0L) }
 
 private fun String.format(vararg a: Any): String {
     // commonMain has no String.format: only %0Nd is used here.
@@ -199,6 +233,14 @@ interface BackupDao {
     @Query("SELECT * FROM setting WHERE `key` = :key") suspend fun setting(key: String): SettingEntity?
     @Upsert suspend fun upsertSetting(s: SettingEntity)
     @Query("SELECT EXISTS(SELECT 1 FROM collection_book WHERE id = :id)") suspend fun membershipIdTaken(id: String): Boolean
+    @Query("SELECT EXISTS(SELECT 1 FROM reading_position WHERE id = :id)") suspend fun positionIdTaken(id: String): Boolean
+    /** The newest change stamp in any synced table (seeds the clock at start, see [seedClock]). */
+    @Query(
+        "SELECT MAX(x) FROM (SELECT MAX(updatedAt) AS x FROM book UNION ALL SELECT MAX(hiddenUpdatedAt) FROM book " +
+            "UNION ALL SELECT MAX(updatedAt) FROM reading_position UNION ALL SELECT MAX(updatedAt) FROM collection " +
+            "UNION ALL SELECT MAX(updatedAt) FROM collection_book UNION ALL SELECT MAX(updatedAt) FROM setting)",
+    )
+    suspend fun maxStamp(): Long?
     @Query("UPDATE book SET hidden = :hidden, hiddenUpdatedAt = :hiddenUpdatedAt, addedAt = :addedAt, lastOpenedAt = :lastOpenedAt, updatedAt = :updatedAt WHERE id = :id")
     suspend fun mergeBook(id: String, hidden: Boolean, hiddenUpdatedAt: Long, addedAt: Long, lastOpenedAt: Long?, updatedAt: Long)
 }

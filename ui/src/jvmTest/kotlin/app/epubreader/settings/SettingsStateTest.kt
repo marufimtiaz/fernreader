@@ -84,9 +84,23 @@ class SettingsStateTest {
 class BackupStateTest {
     private val file = BackupFileV1(createdAt = 1_793_400_000_000, books = emptyList())
 
+    /** Final review I-3: the file is parsed once, off the main thread, and restored from the parsed form. */
+    @Test fun parsing_happens_on_the_compute_dispatcher_once() = runTest {
+        val compute = kotlinx.coroutines.test.StandardTestDispatcher(testScheduler, "compute")
+        var parses = 0; var restoredFrom: BackupFileV1? = null
+        val s = BackupState(parse = { parses++; file }, restore = { f -> restoredFrom = f; RestoreResult(0, 0, 0, 0, 0) }, onRestored = {},
+            scope = backgroundScope, compute = compute)
+        s.offer("{}")
+        assertEquals(0, parses) // not on the caller's (main) thread
+        runCurrent()
+        assertEquals(1, parses); assertNotNull(s.ui.value.offer)
+        s.confirm(); runCurrent()
+        assertEquals(1, parses); assertEquals(file, restoredFrom)
+    }
+
     @Test fun offer_then_restore_reports_the_result_and_reloads() = runTest {
         var reloaded = 0
-        val s = BackupState(parse = { file }, restore = { RestoreResult(3, 1, 3, 1, 2) }, onRestored = { reloaded++ }, scope = backgroundScope)
+        val s = BackupState(parse = { file }, restore = { RestoreResult(3, 1, 3, 1, 2) }, onRestored = { reloaded++ }, scope = backgroundScope, compute = kotlinx.coroutines.test.StandardTestDispatcher(testScheduler))
         s.offer("{}"); runCurrent()
         assertNotNull(s.ui.value.offer)
         s.confirm(); runCurrent()
@@ -97,10 +111,10 @@ class BackupStateTest {
     }
 
     @Test fun a_file_that_is_not_a_backup_shows_why() = runTest {
-        val s = BackupState(parse = { throw BackupException.NotABackup("x") }, restore = { error("not called") }, onRestored = {}, scope = backgroundScope)
+        val s = BackupState(parse = { throw BackupException.NotABackup("x") }, restore = { error("not called") }, onRestored = {}, scope = backgroundScope, compute = kotlinx.coroutines.test.StandardTestDispatcher(testScheduler))
         s.offer("hello"); runCurrent()
         assertNull(s.ui.value.offer); assertEquals(BackupProblem.NOT_A_BACKUP, s.ui.value.problem)
-        val t = BackupState(parse = { throw BackupException.TooNew(2) }, restore = { error("not called") }, onRestored = {}, scope = backgroundScope)
+        val t = BackupState(parse = { throw BackupException.TooNew(2) }, restore = { error("not called") }, onRestored = {}, scope = backgroundScope, compute = kotlinx.coroutines.test.StandardTestDispatcher(testScheduler))
         t.offer("{}"); runCurrent()
         assertEquals(BackupProblem.TOO_NEW, t.ui.value.problem)
     }

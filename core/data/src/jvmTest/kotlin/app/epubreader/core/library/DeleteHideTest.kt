@@ -5,6 +5,7 @@ import app.epubreader.core.data.HybridClock
 import app.epubreader.core.data.LibraryRepository
 import app.epubreader.core.data.testDb
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.runBlocking
 import java.io.File
 import kotlin.test.Test
@@ -19,7 +20,7 @@ class DeleteHideTest {
     private val db = testDb()
     private val clock = HybridClock(System::currentTimeMillis)
     private val gone = mutableListOf<String>()
-    private val repo = LibraryRepository(db, clock, deleteFile = { File(it).delete() }, onBookFilesDeleted = { gone += it })
+    private val repo = LibraryRepository(db, clock, deleteFile = { File(it).delete() }, onBookFilesDeleted = { id, _ -> gone += id })
     private val root = ScanFixtures.folderSet()
     private fun f(rel: String) = File(root, rel)
     private suspend fun scan() = Scanner(db, clock, FileStorageWalker(root.path)).scan(ScanScope.Everywhere)
@@ -67,5 +68,20 @@ class DeleteHideTest {
         scan()
         assertFalse("Folder Test download" in titles()) // not back on the next scan
         assertEquals(listOf(id), repo.hiddenBooks().first().map { it.id })
+    }
+
+    /** Final review I-4: file deletion never runs on the caller's (main) thread. */
+    @Test fun files_are_deleted_on_the_io_dispatcher(): Unit = runBlocking {
+        scan()
+        val id = idOf("Download/download.epub")
+        val threads = mutableListOf<String>()
+        val pool = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "io-test") }
+        val io = pool.asCoroutineDispatcher()
+        try {
+            val r = LibraryRepository(db, clock, deleteFile = { threads += Thread.currentThread().name; File(it).delete() },
+                onBookFilesDeleted = { _, _ -> threads += Thread.currentThread().name }, io = io).deleteBooks(listOf(id), deleteFiles = true)
+            assertEquals(1, r.deleted)
+            assertEquals(2, threads.size); assertTrue(threads.all { it.startsWith("io-test") }, threads.toString())
+        } finally { pool.shutdown() }
     }
 }

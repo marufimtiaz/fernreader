@@ -61,9 +61,6 @@ class CoverExtractor(private val dir: File) {
         null
     }
 
-    /** Every thumbnail of the book (any version). */
-    fun drop(bookId: String) { dir.listFiles()?.filter { it.name.startsWith("$bookId-") || it.name == "$bookId.webp" }?.forEach { it.delete() } }
-
     /** Deletes thumbnails no book points to (replaced versions, books gone). */
     fun sweep(referenced: Set<String>) {
         val files = dir.listFiles()?.map { it.path } ?: return
@@ -114,6 +111,4 @@ class CoverQueue(private val repo: LibraryRepository, private val extractor: Cov
 
     fun fillMissing() { requests.trySend(Unit) }
 
-    /** The book's files were deleted (F-025): its thumbnail goes too. */
-    fun dropThumb(bookId: String) { extractor.drop(bookId) }
 }

@@ -160,8 +160,8 @@ class LibraryViewsTest {
         s.startSelection("moby"); s.toggleSelection("old"); s.deleteSelected(deleteFiles = false); runCurrent()
         assertEquals(listOf(listOf("moby", "old") to false), ops.deleted)
         assertTrue(s.ui.value.selected.isEmpty())
-        assertEquals("Removed 2 books from the library", s.ui.value.message)
+        assertEquals("Removed 2 books from the library", s.messages.receive())
         s.startSelection("alice"); s.deleteSelected(deleteFiles = true); runCurrent()
-        assertEquals("Deleted 1 book and its file", s.ui.value.message)
+        assertEquals("Deleted 1 book and its file", s.messages.receive())
     }
 }

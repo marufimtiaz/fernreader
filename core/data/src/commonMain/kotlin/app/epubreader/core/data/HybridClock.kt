@@ -12,6 +12,9 @@ class HybridClock(private val wall: () -> Long) {
         if (ts > last) last = ts
     }
 
+    /** This device's wall clock (bounds stamps from other devices). */
+    fun wallNow(): Long = wall()
+
     @Synchronized
     fun now(): Long {
         val w = wall()

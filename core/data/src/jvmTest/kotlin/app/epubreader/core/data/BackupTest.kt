@@ -1,5 +1,6 @@
 package app.epubreader.core.data
 
+import androidx.room.useWriterConnection
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
@@ -155,5 +156,54 @@ class BackupTest {
         assertEquals("LIST", SettingsStore(d.db, d.clock).get(SettingsStore.LIBRARY_LAYOUT))
         val o: JsonObject = Json.parseToJsonElement(json).jsonObject
         assertEquals(1, o["version"]!!.jsonPrimitive.content.toInt())
+    }
+
+    /** Final review I-2: a book whose file changed in place keeps its id (C-009); an older backup must not take its position. */
+    @Test fun restoring_an_older_backup_after_an_in_place_change_keeps_the_live_position() = runTest {
+        val x = open(a, "k1-old", "Book X")
+        dbA.positionDao().put(x, "epubcfi(/6/4!/4/2/1:1)", 0.1, 1, clock.now())
+        val older = Backup(dbA, clock).export("t")
+        dbA.useWriterConnection { t -> t.usePrepared("UPDATE book SET identityKey = 'k2-new' WHERE id = '$x'") { it.step() } } // the scanner's in-place identity change (same id)
+        dbA.positionDao().put(x, "epubcfi(/6/6!/4/2/1:1)", 0.3, 2, clock.now())
+        Backup(dbA, clock).restore(older)
+        assertEquals("epubcfi(/6/6!/4/2/1:1)", a.position(x)!!.cfi) // the live book keeps its own (newer) position
+        assertEquals(1, dbA.backupDao().books().size) // same stable id = same book: no pending duplicate
+    }
+
+    @Test fun a_position_id_already_used_by_another_book_is_not_taken_over() = runTest {
+        val alice = open(a, "k-alice", "Alice")
+        dbA.positionDao().put(alice, "epubcfi(/6/4!/4/2/1:1)", 0.1, 1, clock.now())
+        val takenId = dbA.positionDao().get(alice)!!.id
+        val d = Device(); val frank = open(d.repo, "k-frank", "Frank")
+        d.db.positionDao().upsert(ReadingPositionEntity(takenId, frank, "epubcfi(/6/2!/4/2/1:0)", 0.0, 0, 1, false)) // same row id, other book
+        val alice2 = open(d.repo, "k-alice", "Alice")
+        d.backup().restore(Backup(dbA, clock).export("t"))
+        assertEquals("epubcfi(/6/4!/4/2/1:1)", d.repo.position(alice2)!!.cfi)
+        assertEquals("epubcfi(/6/2!/4/2/1:0)", d.repo.position(frank)!!.cfi)
+    }
+
+    /** Final review I-5: restored stamps outlive the process; foreign stamps are bounded. */
+    @Test fun after_a_restart_local_changes_still_win_over_restored_stamps() = runTest {
+        val ahead = System.currentTimeMillis() + 3_600_000 // another device whose clock runs an hour ahead
+        SettingsStore(dbA, HybridClock { ahead }).put(SettingsStore.LIBRARY_SORT, "TITLE")
+        val json = Backup(dbA, clock).export("t")
+        val d = Device()
+        d.backup().restore(json)
+        val restarted = HybridClock(System::currentTimeMillis) // next process
+        seedClock(d.db, restarted)
+        SettingsStore(d.db, restarted).put(SettingsStore.LIBRARY_SORT, "AUTHOR") // the user's newer choice
+        Backup(d.db, restarted).restore(json) // the same backup again
+        assertEquals("AUTHOR", SettingsStore(d.db, restarted).get(SettingsStore.LIBRARY_SORT))
+    }
+
+    @Test fun absurd_future_stamps_are_bounded() = runTest {
+        val json = Backup(dbA, clock).export("t").replace("\"settings\":[]", "\"settings\":[{\"id\":\"s9\",\"key\":\"library.sort\",\"json\":\"\\\"TITLE\\\"\",\"updatedAt\":${Long.MAX_VALUE},\"deleted\":false}]")
+        val d = Device()
+        d.backup().restore(json)
+        assertEquals("TITLE", SettingsStore(d.db, d.clock).get(SettingsStore.LIBRARY_SORT))
+        assertTrue(d.db.backupDao().settings().single().updatedAt < System.currentTimeMillis() + 2 * 86_400_000L)
+        SettingsStore(d.db, d.clock).put(SettingsStore.LIBRARY_SORT, "AUTHOR")
+        assertEquals("AUTHOR", SettingsStore(d.db, d.clock).get(SettingsStore.LIBRARY_SORT))
+        assertTrue(d.clock.now() > 0) // no overflow
     }
 }

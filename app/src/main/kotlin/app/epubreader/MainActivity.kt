@@ -48,7 +48,8 @@ import app.epubreader.ui.Copy
 import app.epubreader.ui.Navigator
 import app.epubreader.ui.Route
 
-private const val MAX_BACKUP_BYTES = 64 shl 20
+/** A backup of thousands of books is a few MB; anything far larger is not one of ours. */
+private const val MAX_BACKUP_BYTES = 16 shl 20
 
 class MainActivity : ComponentActivity() {
     lateinit var reader: ReaderEngine
@@ -164,7 +165,7 @@ class MainActivity : ComponentActivity() {
             rescan = graph.scans::rescan, scope = lifecycleScope,
         )
         backupState = app.epubreader.settings.BackupState(
-            parse = app.epubreader.core.data.Backup::parse, restore = graph.backup::restore, scope = lifecycleScope,
+            parse = app.epubreader.core.data.Backup::parse, restore = { f -> graph.backup.restore(f) }, scope = lifecycleScope,
             onRestored = {
                 // Settings held in memory follow the restored values at once (F-100: no restart).
                 val rs = app.epubreader.core.data.ReaderSettings.decode(withContext(Dispatchers.IO) { graph.settings.get(app.epubreader.core.data.ReaderSettings.KEY) })

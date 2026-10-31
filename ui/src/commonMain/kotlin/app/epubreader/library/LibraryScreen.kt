@@ -126,7 +126,7 @@ fun LibraryScreen(state: LibraryState, actions: LibraryActions, probe: EventProb
     }
     LaunchedEffect(ui.drawerOpen) { if (ui.drawerOpen) drawer.open() else drawer.close() }
     LaunchedEffect(drawer) { snapshotFlow { drawer.currentValue }.collect { state.setDrawer(it == DrawerValue.Open) } }
-    ui.message?.let { m -> LaunchedEffect(m) { state.messageShown(); snackbar.showSnackbar(m) } }
+    LaunchedEffect(state) { for (m in state.messages) snackbar.showSnackbar(m) } // one at a time, each shown in full
 
     ModalNavigationDrawer(
         drawerState = drawer, gesturesEnabled = ui.drawerOpen,

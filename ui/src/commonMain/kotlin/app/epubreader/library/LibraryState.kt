@@ -20,6 +20,8 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.ReceiveChannel
 import app.epubreader.ui.Copy
 
 enum class LibraryLayout { GRID, LIST }
@@ -62,8 +64,6 @@ data class LibraryUi(
     val folderViewEnabled: Boolean = false,
     val folderTree: List<FolderNode> = emptyList(),
     val includeSubfolders: Boolean = false,
-    /** A short confirmation ("Added 3 books to Classics"), shown once. */
-    val message: String? = null,
 )
 
 /**
@@ -88,8 +88,7 @@ class LibraryState(
     private data class Prefs(val query: String = "", val layout: LibraryLayout = LibraryLayout.GRID, val sort: LibrarySort = LibrarySort.RECENT,
                              val dismissed: ScanEvent.Complete? = null, val missing: LibraryBook? = null, val loaded: Boolean = false,
                              val views: List<LibraryView> = listOf(LibraryView.All), val selected: Set<String> = emptySet(),
-                             val drawerOpen: Boolean = false, val includeSubfolders: Boolean = false, val collapsed: Set<String> = emptySet(),
-                             val message: String? = null)
+                             val drawerOpen: Boolean = false, val includeSubfolders: Boolean = false, val collapsed: Set<String> = emptySet())
     private val prefs = MutableStateFlow(Prefs())
     /** Every library book, unfiltered (pickers and the delete dialog's file count). */
     val allBooks: Flow<List<LibraryBook>> = books
@@ -118,7 +117,6 @@ class LibraryState(
             selected = p.selected.filterTo(LinkedHashSet()) { it in visible },
             drawerOpen = p.drawerOpen, nested = p.views.size > 2, folderViewEnabled = folderOn, includeSubfolders = p.includeSubfolders,
             folderTree = if (view == LibraryView.Folders) FolderTree.build(folderCounts(all), p.collapsed) else emptyList(),
-            message = p.message,
         )
     }.flowOn(compute).stateIn(scope, SharingStarted.Eagerly, LibraryUi()) // R-005: sorting off the main thread
 
@@ -147,7 +145,10 @@ class LibraryState(
     fun setDrawer(open: Boolean) = edit { it.copy(drawerOpen = open) }
     fun setIncludeSubfolders(on: Boolean) = edit { it.copy(includeSubfolders = on) }
     fun toggleFolder(path: String) = edit { it.copy(collapsed = if (path in it.collapsed) it.collapsed - path else it.collapsed + path) }
-    fun messageShown() = edit { it.copy(message = null) }
+    private val _messages = Channel<String>(Channel.BUFFERED)
+    /** Short confirmations ("Added 3 books to “Classics”"), each shown once by the screen's snackbar. */
+    val messages: ReceiveChannel<String> = _messages
+    private fun say(m: String) { _messages.trySend(m) }
 
     /** System Back inside the library: closes the drawer, ends selection, leaves a view. False: nothing left to undo. */
     fun back(): Boolean {
@@ -176,7 +177,7 @@ class LibraryState(
         scope.launch {
             val ops = ops ?: return@launch
             val id = ops.createCollection(name)
-            if (ids.isNotEmpty()) { ops.addToCollection(id, ids); edit { it.copy(message = Copy.added(ids.size, name.trim())) } }
+            if (ids.isNotEmpty()) { ops.addToCollection(id, ids); say(Copy.added(ids.size, name.trim())) }
         }
     }
     fun renameCollection(id: String, name: String) { scope.launch { ops?.renameCollection(id, name) } }
@@ -187,7 +188,7 @@ class LibraryState(
     fun addSelectedTo(collectionId: String) {
         val ids = takeSelection()
         val name = ui.value.collections.firstOrNull { it.id == collectionId }?.name ?: ""
-        scope.launch { ops?.addToCollection(collectionId, ids); edit { it.copy(message = Copy.added(ids.size, name)) } }
+        scope.launch { ops?.addToCollection(collectionId, ids); say(Copy.added(ids.size, name)) }
     }
     /** F-026 "add books from a picker inside the collection". */
     fun addToCurrentCollection(bookIds: List<String>) {
@@ -208,7 +209,7 @@ class LibraryState(
         if (ids.isEmpty()) return
         scope.launch {
             val r = ops?.deleteBooks(ids, deleteFiles) ?: return@launch
-            edit { it.copy(message = Copy.deletedMessage(ids.size, deleteFiles, r.failed)) }
+            say(Copy.deletedMessage(ids.size, deleteFiles, r.failed))
         }
     }
 
