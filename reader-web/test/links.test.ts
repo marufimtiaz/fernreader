@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { externalHref, isNoteTarget, noteElement, noteRef, sanitizeNote } from '../src/reader/links'
+import { externalHref, isNoteTarget, noteElement, noteLinkResolver, noteRef, sanitizeNote } from '../src/reader/links'
 
 const OPS = 'http://www.idpf.org/2007/ops'
 /** An XHTML section document like the book's (epub:type needs the OPS namespace). */
@@ -74,5 +74,25 @@ describe('sanitizeNote (R-007)', () => {
     const d = xhtml(`<ol><li id="n">Item <i>note</i></li></ol>`)
     const box = document.createElement('div'); box.append(sanitizeNote(d.getElementById('n')!, document, resolve))
     expect(box.innerHTML).toBe('Item <i>note</i>')
+  })
+})
+
+describe('noteLinkResolver (popup links, M2)', () => {
+  // foliate's section.resolveHref resolves against the section's path and drops the query string (resolveURL)
+  const section = { resolveHref: (h: string) => { const u = new URL(h, 'http://book/OEBPS/notes.xhtml'); u.search = ''; return u.href.replace('http://book/', '') } }
+  it('absolute links keep their query string and are not resolved against the section', () => {
+    const r = noteLinkResolver(section)
+    expect(r('https://example.org/find?q=x')).toBe('https://example.org/find?q=x')
+    expect(r('mailto:a@example.org?subject=Hi')).toBe('mailto:a@example.org?subject=Hi')
+    expect(r('HTTP://Example.org/a?b=c#d')).toBe('HTTP://Example.org/a?b=c#d')
+  })
+  it('relative links are resolved against the note\'s section', () => {
+    const r = noteLinkResolver(section)
+    expect(r('ch1.xhtml#r5')).toBe('OEBPS/ch1.xhtml#r5')
+    expect(r('../Text/c2.xhtml')).toBe('Text/c2.xhtml')
+  })
+  it('no section or a failing resolver keeps the href as written', () => {
+    expect(noteLinkResolver(undefined)('ch1.xhtml')).toBe('ch1.xhtml')
+    expect(noteLinkResolver({ resolveHref: () => { throw new Error('bad') } })('ch1.xhtml')).toBe('ch1.xhtml')
   })
 })

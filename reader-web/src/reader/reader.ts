@@ -10,7 +10,7 @@ import { polyfillMfenced } from './mathml'
 import { shareSections } from './sections'
 import { resolveTextRange } from './textpos'
 import { effectiveDir, reportSwipes, swipeToTurn } from './swipe'
-import { externalHref, isNoteTarget, noteElement, noteRef, sanitizeNote } from './links'
+import { externalHref, isNoteTarget, noteElement, noteLinkResolver, noteRef, sanitizeNote } from './links'
 import { FootnotePopup } from './footnote'
 import { visibleBookmarks } from './bookmarks'
 import { readSelection, SelectionReporter } from './selection'
@@ -631,7 +631,7 @@ export class Reader {
       const el = typeof found === 'object' ? noteElement(found) : null
       if (el && el !== doc!.body && (ref !== 'no' || isNoteTarget(el))) {
         const section = book.sections[target.index]
-        const content = sanitizeNote(el, document, h => { try { return section?.resolveHref?.(h) ?? h } catch { return h } })
+        const content = sanitizeNote(el, document, noteLinkResolver(section))
         this.popup.show(content, this.settings)
         this.sendFootnote(true)
         return

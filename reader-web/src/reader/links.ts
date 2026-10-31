@@ -88,6 +88,18 @@ const DROP = new Set([
 const ATTRS = new Set(['dir', 'lang', 'colspan', 'rowspan'])
 
 /**
+ * How a link inside a footnote popup is resolved: an absolute URL (any scheme) is kept exactly as written (foliate's
+ * section `resolveHref` would drop its query string), anything else is resolved against the note's [section]. A
+ * resolver that fails, or no section, keeps the href as written.
+ */
+export function noteLinkResolver(section: { resolveHref?(href: string): string | null | undefined } | undefined): (href: string) => string {
+  return href => {
+    if (/^[a-z][\w+.-]*:/i.test(href)) return href
+    try { return section?.resolveHref?.(href) ?? href } catch { return href }
+  }
+}
+
+/**
  * A copy of a note's content for the host page: element and text nodes only, an allow-list of plain markup, no
  * attributes but `dir`/`lang`/spans; images become their alt text; SVG and MathML are left out. Links lose their href
  * (a click in the host page must never navigate it) and keep their target, resolved against the note's section by
