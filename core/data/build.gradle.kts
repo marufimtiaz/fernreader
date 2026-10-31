@@ -14,6 +14,10 @@ kotlin {
         compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) }
     }
     jvm { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
+    @OptIn(org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi::class)
+    applyDefaultHierarchyTemplate {
+        common { group("jvmShared") { withJvm(); withCompilations { it.target.platformType == org.jetbrains.kotlin.gradle.plugin.KotlinPlatformType.androidJvm } } }
+    }
     sourceSets {
         commonMain.dependencies {
             implementation(project(":core:epub"))
@@ -36,3 +40,10 @@ dependencies {
 }
 
 room { schemaDirectory("$projectDir/schemas") }
+
+// Scanner tests build folder trees from the generated corpus (see core/epub generateTestCorpus).
+tasks.withType<Test>().configureEach {
+    dependsOn(":core:epub:generateTestCorpus")
+    systemProperty("corpus.dir", project(":core:epub").layout.buildDirectory.dir("test-corpus").get().asFile.absolutePath)
+    systemProperty("fullcorpus.dir", rootProject.layout.projectDirectory.dir("corpus").asFile.absolutePath)
+}

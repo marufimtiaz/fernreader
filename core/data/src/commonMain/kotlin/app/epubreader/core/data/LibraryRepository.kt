@@ -24,4 +24,18 @@ class LibraryRepository(private val db: AppDatabase, private val clock: HybridCl
     }
 
     suspend fun forget(ref: SourceRef) = db.libraryDao().forgetOpened(ref.key)
+
+    fun library(): Flow<List<LibraryBook>> = db.libraryDao().library().map { rows ->
+        rows.map {
+            LibraryBook(
+                it.id, it.title, it.authors.split('\n').filter(String::isNotBlank), it.titleDirection, it.coverThumb, it.addedAt,
+                it.lastOpenedAt, it.sortTitle, it.sortAuthor, it.path, it.paths.split('\n'),
+            )
+        }
+    }
+
+    fun failures(): Flow<List<ScanFailureEntity>> = db.libraryDao().failures()
+    suspend fun removeBook(bookId: String) = db.libraryDao().removeBook(bookId, clock.now())
+    suspend fun setCover(bookId: String, thumbPath: String?) = db.libraryDao().setCover(bookId, thumbPath)
+    suspend fun booksWithoutCover(): List<String> = db.libraryDao().booksWithoutCover()
 }

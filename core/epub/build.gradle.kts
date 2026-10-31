@@ -32,7 +32,7 @@ val generateTestCorpus by tasks.registering(Exec::class) {
     commandLine("bash", "-c", """
         set -e
         python3 -I '$tools/gen_stress.py' '${testCorpusDir.get().asFile}/generated'
-        python3 -I '$tools/gen_folder_books.py' '${testCorpusDir.get().asFile}/folders' download documents dup upper renamed moved
+        python3 -I '$tools/gen_folder_books.py' '${testCorpusDir.get().asFile}/folders' download documents dup upper renamed moved nested3 unicode hidden nomedia androidmedia deletedfolder livetest insidecustom outsidecustom
         printf 'not an epub at all\n' > '${testCorpusDir.get().asFile}/folders/fake.epub'
     """.trimIndent())
 }
