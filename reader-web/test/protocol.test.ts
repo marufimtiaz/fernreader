@@ -7,7 +7,7 @@ import type { ToWeb } from '../src/bridge/protocol'
 const fixture = (n: string) => readFileSync(resolve(__dirname, `../../bridge/fixtures/${n}.json`), 'utf8').trim()
 
 describe('protocol v1', () => {
-  it.each(['open', 'close', 'next', 'prev', 'goTo', 'goToSeek', 'setSettings', 'goToFraction', 'goToText', 'clearSearchHighlight', 'back', 'closeFootnote', 'setBookmarks'])('dispatches %s to handlers unchanged', name => {
+  it.each(['open', 'close', 'next', 'prev', 'goTo', 'goToSeek', 'setSettings', 'goToFraction', 'goToText', 'clearSearchHighlight', 'back', 'closeFootnote', 'setBookmarks', 'addAnnotation', 'clearSelection'])('dispatches %s to handlers unchanged', name => {
     const seen: ToWeb[] = []
     const b = new Bridge(vi.fn())
     b.onMessage(m => seen.push(m))
@@ -30,8 +30,21 @@ describe('protocol v1', () => {
     const h = vi.fn(); const b = new Bridge(vi.fn()); b.onMessage(h)
     b.receive(json); expect(h).not.toHaveBeenCalled()
   })
-  it.each(['opened', 'relocate', 'painted', 'seeked', 'tap', 'error', 'pageCounts', 'history', 'footnote', 'externalLink', 'pageBookmarks'])('%s fixture is well-formed JSON with v and type', name => {
+  it.each(['opened', 'relocate', 'painted', 'seeked', 'tap', 'error', 'pageCounts', 'history', 'footnote', 'externalLink', 'pageBookmarks', 'selection'])('%s fixture is well-formed JSON with v and type', name => {
     const m = JSON.parse(fixture(name)); expect(m.v).toBe(1); expect(m.type).toBe(name)
+  })
+  it('the cleared selection fixture is a selection without a CFI', () => {
+    const m = JSON.parse(fixture('selectionCleared')); expect(m.type).toBe('selection'); expect(m.cfi).toBeNull(); expect(m.text).toBe('')
+  })
+  it.each([
+    '{"v":1,"type":"addAnnotation","sessionId":"s","id":"a","cfi":"c","color":"yellow"}',
+    '{"v":1,"type":"addAnnotation","sessionId":"s","id":"a","cfi":"c","color":"yellow","style":"strike"}',
+    '{"v":1,"type":"addAnnotation","sessionId":"s","id":1,"cfi":"c","color":"yellow","style":"highlight"}',
+    '{"v":1,"type":"addAnnotation","id":"a","cfi":"c","color":"yellow","style":"highlight"}',
+    '{"v":1,"type":"addAnnotation","sessionId":"s","id":"a","color":"yellow","style":"underline"}',
+  ])('drops malformed addAnnotation %s', json => {
+    const h = vi.fn(); const b = new Bridge(vi.fn()); b.onMessage(h)
+    b.receive(json); expect(h).not.toHaveBeenCalled()
   })
   it.each([
     '{"v":1,"type":"open","sessionId":"x"}',

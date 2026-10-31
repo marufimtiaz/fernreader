@@ -12,6 +12,8 @@ import { effectiveDir, swipeToTurn } from './swipe'
 import { externalHref, isNoteTarget, noteElement, noteRef, sanitizeNote } from './links'
 import { FootnotePopup } from './footnote'
 import { visibleBookmarks } from './bookmarks'
+import { readSelection, SelectionReporter } from './selection'
+import { annotationDraw, type AnnotationStyle, type DrawnAnnotation } from './annotations'
 import { applySettings as applyStyles, DEFAULT_SETTINGS, readerCss, THEMES, type WebSettings } from './styles'
 
 /* foliate-js is untyped JS; keep `any` at this boundary only. */
@@ -64,6 +66,20 @@ export class Reader {
   private links: string[] = []
   /** F-043 note popup in the host page. */
   private readonly popup = new FootnotePopup(document, href => this.onPopupLink(href), () => this.sendFootnote(false))
+  /** F-060: the settled text selection, reported to the app (its selection menu acts on it). */
+  private readonly selection = new SelectionReporter(
+    () => readSelection(this.view?.renderer?.getContents?.() ?? [], (i, r) => this.view.getCFI(i, r)),
+    s => {
+      const sessionId = this.sessionId
+      if (!sessionId) return
+      this.bridge.send(s ? { v: 1, type: 'selection', sessionId, ...s } : { v: 1, type: 'selection', sessionId, text: '', cfi: null, sectionIndex: -1 })
+    },
+  )
+  /**
+   * F-060/F-061: the user annotations sent by the app this session, by CFI (foliate's annotation key), drawn by the
+   * view's overlayer and drawn again whenever their section gets a new one. Task 8 builds the full list on this.
+   */
+  private annotations = new Map<string, DrawnAnnotation>()
 
   constructor(private bridge: Bridge) {
     // Read-only probes for the app's instrumented tests (evaluateJavascript); nothing in the app calls them.
@@ -135,6 +151,31 @@ export class Reader {
         }
         return false
       },
+      /**
+       * F-060: host-viewport rectangle (CSS px, with dpr/vw/vh like linkRect) of the first whole-word occurrence of
+       * [word] that is fully on screen in the shown sections, or null; a test long-presses it for real.
+       */
+      wordRect: (word: string) => {
+        const hit = this.findWord(word)
+        if (!hit) return null
+        return { x: hit.x, y: hit.y, w: hit.w, h: hit.h, index: hit.index, dpr: window.devicePixelRatio, vw: window.innerWidth, vh: window.innerHeight }
+      },
+      /** F-060: selects the first on-screen occurrence of [word] programmatically (as a long-press would); false if none. */
+      selectWord: (word: string) => {
+        const hit = this.findWord(word)
+        if (!hit) return false
+        const sel = hit.range.startContainer.ownerDocument!.getSelection()!
+        sel.removeAllRanges(); sel.addRange(hit.range)
+        return true
+      },
+      /** F-060: `Selection.toString()` of the section document holding a selection, or null. */
+      selectionText: () => {
+        for (const c of this.view?.renderer?.getContents?.() ?? []) {
+          const sel = c.doc?.getSelection?.()
+          if (sel && !sel.isCollapsed) return sel.toString()
+        }
+        return null
+      },
       overlayCount: (index: number) => this.view?.renderer?.getContents?.().find((x: any) => x.index === index)?.overlayer?.element?.childElementCount ?? -1,
     }
     // A new viewport (rotation, window size) is a new layout: count again (F-034, P-022).
@@ -155,6 +196,8 @@ export class Reader {
         case 'back': this.back(); break
         case 'closeFootnote': if (this.popup.close()) this.sendFootnote(false); break
         case 'setBookmarks': this.setBookmarks(m.sessionId, m.cfis); break
+        case 'addAnnotation': this.addAnnotation(m.sessionId, m.id, m.cfi, m.color, m.style); break
+        case 'clearSelection': this.clearSelection(); break
       }
     })
   }
@@ -163,6 +206,8 @@ export class Reader {
     this.close()
     this.sessionId = sessionId
     this.bookmarks = []
+    this.annotations = new Map()
+    this.selection.reset()
     const token = ++this.token
     const stale = () => this.token !== token
     let settle!: () => void
@@ -199,9 +244,18 @@ export class Reader {
       view.addEventListener('relocate', (e: CustomEvent) => this.onRelocate(view, sessionId, e.detail))
       view.addEventListener('load', (e: CustomEvent) => { applySettings(e.detail.doc, this.settings); this.onLoad(sessionId, e.detail.doc) })
       view.addEventListener('draw-annotation', (e: CustomEvent) => {
-        if (e.detail.annotation?.value === this.search?.cfi) e.detail.draw(Overlayer.highlight, { color: SEARCH_COLOR })
+        const value = e.detail.annotation?.value
+        if (value === this.search?.cfi) { e.detail.draw(Overlayer.highlight, { color: SEARCH_COLOR }); return }
+        const a = this.annotations.get(value)
+        if (!a) return
+        const d = annotationDraw(a.style, a.color)
+        if (d.kind === 'underline') e.detail.draw(Overlayer.underline, { color: d.color, width: 2 })
+        else e.detail.draw(Overlayer.highlight, { color: d.color })
       })
-      view.addEventListener('create-overlay', (e: CustomEvent) => { if (this.search && e.detail.index === this.search.index) this.drawSearch(view) })
+      view.addEventListener('create-overlay', (e: CustomEvent) => {
+        if (this.search && e.detail.index === this.search.index) this.drawSearch(view)
+        for (const a of this.annotations.values()) if (a.index === e.detail.index || a.index < 0) this.drawAnnotation(view, a)
+      })
       // foliate's link handling (view.js #handleLinks) finds the link and emits these; the host decides what happens.
       view.addEventListener('link', (e: CustomEvent) => { e.preventDefault(); void this.onLink(view, sessionId, e.detail?.a, e.detail?.href) })
       view.addEventListener('external-link', (e: CustomEvent) => { e.preventDefault(); this.onExternal(sessionId, e.detail?.href_) })
@@ -446,6 +500,53 @@ export class Reader {
     this.bridge.send({ v: 1, type: 'pageBookmarks', sessionId, cfis: this.seeking || !at ? [] : visibleBookmarks(cfis, at) })
   }
 
+  /** Test probe helper: the first whole-word occurrence of [word] fully inside the host viewport. */
+  private findWord(word: string): { range: Range; index: number; x: number; y: number; w: number; h: number } | null {
+    const re = new RegExp(`(^|[^\\p{L}\\p{N}])(${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})(?=$|[^\\p{L}\\p{N}])`, 'u')
+    for (const c of this.view?.renderer?.getContents?.() ?? []) {
+      const doc: Document | undefined = c.doc
+      if (!doc?.body) continue
+      const box = (doc.defaultView?.frameElement as HTMLElement | null)?.getBoundingClientRect()
+      const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT)
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        const m = re.exec(n.nodeValue ?? '')
+        if (!m) continue
+        const start = m.index + m[1].length
+        const range = doc.createRange(); range.setStart(n, start); range.setEnd(n, start + word.length)
+        const r = range.getClientRects()[0]
+        if (!r) continue
+        const x = (box?.left ?? 0) + r.left, y = (box?.top ?? 0) + r.top
+        if (x >= 0 && y >= 0 && x + r.width <= window.innerWidth && y + r.height <= window.innerHeight) return { range, index: c.index, x, y, w: r.width, h: r.height }
+      }
+    }
+    return null
+  }
+
+  /** F-060/F-061: draws (or redraws, same id) a user annotation of the open book. */
+  private addAnnotation(sessionId: string, id: string, cfi: string, color: string, style: AnnotationStyle) {
+    const view = this.view
+    if (this.sessionId !== sessionId || !view) return
+    const old = [...this.annotations.values()].find(a => a.id === id)
+    if (old && old.cfi !== cfi) { this.annotations.delete(old.cfi); void view.deleteAnnotation({ value: old.cfi })?.catch?.(() => {}) }
+    const a: DrawnAnnotation = { id, cfi, color, style, index: old?.cfi === cfi ? old.index : -1 }
+    this.annotations.set(cfi, a)
+    this.drawAnnotation(view, a)
+  }
+
+  private drawAnnotation(view: any, a: DrawnAnnotation) {
+    Promise.resolve(view.addAnnotation({ value: a.cfi }))
+      .then((r: { index?: number } | undefined) => { if (typeof r?.index === 'number' && this.annotations.get(a.cfi) === a) a.index = r.index })
+      .catch((e: unknown) => console.warn('annotation not drawn', e))
+  }
+
+  /** F-060: after a selection menu action the selection goes away (every loaded section). */
+  private clearSelection() {
+    for (const c of this.view?.renderer?.getContents?.() ?? []) {
+      try { c.doc?.getSelection?.()?.removeAllRanges() } catch { /* a document being unloaded */ }
+    }
+    this.selection.changed()
+  }
+
   /**
    * A finished one-finger gesture in paginated flow, reported by the paginator (`host-swipe`, PATCHES.md): one recognised
    * swipe = one queued turn, so a swipe during a running turn or before the first layout settled is not lost (C-026).
@@ -530,10 +631,18 @@ export class Reader {
     if (this.sessionId) this.bridge.send({ v: 1, type: 'footnote', sessionId: this.sessionId, open })
   }
 
-  /** Center-tap detection for the chrome (F-033); edge taps are page turns when tap zones are on (decided in Kotlin). */
+  /**
+   * Center-tap detection for the chrome (F-033); edge taps are page turns when tap zones are on (decided in Kotlin).
+   * A tap that only dismisses a text selection (it was there when the finger went down; the browser collapses it before
+   * the click) is not a tap for the app (F-060). Selection changes are reported to the app once settled.
+   */
   private onLoad(sessionId: string, doc: Document) {
+    let dismissing = false
+    doc.addEventListener('pointerdown', () => { const sel = doc.getSelection?.(); dismissing = !!sel && !sel.isCollapsed })
+    doc.addEventListener('selectionchange', () => { if (this.sessionId === sessionId) this.selection.changed() })
     doc.addEventListener('click', (e: MouseEvent) => {
       if (this.sessionId !== sessionId) return
+      if (dismissing) { dismissing = false; return }
       if ((e.target as Element | null)?.closest?.('a[href]')) return
       if (doc.getSelection && !doc.getSelection()!.isCollapsed) return
       const frame = doc.defaultView?.frameElement as HTMLElement | null
@@ -552,6 +661,8 @@ export class Reader {
    */
   private close() {
     this.bookmarks = []
+    this.annotations = new Map()
+    this.selection.reset()
     this.token++ // invalidates any open still in flight
     if (this.countTimer) { clearTimeout(this.countTimer); this.countTimer = null }
     this.counter?.stop(); this.counter = null

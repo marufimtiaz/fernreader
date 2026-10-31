@@ -23,8 +23,15 @@ export type ToWeb =
   | { v: 1; type: 'closeFootnote' }
   /** F-041: the book's bookmarks (virtual CFIs, book order); the web side reports which are on the visible page. */
   | { v: 1; type: 'setBookmarks'; sessionId: string; cfis: string[] }
+  /**
+   * F-060/F-061: draw a user annotation ([cfi] virtual range CFI, [color] a HIGHLIGHT_COLORS id). Sent again with the
+   * same [id] to change it; drawn until the book closes.
+   */
+  | { v: 1; type: 'addAnnotation'; sessionId: string; id: string; cfi: string; color: string; style: 'highlight' | 'underline' }
+  /** F-060: remove the text selection (after a selection menu action). */
+  | { v: 1; type: 'clearSelection' }
 
-export const TO_WEB_TYPES: ReadonlyArray<ToWeb['type']> = ['ping', 'open', 'close', 'next', 'prev', 'goTo', 'setSettings', 'goToFraction', 'goToText', 'clearSearchHighlight', 'back', 'closeFootnote', 'setBookmarks']
+export const TO_WEB_TYPES: ReadonlyArray<ToWeb['type']> = ['ping', 'open', 'close', 'next', 'prev', 'goTo', 'setSettings', 'goToFraction', 'goToText', 'clearSearchHighlight', 'back', 'closeFootnote', 'setBookmarks', 'addAnnotation', 'clearSelection']
 
 export type FromWeb =
   | { v: 1; type: 'ready'; engine: string }
@@ -49,3 +56,8 @@ export type FromWeb =
   | { v: 1; type: 'externalLink'; sessionId: string; href: string }
   /** F-041: answer to `setBookmarks`: the bookmarks on the page now visible (same strings as sent). */
   | { v: 1; type: 'pageBookmarks'; sessionId: string; cfis: string[] }
+  /**
+   * F-060: the text selection settled (debounced): [text] exactly Selection.toString(), [cfi] its virtual range CFI,
+   * [sectionIndex] its section. Cleared (collapsed, or gone): text '', cfi null, sectionIndex -1.
+   */
+  | { v: 1; type: 'selection'; sessionId: string; text: string; cfi: string | null; sectionIndex: number }

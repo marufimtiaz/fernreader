@@ -695,3 +695,96 @@ describe('bookmarks on the visible page (F-041)', () => {
     expect(rel.bookmarks).toBeUndefined()
   })
 })
+
+describe('selection and annotations (F-060)', () => {
+  /** A section document with a browsing context (Selection works), loaded into the view like foliate does. */
+  const section = (v: FakeView, index: number, body: string) => {
+    const f = document.createElement('iframe'); document.body.append(f)
+    const d = f.contentDocument!; d.body.innerHTML = body
+    const prev = v.renderer.getContents
+    const list = [...(prev?.() ?? []), { index, doc: d }]
+    v.renderer.getContents = () => list
+    v.dispatchEvent(new CustomEvent('load', { detail: { doc: d, index } }))
+    return d
+  }
+  const selectIn = (d: Document, start: number, end: number) => {
+    const t = d.querySelector('p')!.firstChild!
+    const r = d.createRange(); r.setStart(t, start); r.setEnd(t, end)
+    d.getSelection()!.removeAllRanges(); d.getSelection()!.addRange(r)
+    d.dispatchEvent(new Event('selectionchange'))
+  }
+  const wait = (ms: number) => new Promise(r => setTimeout(r, ms))
+  const ofType = <T extends FromWeb['type']>(t: T) => sent.filter(m => m.type === t) as Extract<FromWeb, { type: T }>[]
+  const opened = async () => { open('s1', null); await settle(); sent = []; return FakeView.all[0] }
+
+  it('a settled selection is sent with its exact text, range CFI and section; a collapse sends cleared', async () => {
+    const v = await opened()
+    const d = section(v, 2, '<p>The quick brown fox</p>')
+    selectIn(d, 4, 10)
+    expect(ofType('selection')).toEqual([]) // debounced
+    await wait(200)
+    expect(ofType('selection')).toEqual([{ v: 1, type: 'selection', sessionId: 's1', text: 'quick ', cfi: 'cfi-hit:quick ', sectionIndex: 2 }])
+    d.getSelection()!.removeAllRanges(); d.dispatchEvent(new Event('selectionchange'))
+    await wait(200)
+    expect(ofType('selection')[1]).toEqual({ v: 1, type: 'selection', sessionId: 's1', text: '', cfi: null, sectionIndex: -1 })
+  })
+
+  it('clearSelection removes the selection in every loaded section and reports it cleared', async () => {
+    const v = await opened()
+    const d = section(v, 1, '<p>Some words here</p>')
+    selectIn(d, 0, 4); await wait(200)
+    send({ v: 1, type: 'clearSelection' })
+    expect(d.getSelection()!.isCollapsed).toBe(true)
+    await wait(200)
+    expect(ofType('selection').map(m => m.cfi)).toEqual(['cfi-hit:Some', null])
+  })
+
+  it('a tap that dismisses a selection is not a tap for the app (no controls, no turn)', async () => {
+    const v = await opened()
+    const d = section(v, 1, '<p>Some words here</p>')
+    selectIn(d, 0, 4)
+    d.dispatchEvent(new Event('pointerdown'))
+    d.getSelection()!.removeAllRanges() // the browser collapses it before the click arrives
+    d.body.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 10, clientY: 10 }))
+    expect(ofType('tap')).toEqual([])
+    d.dispatchEvent(new Event('pointerdown'))
+    d.body.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 10, clientY: 10 }))
+    expect(ofType('tap').length).toBe(1) // the next tap, without a selection, is one
+  })
+
+  it('addAnnotation draws a highlight or an underline in its colour; other sessions are ignored', async () => {
+    const { Overlayer } = await import('../vendor/foliate-js/overlayer.js')
+    const v = await opened()
+    send({ v: 1, type: 'addAnnotation', sessionId: 'other', id: 'x', cfi: 'cfi-x', color: 'green', style: 'highlight' })
+    expect(v.addAnnotation).not.toHaveBeenCalled()
+    send({ v: 1, type: 'addAnnotation', sessionId: 's1', id: 'a1', cfi: 'cfi-a', color: 'green', style: 'highlight' })
+    send({ v: 1, type: 'addAnnotation', sessionId: 's1', id: 'a2', cfi: 'cfi-b', color: 'blue', style: 'underline' })
+    await settle()
+    expect(v.addAnnotation).toHaveBeenCalledWith({ value: 'cfi-a' })
+    expect(v.addAnnotation).toHaveBeenCalledWith({ value: 'cfi-b' })
+    const draw = vi.fn()
+    v.dispatchEvent(new CustomEvent('draw-annotation', { detail: { draw, annotation: { value: 'cfi-a' } } }))
+    v.dispatchEvent(new CustomEvent('draw-annotation', { detail: { draw, annotation: { value: 'cfi-b' } } }))
+    expect(draw.mock.calls).toEqual([[Overlayer.highlight, { color: '#66bb6a' }], [Overlayer.underline, { color: '#42a5f5', width: 2 }]])
+  })
+
+  it('the same id again changes the drawing; annotations are drawn again on a new overlayer and dropped on close', async () => {
+    const v = await opened()
+    v.addAnnotation.mockImplementation(async () => ({ index: 3 }))
+    send({ v: 1, type: 'addAnnotation', sessionId: 's1', id: 'a1', cfi: 'cfi-a', color: 'green', style: 'highlight' }); await settle()
+    send({ v: 1, type: 'addAnnotation', sessionId: 's1', id: 'a1', cfi: 'cfi-a', color: 'pink', style: 'highlight' }); await settle()
+    const draw = vi.fn()
+    v.dispatchEvent(new CustomEvent('draw-annotation', { detail: { draw, annotation: { value: 'cfi-a' } } }))
+    expect(draw.mock.calls[0][1]).toEqual({ color: '#f06292' })
+    v.addAnnotation.mockClear()
+    v.dispatchEvent(new CustomEvent('create-overlay', { detail: { index: 1 } }))
+    expect(v.addAnnotation).not.toHaveBeenCalled()
+    v.dispatchEvent(new CustomEvent('create-overlay', { detail: { index: 3 } }))
+    expect(v.addAnnotation).toHaveBeenCalledWith({ value: 'cfi-a' })
+    send({ v: 1, type: 'close' })
+    open('s1', null); await settle()
+    draw.mockClear()
+    FakeView.all[0].dispatchEvent(new CustomEvent('draw-annotation', { detail: { draw, annotation: { value: 'cfi-a' } } }))
+    expect(draw).not.toHaveBeenCalled()
+  })
+})
