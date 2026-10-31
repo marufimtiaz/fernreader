@@ -44,7 +44,7 @@ class PageIndicatorTest {
         }
     }
 
-    /** C-017 for vertical writing (F-081): the page number shows even though the book-wide total is not counted. */
+    /** C-017 for vertical writing (F-081): the page number shows (the book-wide total, C-032, is checked in VerticalWritingTest). */
     @Test fun vertical_book_shows_a_page_number(): Unit = runBlocking {
         warAndPeace() // storage access
         val book = java.io.File("/sdcard/Books/epub3-samples/kusamakura-japanese-vertical-writing.epub")

@@ -415,6 +415,11 @@ describe('swipes (F-032, C-026)', () => {
     expect(FakeView.all[0].renderer.hasAttribute('host-swipe')).toBe(true)
   })
 
+  it('vertical-rl sections are paged right-to-left: the paginator gets vertical-pages (F-081)', async () => {
+    open('s1', null); await settle()
+    expect(FakeView.all[0].renderer.hasAttribute('vertical-pages')).toBe(true)
+  })
+
   it('one swipe toward the left is one next', async () => {
     open('s1', null); await settle()
     const v = FakeView.all[0]

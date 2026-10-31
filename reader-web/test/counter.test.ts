@@ -78,3 +78,38 @@ describe('splitSource (a section cut into what the batch document needs, without
     expect(splitSource('<html><p>x</p></html>')).toBeNull()
   })
 })
+
+describe('PageCounter alone mode (C-032: vertical books counted one section at a time in a foliate View)', () => {
+  it('counts every section alone, sample first, never fetching batch sources, and reports ≈ then exact', async () => {
+    const { PageCounter } = await import('../src/reader/counter')
+    const sections = Array.from({ length: 15 }, (_, i) => ({ load: async () => `blob:${i}`, linear: i === 3 ? 'no' : undefined }))
+    const layout = { width: 400, height: 800, gap: 28, columnWidth: 372, margin: 32, verticalPages: true }
+    const renderer = { pagedLayout: layout, styles: ['', ''] as [string, string], busy: false }
+    const msgs: any[] = []
+    const counter = new PageCounter(sections, () => renderer, () => ({}) as any, 'ja', '', m => msgs.push(m), { alone: true })
+    const counted: number[] = []
+    ;(counter as any).countAlone = async (i: number) => { counted.push(i); return i + 1 }
+    const realFetch = globalThis.fetch
+    let fetched = 0
+    globalThis.fetch = (async () => { fetched++; throw new Error('no fetch') }) as any
+    try { await counter.start(1) } finally { globalThis.fetch = realFetch }
+    expect(fetched).toBe(0)
+    const linear = sections.map((_, i) => i).filter(i => i !== 3)
+    expect([...counted].sort((a, b) => a - b)).toEqual(linear)
+    expect(counted.slice(0, 12)).toEqual(stratifiedSample(linear, 12))
+    const withCounts = msgs.filter(m => m.counts.length)
+    expect(withCounts[0].sample).toBe(true)
+    expect(withCounts.at(-1).done).toBe(true)
+    expect(Object.fromEntries(withCounts.flatMap(m => m.counts))).toEqual(Object.fromEntries(linear.map(i => [i, i + 1])))
+  })
+  it('waits while a page turn runs before each section', async () => {
+    const { PageCounter } = await import('../src/reader/counter')
+    const sections = [{ load: async () => 'a' }, { load: async () => 'b' }]
+    const renderer = { pagedLayout: { width: 400, height: 800, gap: 28, columnWidth: 372, margin: 32 }, styles: '', busy: false }
+    const counter = new PageCounter(sections, () => renderer, () => ({}) as any, 'ja', '', () => {}, { alone: true })
+    const busyAt: boolean[] = []
+    ;(counter as any).countAlone = async () => { busyAt.push(renderer.busy); renderer.busy = true; setTimeout(() => { renderer.busy = false }, 60); return 1 }
+    await counter.start(1)
+    expect(busyAt).toEqual([false, false])
+  })
+})

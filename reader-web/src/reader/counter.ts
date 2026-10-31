@@ -67,7 +67,7 @@ export function splitSource(text: string): Source | null {
   return { head, htmlAttrs: tagAttrs(html?.[1] ?? ''), bodyAttrs: tagAttrs(body[1]), body: body[2] }
 }
 
-export type Layout = { width: number; height: number; gap: number; columnWidth: number; margin: number }
+export type Layout = { width: number; height: number; gap: number; columnWidth: number; margin: number; verticalPages?: boolean }
 export type CountMessage = { gen: number; linear?: number[]; counts: [number, number][]; sample: boolean; done: boolean }
 
 type Section = { load(): Promise<string>; unload?(): void; linear?: string }
@@ -93,9 +93,14 @@ export class PageCounter {
     lang: string,
     dir: string,
     private send: (m: CountMessage) => void,
+    /**
+     * [alone]: every section is counted alone in a foliate View, one at a time (C-032: vertical-rl books, whose pages
+     * the batch document's horizontal column boxes cannot reproduce). An empty [dir] sets no `dir` (CJK, as view.js).
+     */
+    private opts: { alone?: boolean } = {},
   ) {
     this.lang = /^[A-Za-z0-9-]*$/.test(lang) ? lang : ''
-    this.dir = dir === 'rtl' ? 'rtl' : 'ltr'
+    this.dir = dir === 'rtl' ? 'rtl' : dir === '' ? '' : 'ltr'
   }
 
   /** Stops the running count (a newer layout, or the book closed). */
@@ -127,13 +132,29 @@ export class PageCounter {
       const size = at === 0 ? sample.length : BATCH
       const batch = order.slice(at, at + size)
       while (this.renderer()?.busy) { await sleep(40); if (!live()) return } // never during a page turn
-      const counts = await this.countBatch(batch, live)
+      const counts = this.opts.alone ? await this.countEachAlone(batch, live) : await this.countBatch(batch, live)
       if (!counts || !live()) return
       at += size
       this.send({ gen, counts, sample: at === sample.length && sample.length > 0, done: at >= order.length })
       if (at >= order.length) { this.host?.remove(); this.host = null} // the last batch document goes too
       await sleep(0) // let input and painting run between batches
     }
+  }
+
+  /** Each section of [batch] in its own View, yielding and waiting out page turns between sections. */
+  private async countEachAlone(batch: number[], live: () => boolean): Promise<[number, number][] | null> {
+    const out: [number, number][] = []
+    for (const i of batch) {
+      while (this.renderer()?.busy) { await sleep(40); if (!live()) return null }
+      const r = this.renderer()
+      if (!r || !live()) return null
+      const layout = r.pagedLayout
+      if (!layout || !(layout.width > 0 && layout.height > 0)) return null
+      out.push([i, await this.countAlone(i, r)])
+      if (!live()) return null
+      await sleep(0)
+    }
+    return out
   }
 
   /** One hidden document holding every section of [batch] in its own column box. */
@@ -170,7 +191,7 @@ export class PageCounter {
     const first = items[0][1]
     const { width, height, gap, columnWidth, margin } = r.pagedLayout
     const styles = Array.isArray(r.styles) ? r.styles : ['', r.styles ?? '']
-    const htmlAttrs = first.htmlAttrs || `lang="${this.lang}" dir="${this.dir}"`
+    const htmlAttrs = first.htmlAttrs || `lang="${this.lang}"${this.dir ? ` dir="${this.dir}"` : ''}`
     const boxes = items.map(([i, d]) => `<div class="er-box" data-i="${i}">${d.body}</div>`)
     const html = `<!doctype html><html ${htmlAttrs}><head><meta charset="utf-8">
 <style>${styles[0]}</style>${first.head.join('')}<style>${styles[1]}</style><style>
@@ -221,7 +242,7 @@ html,body{margin:0!important;padding:0!important}
       const src = await this.sections[i].load()
       await view.load(src, (doc: Document) => {
         doc.documentElement.lang ||= this.lang
-        doc.documentElement.dir ||= this.dir
+        if (this.dir) doc.documentElement.dir ||= this.dir
         if (doc.head) {
           const before = doc.createElement('style'); before.textContent = styles[0]; doc.head.prepend(before)
           const after = doc.createElement('style'); after.textContent = styles[1]; doc.head.append(after)

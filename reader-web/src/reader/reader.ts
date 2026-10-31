@@ -297,6 +297,8 @@ export class Reader {
       // Swipes come to the host as `swipe` events and turn pages through the queue (F-032, C-026), not foliate's drag.
       r.setAttribute('host-swipe', '')
       r.addEventListener('swipe', (e: CustomEvent) => this.onSwipe(view, e.detail))
+      // F-081: vertical-rl sections are paged right-to-left (horizontal pages), where the engine supports it.
+      r.setAttribute('vertical-pages', '')
       r.setAttribute('max-column-count', '1')
       r.setStyles(this.css)
       r.setAttribute('preload', '') // neighbour sections laid out in advance: boundary turns swap instantly (P-026)
@@ -461,19 +463,24 @@ export class Reader {
   private startCounter(sessionId: string) {
     const book = this.book
     if (!book || this.sessionId !== sessionId) return
-    // The counter mirrors horizontal pagination only. A vertical book gets its section list (so the page number can
-    // be shown from the text model, C-017) but no book-wide total yet (M4 known gap).
-    const doc = this.view?.renderer?.getContents?.()[0]?.doc
+    // A vertical-rl book paged right-to-left (`vertical-pages`) is counted one section at a time in a foliate View with
+    // the paginator's layout (C-032). Other vertical books (vertical-lr, or an engine without column-wrap: foliate's
+    // top-to-bottom pages) get their section list (so the page number can be shown from the text model, C-017) but no
+    // book-wide total.
+    const r = this.view?.renderer
+    const doc = r?.getContents?.()[0]?.doc
     const mode = doc ? doc.defaultView?.getComputedStyle(doc.documentElement).writingMode ?? '' : ''
-    if (mode.startsWith('vertical')) {
+    const vertical = mode.startsWith('vertical')
+    if (vertical && !(mode === 'vertical-rl' && r?.pagedLayout?.verticalPages)) {
       const linear = book.sections.map((x: any, i: number) => (x?.linear !== 'no' ? i : -1)).filter((i: number) => i >= 0)
       this.bridge.send({ v: 1, type: 'pageCounts', sessionId, gen: ++this.countGen, linear, counts: [], sample: false, done: false })
       return
     }
     this.counter = new PageCounter(
       book.sections, () => this.view?.renderer ?? null, () => this.settings,
-      String(book.metadata?.language ?? ''), book.dir === 'rtl' ? 'rtl' : 'ltr',
+      String(book.metadata?.language ?? ''), vertical ? '' : book.dir === 'rtl' ? 'rtl' : 'ltr',
       m => { if (this.sessionId === sessionId) this.bridge.send({ v: 1, type: 'pageCounts', sessionId, ...m }) },
+      { alone: vertical },
     )
     this.scheduleCount()
   }

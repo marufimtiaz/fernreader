@@ -1,3 +1,5 @@
+// LOCAL PATCH (M6 Task 9, see PATCHES.md): `vertical-pages` attribute: vertical-rl sections paged right-to-left as
+// horizontal pages (multicol rows with `column-wrap`) where supported.
 // LOCAL PATCH (epub-reader M4, see PATCHES.md): `View` exported; `layout`, `styles`, `busy` getters; neighbour-section
 // preloading enabled by the `preload` attribute (ported from the M0 S2 spike):
 //   - #cache: index -> { slot, view, ready, loaded }. Every view lives in its own slot div inside #container;
@@ -197,7 +199,41 @@ const getDirection = doc => {
     const rtl = doc.body.dir === 'rtl'
         || direction === 'rtl'
         || doc.documentElement.dir === 'rtl'
-    return { vertical, rtl }
+    return { vertical, rtl, writingMode }
+}
+
+// local patch (vertical-pages, F-081): with the `vertical-pages` attribute, a vertical-rl section in paginated flow is
+// laid out as horizontal pages moving right-to-left: the root is a multicol container with one column per row
+// (`column-height` = page width minus the gap, `column-wrap: wrap`), so rows of whole lines stack in the block
+// direction (leftwards) and each row is one page. The paginator then pages it like a right-to-left horizontal book.
+// Engines without `column-wrap` keep foliate's vertical (top-to-bottom) pages.
+export const columnWrapSupported = () => !!globalThis.CSS?.supports?.('column-wrap', 'wrap')
+    && globalThis.CSS.supports('column-height', '1px')
+export const pagedVerticalRl = (layout, writingMode) => !!layout?.verticalPages
+    && layout.flow !== 'scrolled' && writingMode === 'vertical-rl'
+export const verticalPagesRootStyles = ({ height, gap, columnWidth }) => ({
+    'box-sizing': 'border-box',
+    'writing-mode': 'vertical-rl',
+    'column-count': '1',
+    'column-width': 'auto',
+    'column-gap': '0px',
+    'column-height': `${Math.trunc(columnWidth)}px`,
+    'column-wrap': 'wrap',
+    'row-gap': `${gap}px`,
+    'column-fill': 'auto',
+    'height': `${height}px`,
+    'width': 'auto',
+    'padding': `0 ${gap / 2}px`,
+    'overflow': 'hidden',
+    'overflow-wrap': 'break-word',
+    'position': 'static', 'border': '0', 'margin': '0',
+    'max-height': 'none', 'max-width': 'none',
+    'min-height': 'none', 'min-width': 'none',
+    '-webkit-line-box-contain': 'block glyphs replaced',
+})
+const clearVerticalPages = el => {
+    for (const k of ['writing-mode', 'column-count', 'column-height', 'column-wrap', 'row-gap'])
+        el.style.removeProperty(k)
 }
 
 const getBackground = doc => {
@@ -229,6 +265,8 @@ export class View {
     #overlayer
     #vertical = false
     #rtl = false
+    #writingMode = ''
+    #vrl = false // local patch (vertical-pages): vertical-rl laid out as horizontal right-to-left pages
     #column = true
     #size
     #layout = {}
@@ -273,15 +311,16 @@ export class View {
 
                 // it needs to be visible for Firefox to get computed style
                 this.#iframe.style.display = 'block'
-                const { vertical, rtl } = getDirection(doc)
+                const { vertical, rtl, writingMode } = getDirection(doc)
                 const background = getBackground(doc)
                 this.#iframe.style.display = 'none'
 
                 this.#vertical = vertical
                 this.#rtl = rtl
+                this.#writingMode = writingMode
 
                 this.#contentRange.selectNodeContents(doc.body)
-                const layout = beforeRender?.({ vertical, rtl, background })
+                const layout = beforeRender?.({ vertical, rtl, writingMode, background })
                 this.#iframe.style.display = 'block'
                 this.render(layout)
                 this.#observer.observe(doc.body)
@@ -300,12 +339,15 @@ export class View {
         if (!layout) return
         this.#column = layout.flow !== 'scrolled'
         this.#layout = layout
-        if (this.#column) this.columnize(layout)
+        this.#vrl = pagedVerticalRl(layout, this.#writingMode)
+        if (this.#vrl) this.#columnizeVerticalPages(layout)
+        else if (this.#column) this.columnize(layout)
         else this.scrolled(layout)
     }
     scrolled({ gap, columnWidth }) {
         const vertical = this.#vertical
         const doc = this.document
+        clearVerticalPages(doc.documentElement)
         setStylesImportant(doc.documentElement, {
             'box-sizing': 'border-box',
             'padding': vertical ? `${gap}px 0` : `0 ${gap}px`,
@@ -320,11 +362,26 @@ export class View {
         this.setImageSize()
         this.expand()
     }
+    #columnizeVerticalPages(layout) {
+        this.#size = layout.width
+        const doc = this.document
+        // the paged root's earlier styles (another flow) must not stay: foliate's vertical layout fixes the width
+        doc.documentElement.style.removeProperty('width')
+        setStylesImportant(doc.documentElement, verticalPagesRootStyles(layout))
+        setStylesImportant(doc.body, {
+            'max-height': 'none',
+            'max-width': 'none',
+            'margin': '0',
+        })
+        this.setImageSize()
+        this.expand()
+    }
     columnize({ width, height, gap, columnWidth }) {
         const vertical = this.#vertical
         this.#size = vertical ? height : width
 
         const doc = this.document
+        clearVerticalPages(doc.documentElement)
         setStylesImportant(doc.documentElement, {
             'box-sizing': 'border-box',
             'column-width': `${Math.trunc(columnWidth)}px`,
@@ -356,6 +413,17 @@ export class View {
         const { width, height, margin } = this.#layout
         const vertical = this.#vertical
         const doc = this.document
+        if (this.#vrl) { // a page is one row: as wide as the row, as tall as the page
+            for (const el of doc.body.querySelectorAll('img, svg, video')) setStylesImportant(el, {
+                'max-height': `${height}px`,
+                'max-width': `${Math.trunc(this.#layout.columnWidth)}px`,
+                'object-fit': 'contain',
+                'page-break-inside': 'avoid',
+                'break-inside': 'avoid',
+                'box-sizing': 'border-box',
+            })
+            return
+        }
         for (const el of doc.body.querySelectorAll('img, svg, video')) {
             // preserve max size if they are already set
             const { maxHeight, maxWidth } = doc.defaultView.getComputedStyle(el)
@@ -375,7 +443,25 @@ export class View {
     }
     expand() {
         const { documentElement } = this.document
-        if (this.#column) {
+        if (this.#vrl) { // pages run leftwards from the root's right edge; the root's width follows its rows
+            const contentRect = this.#contentRange.getBoundingClientRect()
+            const rootRect = documentElement.getBoundingClientRect()
+            const contentSize = rootRect.right - contentRect.left
+            const pageCount = Math.max(1, Math.ceil(Math.round(contentSize) / this.#size))
+            const expandedSize = pageCount * this.#size
+            this.#element.style.padding = '0'
+            this.#iframe.style.width = `${expandedSize}px`
+            this.#element.style.width = `${expandedSize + this.#size * 2}px`
+            this.#iframe.style.height = '100%'
+            this.#element.style.height = '100%'
+            if (this.#overlayer) {
+                this.#overlayer.element.style.margin = '0'
+                this.#overlayer.element.style.left = `${this.#size}px`
+                this.#overlayer.element.style.top = '0'
+                this.#overlayer.element.style.width = `${expandedSize}px`
+                this.#overlayer.redraw()
+            }
+        } else if (this.#column) {
             const side = this.#vertical ? 'height' : 'width'
             const otherSide = this.#vertical ? 'width' : 'height'
             const contentRect = this.#contentRange.getBoundingClientRect()
@@ -450,6 +536,11 @@ export class Paginator extends HTMLElement {
     #view
     #vertical = false
     #rtl = false
+    // local patch (vertical-pages): the current section's own writing direction; #vertical/#rtl above are the page
+    // axis the paginator scrolls (a vertical-rl section with vertical pages scrolls like a right-to-left book)
+    #docVertical = false
+    #docRtl = false
+    #writingMode = ''
     #margin = 0
     #index = -1
     #anchor = 0 // anchor view to a fraction (0-1), Range, or Element
@@ -570,8 +661,9 @@ export class Paginator extends HTMLElement {
             if (this.#cache.get(index) !== entry) return // evicted meanwhile (its unload released the section)
             if (!src) throw new Error(`no src for ${index}`)
             // Same layout as the current view; a different writing mode would need its own layout: not preloaded.
-            await entry.view.load(src, this.#afterLoadFor(index), ({ vertical, rtl }) => {
-                if (vertical !== this.#vertical || rtl !== this.#rtl) entry.mismatch = true
+            await entry.view.load(src, this.#afterLoadFor(index), ({ vertical, rtl, writingMode }) => {
+                if (vertical !== this.#docVertical || rtl !== this.#docRtl || writingMode !== this.#writingMode)
+                    entry.mismatch = true
                 return this.#lastLayout
             })
             if (entry.mismatch) throw new Error(`section ${index}: other writing mode, not preloaded`)
@@ -612,16 +704,24 @@ export class Paginator extends HTMLElement {
      * writing, without its side effects. The page counter counts with it in either flow (C-002).
      */
     get pagedLayout() {
+        // vertical pages use the horizontal grid; in scrolled flow a vertical book has the `vertical` class
+        const unvertical = this.#verticalPages && this.#top.classList.contains('vertical')
+        if (unvertical) this.#top.classList.remove('vertical')
         const { width, height } = this.#root.getElementById('probe').getBoundingClientRect()
         const style = getComputedStyle(this.#top)
+        if (unvertical) this.#top.classList.add('vertical')
         const maxInlineSize = parseFloat(style.getPropertyValue('--_max-inline-size'))
         const maxColumnCount = parseInt(style.getPropertyValue('--_max-column-count-spread'))
         const margin = parseFloat(style.getPropertyValue('--_margin'))
         const g = parseFloat(style.getPropertyValue('--_gap')) / 100
         const gap = -g / (g - 1) * width
         const divisor = Math.min(maxColumnCount, Math.ceil(width / maxInlineSize))
-        return { height, width, margin, gap, columnWidth: (width / divisor) - gap }
+        return { height, width, margin, gap, columnWidth: (width / divisor) - gap,
+            ...(this.#verticalPages ? { verticalPages: true } : {}) }
     }
+    get #verticalPages() { return this.hasAttribute('vertical-pages') && columnWrapSupported() }
+    /** Local patch (vertical-pages): true while the current section is a vertical-rl one paged right-to-left. */
+    get verticalPages() { return !this.scrolled && this.#verticalPages && this.#writingMode === 'vertical-rl' }
     /** Diagnostics for tests: the slots in DOM order and the scroll position. */
     get debugSlots() {
         return { scrollTop: this.#container.scrollTop, viewport: this.#container.clientHeight, current: this.#index, stackTop: this.#stackTop, mode: this.#mode,
@@ -885,7 +985,12 @@ export class Paginator extends HTMLElement {
         this.#container.append(this.#view.element)
         return this.#view
     }
-    #beforeRender({ vertical, rtl, background }) {
+    #beforeRender({ vertical, rtl, writingMode, background }) {
+        this.#docVertical = vertical
+        this.#docRtl = rtl
+        this.#writingMode = writingMode
+        const verticalPages = this.verticalPages
+        if (verticalPages) { vertical = false; rtl = true }
         this.#vertical = vertical
         this.#rtl = rtl
         this.#top.classList.toggle('vertical', vertical)
@@ -960,14 +1065,17 @@ export class Paginator extends HTMLElement {
         this.#header.replaceChildren(...heads)
         this.#footer.replaceChildren(...feet)
 
-        this.#lastLayout = { height, width, margin, gap, columnWidth }
-        return { height, width, margin, gap, columnWidth }
+        const layout = { height, width, margin, gap, columnWidth,
+            ...(this.#verticalPages ? { verticalPages: true } : {}) }
+        this.#lastLayout = layout
+        return layout
     }
     render() {
         if (!this.#view) return
         const layout = this.#beforeRender({
-            vertical: this.#vertical,
-            rtl: this.#rtl,
+            vertical: this.#docVertical,
+            rtl: this.#docRtl,
+            writingMode: this.#writingMode,
         })
         const mode = this.#stack ? 'stack' : this.#preload ? 'paged' : null
         const switched = this.#mode !== mode
