@@ -3,6 +3,7 @@ package app.epubreader.ui
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -36,7 +37,7 @@ fun App(
 ) = AppTheme(dark) {
     if (webViewTooOld) {
         Surface(Modifier.fillMaxSize()) {
-            Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) { Text(Copy.webViewTooOld) }
+            Box(Modifier.fillMaxSize().safeDrawingPadding().padding(24.dp), contentAlignment = Alignment.Center) { Text(Copy.webViewTooOld) }
         }
         return@AppTheme
     }

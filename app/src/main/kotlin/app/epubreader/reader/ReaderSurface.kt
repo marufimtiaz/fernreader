@@ -1,7 +1,10 @@
 package app.epubreader.reader
 
 import android.view.ViewGroup
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -22,6 +25,7 @@ fun ReaderSurface(engine: ReaderEngine) {
                 it.layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
             }
         },
-        modifier = Modifier.fillMaxSize(),
+        // Book content stays clear of the status and gesture bars (edge-to-edge); chrome is drawn over it, so toggling it never reflows.
+        modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars),
     )
 }
