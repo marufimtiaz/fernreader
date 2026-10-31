@@ -62,7 +62,7 @@ class MainActivity : ComponentActivity() {
             Box {
                 App(
                     dark = isSystemInDarkTheme(), webViewTooOld = webViewTooOld, nav = nav, home = home, reader = controller, probe = probe,
-                    readerSurface = { ReaderSurface(reader) },
+                    readerSurface = { ReaderSurface(reader, covered = nav.top != Route.Reader) },
                     onOpenPicker = { pick.launch(arrayOf("application/epub+zip", "application/octet-stream")) },
                     onOpen = ::openBook, onBack = { goBack() },
                 )

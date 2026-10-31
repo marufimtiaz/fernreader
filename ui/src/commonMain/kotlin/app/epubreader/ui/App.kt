@@ -19,7 +19,7 @@ import app.epubreader.reader.ReaderScreen
 import app.epubreader.ui.theme.AppTheme
 
 /**
- * Root. [readerSurface] (the WebView) is drawn first and stays underneath; the home screen is opaque over it,
+ * Root. [readerSurface] (the WebView) is composed first and stays underneath; the home screen is opaque over it,
  * the reader route draws chrome only. [webViewTooOld] (no usable WebView): a full-screen message instead.
  */
 @Composable
