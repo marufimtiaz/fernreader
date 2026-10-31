@@ -1,6 +1,7 @@
 package app.epubreader
 
 import android.app.Application
+import app.epubreader.core.data.Backup
 import app.epubreader.core.data.HybridClock
 import app.epubreader.core.data.LibraryRepository
 import app.epubreader.core.data.PositionWriter
@@ -81,5 +82,7 @@ class AppGraph(app: Application) {
         probe = { n, x -> Probe.ev(n, x) },
         onComplete = { covers.fillMissing() },
     )
+    /** F-090: a discovery folder from a backup is restored only if it exists on this device. */
+    val backup = Backup(db, clock, folderExists = { java.io.File(it).isDirectory })
     val covers: CoverQueue by lazy { CoverQueue(library, CoverExtractor(java.io.File(app.filesDir, "thumbs")), io) }
 }

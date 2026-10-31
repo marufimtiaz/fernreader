@@ -20,7 +20,10 @@ class AppPrefs(private val store: SettingsPort, private val scope: CoroutineScop
     val theme: StateFlow<AppThemeMode> = _theme
     val folderView: StateFlow<Boolean> = _folderView
 
-    init {
+    init { reload() }
+
+    /** Reads the stored values (at start, and after a restore). */
+    fun reload() {
         scope.launch {
             _theme.value = store.get(THEME)?.let { v -> AppThemeMode.entries.firstOrNull { it.name == v } } ?: AppThemeMode.SYSTEM
             _folderView.value = store.get(FOLDER_VIEW) == "true"

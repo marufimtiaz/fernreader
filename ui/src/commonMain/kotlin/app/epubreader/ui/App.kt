@@ -41,6 +41,10 @@ fun App(
     onForget: (SourceRef) -> Unit,
     onBack: () -> Unit,
     fonts: Map<String, androidx.compose.ui.text.font.FontFamily> = emptyMap(),
+    /** Settings, about, hidden books, licences, book details (M7): drawn by the app, which owns the system pickers. */
+    pages: @Composable (Route) -> Unit = {},
+    /** Dialogs that may show over any route (backup restore offered from a file manager). */
+    overlay: @Composable () -> Unit = {},
 ) = AppTheme(dark) {
     if (webViewTooOld) {
         Surface(Modifier.fillMaxSize()) {
@@ -54,10 +58,15 @@ fun App(
             Route.Onboarding -> OnboardingScreen(onGrant = onGrantAccess, onOpenPicker = onOpenPicker, onLeave = onLeave)
             Route.Library -> LibraryScreen(
                 library,
-                LibraryActions(onOpen = { b -> library.open(b) { onOpen(SourceRef.fromKey(it)) } }, onOpenPicker = onOpenPicker, onRescan = onRescan),
+                LibraryActions(
+                    onOpen = { b -> library.open(b) { onOpen(SourceRef.fromKey(it)) } }, onOpenPicker = onOpenPicker, onRescan = onRescan,
+                    onSettings = { nav.push(Route.Settings) }, onAbout = { nav.push(Route.About) }, onDetails = { nav.push(Route.BookDetails(it)) },
+                ),
                 probe = probe,
             )
             Route.Reader -> ReaderScreen(reader, onBack = onBack, onForget = onForget, probe = probe, fonts = fonts)
+            else -> pages(nav.top)
         }
+        overlay()
     }
 }

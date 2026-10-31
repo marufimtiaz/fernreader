@@ -125,7 +125,10 @@ class LibraryState(
     /** True once the screen has composed a non-empty library (the app waits for it before heavy main-thread work). */
     val shown = MutableStateFlow(false)
 
-    init {
+    init { reloadPrefs() }
+
+    /** Reads the saved layout and sort (at start, and after a restore). */
+    fun reloadPrefs() {
         scope.launch {
             val layout = settings.get(SettingsStore.LIBRARY_LAYOUT)?.let { v -> LibraryLayout.entries.firstOrNull { it.name == v } }
             val sort = settings.get(SettingsStore.LIBRARY_SORT)?.let { v -> LibrarySort.entries.firstOrNull { it.name == v } }

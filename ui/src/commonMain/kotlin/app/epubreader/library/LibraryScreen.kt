@@ -238,19 +238,6 @@ private fun Header(ui: LibraryUi, state: LibraryState, actions: LibraryActions, 
             else IconButton(onClick = { state.setDrawer(true) }) { Icon(Glyphs.Menu, Copy.openMenu) }
             Text(ui.viewTitle ?: if (ui.view == LibraryView.Folders) Copy.folders else Copy.appTitle, Modifier.weight(1f),
                 style = MaterialTheme.typography.headlineSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (ui.view != LibraryView.Folders) {
-                TextButton(onClick = { state.setLayout(if (ui.layout == LibraryLayout.GRID) LibraryLayout.LIST else LibraryLayout.GRID) }) {
-                    Text(if (ui.layout == LibraryLayout.GRID) Copy.listView else Copy.gridView)
-                }
-                Box {
-                    TextButton(onClick = { sortOpen = true }) { Text(Copy.sortLabel(ui.sort)) }
-                    DropdownMenu(sortOpen, onDismissRequest = { sortOpen = false }) {
-                        LibrarySort.entries.forEach { s ->
-                            DropdownMenuItem(text = { Text(Copy.sortName(s)) }, onClick = { state.setSort(s); sortOpen = false })
-                        }
-                    }
-                }
-            }
             Box {
                 IconButton(onClick = { menuOpen = true }) { Icon(Glyphs.More, Copy.more) }
                 DropdownMenu(menuOpen, onDismissRequest = { menuOpen = false }) {
@@ -265,10 +252,26 @@ private fun Header(ui: LibraryUi, state: LibraryState, actions: LibraryActions, 
                 }
             }
         }
-        if (ui.view != LibraryView.Folders) OutlinedTextField(
-            ui.query, state::setQuery, Modifier.fillMaxWidth().padding(start = 12.dp, end = 8.dp, bottom = 8.dp), singleLine = true,
-            placeholder = { Text(Copy.searchHint) },
-        )
+        if (ui.view != LibraryView.Folders) {
+            OutlinedTextField(
+                ui.query, state::setQuery, Modifier.fillMaxWidth().padding(start = 12.dp, end = 8.dp), singleLine = true,
+                placeholder = { Text(Copy.searchHint) },
+            )
+            Row(Modifier.fillMaxWidth().padding(start = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box {
+                    TextButton(onClick = { sortOpen = true }) { Text(Copy.sortLabel(ui.sort)) }
+                    DropdownMenu(sortOpen, onDismissRequest = { sortOpen = false }) {
+                        LibrarySort.entries.forEach { s ->
+                            DropdownMenuItem(text = { Text(Copy.sortName(s)) }, onClick = { state.setSort(s); sortOpen = false })
+                        }
+                    }
+                }
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = { state.setLayout(if (ui.layout == LibraryLayout.GRID) LibraryLayout.LIST else LibraryLayout.GRID) }) {
+                    Text(if (ui.layout == LibraryLayout.GRID) Copy.listView else Copy.gridView)
+                }
+            }
+        }
     }
 }
 
@@ -321,7 +324,7 @@ private fun FolderList(rows: List<FolderNode>, onOpen: (String) -> Unit, onToggl
                     if (r.parent.isNotEmpty()) Text(r.parent, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1, overflow = TextOverflow.StartEllipsis)
                 }
-                Text(if (r.direct == r.total) "${r.total}" else "${r.direct} · ${r.total}", style = MaterialTheme.typography.labelMedium,
+                Text(Copy.folderCount(r.direct, r.total), style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }

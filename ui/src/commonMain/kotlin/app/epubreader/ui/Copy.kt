@@ -34,6 +34,8 @@ object Copy {
     const val emptyCollection = "No books in this collection yet."
     const val emptyFolder = "No books in this folder."
     const val noFolders = "No folders with books."
+    /** "41", or "41 · 1 here" when some of them are in subfolders. */
+    fun folderCount(direct: Int, total: Int) = if (direct == 0 || direct == total) "$total" else "$total · $direct here"
     const val includeSubfolders = "Subfolders"
     const val expand = "Show subfolders"
     const val collapse = "Hide subfolders"
@@ -104,6 +106,83 @@ object Copy {
             p.exact -> "Page ${n(page)} of ${n(p.total)}"
             else -> "Page ${n(page)} of ≈ ${n(p.total)}"
         }
+    }
+    // --- M7 book details ---
+    const val bookGone = "This book is no longer in the library."
+    const val language = "Language"
+    const val unknown = "Unknown"
+    const val added = "Added"
+    const val lastRead = "Last read"
+    const val never = "Not yet"
+    fun fileLocations(n: Int) = if (n == 1) "File" else "Files ($n copies, one entry)"
+    const val identity = "Identity"
+    /** "1.4 MB", "820 KB" (decimal units, one decimal for MB). */
+    fun fileSize(bytes: Long): String = when {
+        bytes >= 1_000_000 -> "${(bytes / 100_000) / 10.0} MB"
+        bytes >= 1_000 -> "${bytes / 1_000} KB"
+        else -> "$bytes bytes"
+    }
+    // --- M7 settings, about, backup ---
+    const val sectionAppearance = "Appearance"
+    const val appTheme = "App theme"
+    const val themeSystem = "Follow system"
+    const val themeLight = "Light"
+    const val themeDark = "Dark"
+    const val sectionLibrary = "Library"
+    const val discovery = "Where to look for books"
+    const val everywhere = "Everywhere on this device"
+    const val oneFolder = "Only one folder…"
+    fun onlyIn(folder: String) = "Only in “$folder” and its subfolders"
+    const val folderView = "Folder view"
+    const val folderViewSummary = "Browse books by the folders they are in (from the menu)"
+    const val hiddenBooks = "Hidden books"
+    fun hiddenSummary(n: Int) = when (n) { 0 -> "None"; 1 -> "1 book removed from the library"; else -> "$n books removed from the library" }
+    const val noHiddenBooks = "No hidden books. Books you remove from the library only (keeping their files) are listed here."
+    const val showAgain = "Show again"
+    const val sectionReading = "Reading"
+    const val sectionBackup = "Backup"
+    const val backUpNow = "Back up now"
+    const val backUpSummary = "Save reading positions, collections and settings to a file (books are not included)"
+    const val restore = "Restore"
+    const val restoreSummary = "Merge a backup file into this device's data"
+    const val aboutApp = "About this app"
+    const val aboutSummary = "Version, privacy, licences"
+    fun version(v: String) = "Version $v"
+    const val aboutBody = "An offline EPUB reader. It finds the books on this device and opens them quickly. Free software under the MIT licence."
+    const val privacyTitle = "Privacy"
+    val privacyPoints = listOf(
+        "Everything works without an account and without a network connection.",
+        "The app does not connect to the internet. Links in books open in your browser only after you confirm.",
+        "No analytics, no tracking, no ads.",
+        "Books are only read, never changed or uploaded. Backups are files you save yourself.",
+    )
+    const val licencesTitle = "Open-source licences"
+    const val licencesBody = "This app is built with open-source libraries and fonts. Their licences are listed in full."
+    const val showLicences = "Show licences"
+    const val outsideTitle = "Books outside this folder"
+    fun outsideBody(n: Int, folder: String) = "${books(n).replaceFirstChar { it.uppercase() }} in the library ${if (n == 1) "is" else "are"} outside “$folder”. Hide ${if (n == 1) "it" else "them"} from the library? Reading positions and collections are kept, and you can show hidden books again in Settings."
+    const val hide = "Hide"
+    const val keep = "Keep"
+    const val folderNotOnDevice = "Choose a folder on this device's storage."
+    const val restoreTitle = "Restore from backup?"
+    fun restoreBody(date: String, books: Int, collections: Int) = "This backup from $date has ${books(books)} and ${if (collections == 1) "1 collection" else "$collections collections"}. It is merged with this device's data: for each item, the newer change is kept. Book files are not part of backups."
+    const val restoring = "Restoring…"
+    const val restoredTitle = "Backup restored"
+    fun restoredBody(r: app.epubreader.core.data.RestoreResult) = buildString {
+        append("${books(r.booksMatched).replaceFirstChar { it.uppercase() }} matched on this device.")
+        if (r.booksWaiting > 0) append(" ${books(r.booksWaiting).replaceFirstChar { it.uppercase() }} ${if (r.booksWaiting == 1) "is" else "are"} not on this device; ${if (r.booksWaiting == 1) "its" else "their"} reading data is kept and comes back when the file is found.")
+        append(" Updated: ${r.positions} reading positions, ${r.collections} collections, ${r.settings} settings.")
+    }
+    const val ok = "OK"
+    const val backupSavedTitle = "Backup saved"
+    fun backupSavedBody(name: String) = "Saved as “$name”."
+    const val backupProblemTitle = "Backup"
+    fun backupProblem(p: app.epubreader.settings.BackupProblem) = when (p) {
+        app.epubreader.settings.BackupProblem.NOT_A_BACKUP -> "This file isn't a backup from this app, or it is damaged."
+        app.epubreader.settings.BackupProblem.TOO_NEW -> "This backup was made by a newer version of the app. Update the app, then restore it."
+        app.epubreader.settings.BackupProblem.READ_FAILED -> "The file couldn't be read."
+        app.epubreader.settings.BackupProblem.WRITE_FAILED -> "The backup couldn't be saved there. Try another place."
+        app.epubreader.settings.BackupProblem.RESTORE_FAILED -> "The backup couldn't be restored. Nothing was changed."
     }
     const val textSize = "Text size"
     const val smallerText = "Smaller text"

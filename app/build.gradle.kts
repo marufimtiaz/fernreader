@@ -104,8 +104,24 @@ val copyReaderAssets by tasks.registering(CopyReaderAssets::class) {
     from.set(readerWebDir.dir("dist"))
 }
 
+/** F-100 about → licences: the app shows docs/licenses.md, so the list in the app is the audited one. */
+abstract class CopyLicences : DefaultTask() {
+    @get:InputFile abstract val from: RegularFileProperty
+    @get:OutputDirectory abstract val outputDir: DirectoryProperty
+    @TaskAction fun copy() {
+        val out = outputDir.get().asFile
+        out.deleteRecursively(); out.mkdirs()
+        from.get().asFile.copyTo(out.resolve("licenses.md"))
+    }
+}
+
+val copyLicences by tasks.registering(CopyLicences::class) {
+    from.set(rootProject.layout.projectDirectory.file("docs/licenses.md"))
+}
+
 androidComponents {
     onVariants { variant ->
         variant.sources.assets?.addGeneratedSourceDirectory(copyReaderAssets, CopyReaderAssets::outputDir)
+        variant.sources.assets?.addGeneratedSourceDirectory(copyLicences, CopyLicences::outputDir)
     }
 }

@@ -10,6 +10,13 @@ import kotlinx.coroutines.flow.sample
 data class OpenedBookInfo(val identityKey: String, val title: String, val authors: List<String>, val source: SourceRef, val size: Long)
 data class OpenRecord(val bookId: String, val position: ReadingPositionEntity?)
 
+/** F-015 / F-021: what the details sheet shows. */
+data class BookDetails(
+    val id: String, val identityKey: String, val title: String, val authors: List<String>, val language: String?, val coverThumb: String?,
+    val addedAt: Long, val lastOpenedAt: Long?, val files: List<BookFileDetail>, val collections: List<String>,
+)
+data class BookFileDetail(val path: String, val size: Long, val scanned: Boolean)
+
 /** F-025 result: local files deleted, and files that could not be deleted (their books stay hidden instead). */
 data class DeleteResult(val deleted: Int, val failed: Int)
 
@@ -102,6 +109,19 @@ class LibraryRepository(
             if (kept == 0) { dao.removeBook(id, clock.now()); onBookFilesDeleted(id) } else hide(listOf(id))
         }
         return DeleteResult(deleted, failed)
+    }
+
+    /** F-015 / F-021 details, or null for an unknown id. */
+    suspend fun details(bookId: String): BookDetails? {
+        val b = db.libraryDao().byId(bookId) ?: return null
+        val cd = db.collectionDao()
+        val names = cd.memberships().filter { it.bookId == bookId && !it.deleted }.mapNotNull { m -> cd.byId(m.collectionId)?.takeIf { !it.deleted }?.name }.sorted()
+        return BookDetails(
+            b.id, b.identityKey, b.title, b.authors.split('\n').filter(String::isNotBlank), b.language, b.coverThumb?.ifEmpty { null },
+            b.addedAt, b.lastOpenedAt,
+            db.libraryDao().filesOf(bookId).sortedWith(compareBy({ it.source != "scan" }, { it.path })).map { BookFileDetail(it.path, it.size, it.source == "scan") },
+            names,
+        )
     }
 
     fun failures(): Flow<List<ScanFailureEntity>> = db.libraryDao().failures()

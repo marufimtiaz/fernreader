@@ -48,6 +48,8 @@ import app.epubreader.ui.Copy
 import app.epubreader.ui.Navigator
 import app.epubreader.ui.Route
 
+private const val MAX_BACKUP_BYTES = 64 shl 20
+
 class MainActivity : ComponentActivity() {
     lateinit var reader: ReaderEngine
         private set
@@ -56,6 +58,8 @@ class MainActivity : ComponentActivity() {
     lateinit var nav: Navigator
         private set
     private lateinit var library: LibraryState
+    private lateinit var settingsState: app.epubreader.settings.SettingsState
+    private lateinit var backupState: app.epubreader.settings.BackupState
     private val access = StorageAccess(this) { onAccessMaybeGranted() }
     /** Access was just granted: the first full scan starts (F-003). Tests replace it. */
     var onAccessGranted: () -> Unit = {}
@@ -78,6 +82,66 @@ class MainActivity : ComponentActivity() {
         openBook(SourceRef.Content(uri.toString()))
     }
 
+    /** F-090: "Back up now" → system save dialog with a dated default name. */
+    private val saveBackup = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri: Uri? ->
+        if (uri == null) return@registerForActivityResult
+        val graph = (application as EpubReaderApp).graph
+        lifecycleScope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                runCatching {
+                    val text = graph.backup.export(BuildConfig.VERSION_NAME)
+                    contentResolver.openOutputStream(uri, "wt")!!.use { it.write(text.toByteArray()) }
+                }.isSuccess
+            }
+            if (ok) backupState.saved(displayName(uri) ?: backupFileName()) else backupState.saveFailed()
+        }
+    }
+
+    /** F-090: "Restore" → pick a backup file. */
+    private val pickBackup = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? -> if (uri != null) offerRestore(uri) }
+
+    /** F-011: the discovery folder, chosen with the system folder picker. */
+    private val pickFolder = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
+        if (uri == null) return@registerForActivityResult
+        val path = runCatching { android.provider.DocumentsContract.getTreeDocumentId(uri) }.getOrNull()
+            ?.takeIf { uri.authority == "com.android.externalstorage.documents" }
+            ?.let(app.epubreader.settings.FolderPaths::fromTreeDocumentId)
+        if (path == null) android.widget.Toast.makeText(this, Copy.folderNotOnDevice, android.widget.Toast.LENGTH_LONG).show()
+        else settingsState.chooseFolder(path)
+    }
+
+    private fun backupFileName(): String {
+        val c = java.util.Calendar.getInstance()
+        return app.epubreader.core.data.Backup.fileName(c.get(java.util.Calendar.YEAR), c.get(java.util.Calendar.MONTH) + 1, c.get(java.util.Calendar.DAY_OF_MONTH))
+    }
+
+    private fun displayName(uri: Uri): String? = runCatching {
+        contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { if (it.moveToFirst()) it.getString(0) else null }
+    }.getOrNull()
+
+    /** Reads a backup file (capped: a backup is small; anything huge is not ours) and offers to restore it. */
+    private fun offerRestore(uri: Uri) {
+        lifecycleScope.launch {
+            val text: String? = withContext(Dispatchers.IO) {
+                runCatching {
+                    contentResolver.openInputStream(uri)!!.use { s ->
+                        val out = java.io.ByteArrayOutputStream()
+                        val buf = ByteArray(64 shl 10)
+                        while (true) {
+                            val n = s.read(buf); if (n < 0) break
+                            out.write(buf, 0, n)
+                            if (out.size() > MAX_BACKUP_BYTES) return@use null
+                        }
+                        out.toByteArray().decodeToString()
+                    }
+                }.getOrNull()
+            }
+            if (text == null) backupState.readFailed() else backupState.offer(text)
+        }
+    }
+
+    private fun formatDate(ms: Long): String = java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM).format(java.util.Date(ms))
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge() // status/navigation bar icons follow the system light/dark setting, like the app theme
         super.onCreate(savedInstanceState)
@@ -95,6 +159,20 @@ class MainActivity : ComponentActivity() {
         val library = LibraryState(graph.library.libraryLive(graph.scans.state.map { it.found }), graph.library.failures(), graph.scans.state, graph.settings, BookRemoval(graph.library::removeBook, graph.searchHistory, { graph.search.delete(it) })::remove, lifecycleScope,
             exists = { withContext(Dispatchers.IO) { java.io.File(it).exists() } }, ops = graph.library, folderView = graph.prefs.folderView)
         this.library = library
+        settingsState = app.epubreader.settings.SettingsState(
+            graph.settings, graph.library.library(), graph.library.hiddenBooks(), hide = graph.library::hide, unhide = graph.library::unhide,
+            rescan = graph.scans::rescan, scope = lifecycleScope,
+        )
+        backupState = app.epubreader.settings.BackupState(
+            parse = app.epubreader.core.data.Backup::parse, restore = graph.backup::restore, scope = lifecycleScope,
+            onRestored = {
+                // Settings held in memory follow the restored values at once (F-100: no restart).
+                val rs = app.epubreader.core.data.ReaderSettings.decode(withContext(Dispatchers.IO) { graph.settings.get(app.epubreader.core.data.ReaderSettings.KEY) })
+                controller.updateSettings { rs }
+                graph.prefs.reload(); library.reloadPrefs(); settingsState.reload()
+                graph.scans.rescan()
+            },
+        )
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (!goBack()) { isEnabled = false; onBackPressedDispatcher.onBackPressed(); isEnabled = true }
@@ -103,7 +181,13 @@ class MainActivity : ComponentActivity() {
         setContent {
             val rs by controller.settings.collectAsState()
             val theme = ReadingTheme.of(rs.theme)
-            val dark = isSystemInDarkTheme()
+            val mode by graph.prefs.theme.collectAsState()
+            val dark = when (mode) {
+                app.epubreader.settings.AppThemeMode.SYSTEM -> isSystemInDarkTheme()
+                app.epubreader.settings.AppThemeMode.LIGHT -> false
+                app.epubreader.settings.AppThemeMode.DARK -> true
+            }
+            androidx.compose.runtime.LaunchedEffect(mode) { withContext(Dispatchers.IO) { app.epubreader.settings.AppThemeCache.write(this@MainActivity, mode) } }
             val inReader = nav.top == Route.Reader
             SideEffect { applyReaderWindow(inReader, rs.brightness, lightBars = if (inReader) theme.isLight else !dark) }
             Box {
@@ -115,6 +199,14 @@ class MainActivity : ComponentActivity() {
                     onGrantAccess = access::request, onLeave = ::finish,
                     onOpen = ::openBook, onBack = { goBack() }, onRescan = graph.scans::rescan,
                     onForget = { ref -> graph.appScope.launch { graph.library.forget(ref) } },
+                    pages = { route ->
+                        AppPages(route, nav, graph, settingsState, controller, pageActions, BuildConfig.VERSION_NAME,
+                            readAsset = { name -> assets.open(name).use { it.readBytes().decodeToString() } })
+                    },
+                    overlay = {
+                        val b by backupState.ui.collectAsState()
+                        app.epubreader.settings.BackupDialogs(b, onConfirm = backupState::confirm, onDismiss = backupState::dismiss, date = ::formatDate)
+                    },
                 )
                 if (Probe.enabled) BenchMarker.Draw()
             }
@@ -170,6 +262,15 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val pageActions by lazy {
+        PageActions(
+            pickFolder = { pickFolder.launch(null) },
+            backUp = { saveBackup.launch(backupFileName()) },
+            restore = { pickBackup.launch(arrayOf("application/json", "application/octet-stream", "text/plain", "*/*")) },
+            date = ::formatDate,
+        )
+    }
+
     /** Bundled faces for the display panel's previews (F-071), from the same asset files the reader serves. */
     private val fonts by lazy {
         mapOf(
@@ -207,6 +308,8 @@ class MainActivity : ComponentActivity() {
     private fun openFromIntent(intent: Intent?, cold: Boolean): Boolean {
         if (intent?.action != Intent.ACTION_VIEW) return false
         val uri = intent.data ?: return false
+        // F-090: a backup file opened from a file manager offers restore; the app stays where it is.
+        if (isBackupFile(intent, uri)) { offerRestore(uri); return true }
         val ref = when (uri.scheme) {
             "file" -> uri.path?.let { SourceRef.File(it) }
             "content" -> {
@@ -218,6 +321,12 @@ class MainActivity : ComponentActivity() {
         view = if (cold) View.COLD else View.WARM
         openBook(ref)
         return true
+    }
+
+    private fun isBackupFile(intent: Intent, uri: Uri): Boolean {
+        val type = intent.type ?: runCatching { contentResolver.getType(uri) }.getOrNull()
+        val name = (uri.lastPathSegment ?: "").lowercase()
+        return type == "application/json" || type == "text/json" || name.endsWith(".json")
     }
 
     /** Returns false when Back should leave the app. Leaving the reader never waits for the engine (R-005). */
@@ -237,6 +346,7 @@ class MainActivity : ComponentActivity() {
         }
         Route.Library -> library.back()
         Route.Onboarding -> false
+        else -> nav.pop() // settings, about, hidden books, licences, details
     }
 
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
