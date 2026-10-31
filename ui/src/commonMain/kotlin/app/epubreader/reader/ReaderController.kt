@@ -49,6 +49,12 @@ data class ReaderUiState(
  *
  * [positions] is a Deferred because PositionWriter.create seeds its clock from the database (suspend, IO); it is
  * awaited only when a position is stored.
+ *
+ * The close-out (last position, session release) runs on [closeScope], an app-scoped scope, so it also completes
+ * when [scope] (the activity's lifecycleScope) is already cancelled, e.g. from onDestroy.
+ *
+ * Failures (database, opener) never escape: each event is handled on its own, and a failure the reader can see is
+ * shown as [ReaderError] (R-002).
  */
 class ReaderController(
     private val reader: ReaderPort,
@@ -58,11 +64,17 @@ class ReaderController(
     private val scope: CoroutineScope,
     private val texts: WebTexts,
     private val probe: EventProbe = EventProbe.None,
+    private val closeScope: CoroutineScope = scope,
 ) {
     private class Session(val id: String, val ref: SourceRef, val cdDigest: String, val size: Long, val hadPosition: Boolean) {
         var bookId: String? = null
         var last: PositionWriter.Update? = null
         var painted = false
+        /**
+         * Id of the resume jump sent after `opened` (same book, new source) until the web side answers `seeked`.
+         * Relocates before that are where the book opened (its start), not where the reader is: not stored (R-009).
+         */
+        var seek: Int? = null
         val map: PositionMap = PositionMap.Identity // M8: the book's ChunkMap
     }
 
@@ -71,9 +83,29 @@ class ReaderController(
     private var session: Session? = null
     private var openJob: Job? = null
     private var closing: Job? = null
+    private var seeks = 0
 
     init {
-        scope.launch { reader.events.collect { on(it) } }
+        scope.launch {
+            reader.events.collect { m ->
+                try {
+                    on(m)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    failed("event ${m::class.simpleName}", e, showIfOpen = m is FromWeb.Opened)
+                }
+            }
+        }
+    }
+
+    /** Logs a failure; shows it when the reader is still open and the failure means the book cannot be used. */
+    private fun failed(where: String, e: Exception, showIfOpen: Boolean) {
+        println("ReaderController: $where failed: $e")
+        probe.ev("controller_error", "$where: $e")
+        if (showIfOpen && _state.value.open) {
+            _state.update { it.copy(loading = false, error = ReaderError.Engine(STORAGE, e.message ?: e.toString())) }
+        }
     }
 
     fun open(ref: SourceRef) {
@@ -82,9 +114,23 @@ class ReaderController(
         val previous = closing
         openJob = scope.launch {
             previous?.join() // the last position of the book just closed is stored before we read positions
-            val known = library.knownBookId(ref)
-            val saved = known?.let { library.position(it) }
-            when (val r = opener.open(ref)) {
+            val (known, saved) = try {
+                library.knownBookId(ref).let { it to it?.let { id -> library.position(id) } }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                failed("open: reading the library", e, showIfOpen = true)
+                return@launch
+            }
+            val r = try {
+                opener.open(ref)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) { // BookOpener maps its own failures; this is the last guard (R-002)
+                failed("open: opening the file", e, showIfOpen = false)
+                OpenResult.Failed(OpenFailure.NO_ACCESS)
+            }
+            when (r) {
                 is OpenResult.Failed -> _state.update { it.copy(loading = false, error = ReaderError.Open(r.reason)) }
                 is OpenResult.Ok -> try {
                     val s = Session(r.sessionId, ref, r.cdDigest, r.size, hadPosition = saved != null).also { it.bookId = known }
@@ -108,9 +154,21 @@ class ReaderController(
         _state.value = ReaderUiState()
         if (s == null) return
         reader.send(ToWeb.Close())
-        closing = scope.launch {
-            s.last?.let { positions.await().writeNow(it) }
-            opener.close(s.id)
+        closing = closeScope.launch {
+            try {
+                s.last?.let { positions.await().writeNow(it) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                failed("close: storing the last position", e, showIfOpen = false)
+            }
+            try {
+                opener.close(s.id)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                failed("close: releasing the book", e, showIfOpen = false)
+            }
         }
     }
 
@@ -137,19 +195,25 @@ class ReaderController(
                 val rec = library.recordOpened(OpenedBookInfo(identity, m.title, m.authors, s.ref, s.size))
                 s.bookId = rec.bookId
                 if (session !== s) return // closed (or another book opened) while recording
-                // Same book reached through a new source (e.g. picked again): resume where it was left.
-                if (!s.hadPosition) rec.position?.let { reader.send(ToWeb.GoTo(target = s.map.cfiToVirtual(it.cfi))) }
+                // Same book reached through a new source (e.g. picked again): resume where it was left. Positions are
+                // stored again once the jump has landed (`seeked`); the web side holds the jump until its open settled.
+                if (!s.hadPosition) rec.position?.let {
+                    val id = ++seeks
+                    s.seek = id
+                    reader.send(ToWeb.GoTo(target = s.map.cfiToVirtual(it.cfi), id = id))
+                }
                 _state.update { it.copy(title = m.title, toc = m.toc) }
             }
             is FromWeb.Relocate -> if (m.sessionId == s.id) {
                 probe.ev("relocate", m.cfi)
-                s.bookId?.let { id ->
+                if (s.seek == null) s.bookId?.let { id ->
                     val u = PositionWriter.Update(id, s.map.cfiToOriginal(m.cfi), m.fraction, m.sectionIndex)
                     s.last = u
                     positions.await().submit(u)
                 }
                 if (session === s) _state.update { it.copy(currentTocHref = m.tocHref) }
             }
+            is FromWeb.Seeked -> if (m.sessionId == s.id && m.id == s.seek) { s.seek = null; probe.ev("seeked", "") }
             is FromWeb.Painted -> if (m.sessionId == s.id) {
                 probe.ev("painted", "")
                 if (!s.painted) { s.painted = true; probe.ev("painted_first", ""); _state.update { it.copy(loading = false) } }
@@ -162,3 +226,5 @@ class ReaderController(
         }
     }
 }
+
+private const val STORAGE = "storage"

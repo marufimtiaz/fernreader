@@ -10,7 +10,10 @@ import app.epubreader.reader.bridge.FromWeb
 import app.epubreader.reader.bridge.ToWeb
 import app.epubreader.reader.bridge.TocItem
 import app.epubreader.reader.bridge.WebTexts
+import androidx.room.execSQL
+import androidx.room.useWriterConnection
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -24,6 +27,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -53,11 +57,19 @@ class ReaderControllerTest {
     // The controller's event collector runs forever, so it gets its own scope (cancelled after each test) instead of
     // the test's. Not backgroundScope: advanceUntilIdle() stops once only background tasks remain, so it would never
     // run the controller's work.
-    private val scope = CoroutineScope(dispatcher + SupervisorJob())
-    @AfterTest fun cancelScope() = scope.cancel()
-    private suspend fun controller() = ReaderController(
-        reader, opener, library, CompletableDeferred(PositionWriter.create(db, clock, scope)), scope, WebTexts("missing"),
+    // Any exception that escapes the controller's coroutines would crash the app (R-002): collect them and fail.
+    private val crashes = mutableListOf<Throwable>()
+    private val scope = CoroutineScope(dispatcher + SupervisorJob() + CoroutineExceptionHandler { _, e -> crashes += e })
+    /** Stands in for the app-scoped IO scope that close-out runs on (survives the activity's lifecycleScope). */
+    private val appScope = CoroutineScope(dispatcher + SupervisorJob() + CoroutineExceptionHandler { _, e -> crashes += e })
+    @AfterTest fun cancelScope() { scope.cancel(); appScope.cancel(); assertEquals(emptyList(), crashes) }
+    private suspend fun controller(controllerScope: CoroutineScope = scope) = ReaderController(
+        reader, opener, library, CompletableDeferred(PositionWriter.create(db, clock, appScope)), controllerScope, WebTexts("missing"),
+        closeScope = appScope,
     )
+    /** Every later library query fails (stands in for a corrupt database or a full disk). */
+    private suspend fun breakDatabase() = db.useWriterConnection { it.execSQL("DROP TABLE book_file"); it.execSQL("DROP TABLE book") }
+    private fun relocate(cfi: String, sid: String = "s-1") = FromWeb.Relocate(sessionId = sid, cfi = cfi, fraction = 0.3, sectionIndex = 2)
 
     @Test fun open_sends_open_and_records_book_on_opened() = runTest(dispatcher) {
         val c = controller()
@@ -126,5 +138,92 @@ class ReaderControllerTest {
         c.open(ref); advanceUntilIdle()
         assertEquals(ReaderError.Open(OpenFailure.NOT_A_ZIP), c.state.value.error)
         assertTrue(reader.sent.isEmpty())
+    }
+
+    // C1 + I1 (F-037, R-009): the same book reached through another source resumes at its saved position, and the
+    // book-start relocates before that jump has landed never replace the saved position.
+    @Test fun same_book_via_new_source_jumps_to_saved_position_and_keeps_it_until_landed() = runTest(dispatcher) {
+        val c = controller()
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
+        reader.events.emit(relocate("epubcfi(/6/6!/4/2)")); advanceUntilIdle()
+        c.close(); advanceUntilIdle()
+        val bookId = library.knownBookId(ref)!!
+
+        opener.next = OpenResult.Ok("s-2", "d".repeat(64), 100)
+        val other = SourceRef.Content("content://provider/doc/42")
+        reader.sent.clear()
+        c.open(other); advanceUntilIdle()
+        assertEquals(null, (reader.sent.single() as ToWeb.Open).position) // not known under this source yet
+        reader.events.emit(opened("s-2")); advanceUntilIdle()
+        val goTo = reader.sent.last() as ToWeb.GoTo
+        assertEquals("epubcfi(/6/6!/4/2)", goTo.target)
+        val id = assertNotNull(goTo.id)
+
+        reader.events.emit(relocate("epubcfi(/6/2!/4/1)", "s-2")); advanceUntilIdle() // book start, before the jump
+        assertEquals("epubcfi(/6/6!/4/2)", library.position(bookId)!!.cfi)
+        reader.events.emit(FromWeb.Seeked(sessionId = "s-2", id = id + 1)); advanceUntilIdle() // not ours
+        reader.events.emit(relocate("epubcfi(/6/2!/4/9)", "s-2")); advanceUntilIdle()
+        assertEquals("epubcfi(/6/6!/4/2)", library.position(bookId)!!.cfi)
+
+        reader.events.emit(relocate("epubcfi(/6/6!/4/2)", "s-2")); advanceUntilIdle() // landed
+        reader.events.emit(FromWeb.Seeked(sessionId = "s-2", id = id)); advanceUntilIdle()
+        reader.events.emit(relocate("epubcfi(/6/6!/4/8)", "s-2")); advanceUntilIdle() // the reader turns a page
+        assertEquals("epubcfi(/6/6!/4/8)", library.position(bookId)!!.cfi)
+    }
+
+    @Test fun close_before_the_resume_jump_landed_keeps_the_saved_position() = runTest(dispatcher) {
+        val c = controller()
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
+        reader.events.emit(relocate("epubcfi(/6/6!/4/2)")); advanceUntilIdle()
+        c.close(); advanceUntilIdle()
+        val bookId = library.knownBookId(ref)!!
+        opener.next = OpenResult.Ok("s-2", "d".repeat(64), 100)
+        c.open(SourceRef.Content("content://provider/doc/42")); advanceUntilIdle()
+        reader.events.emit(opened("s-2")); advanceUntilIdle()
+        reader.events.emit(relocate("epubcfi(/6/2!/4/1)", "s-2")); advanceUntilIdle()
+        c.close(); advanceUntilIdle() // the close-out flush must not write the book start either
+        assertEquals("epubcfi(/6/6!/4/2)", library.position(bookId)!!.cfi)
+    }
+
+    // I3 (R-002): database failures never crash the app.
+    @Test fun database_failure_while_recording_the_book_is_shown_and_events_keep_flowing() = runTest(dispatcher) {
+        val c = controller()
+        c.open(ref); advanceUntilIdle()
+        breakDatabase()
+        reader.events.emit(opened()); advanceUntilIdle()
+        assertTrue(c.state.value.error is ReaderError.Engine)
+        reader.events.emit(FromWeb.Tap(sessionId = "s-1", x = 0.5, y = 0.5)); advanceUntilIdle()
+        assertTrue(c.state.value.chromeVisible) // the collector is still running
+    }
+
+    @Test fun database_failure_while_opening_is_shown() = runTest(dispatcher) {
+        val c = controller()
+        breakDatabase()
+        c.open(ref); advanceUntilIdle()
+        assertTrue(c.state.value.error is ReaderError.Engine)
+        assertFalse(c.state.value.loading)
+    }
+
+    @Test fun failure_storing_a_position_does_not_stop_the_reader() = runTest(dispatcher) {
+        val broken = CompletableDeferred<PositionWriter>().apply { completeExceptionally(IllegalStateException("no writer")) }
+        val c = ReaderController(reader, opener, library, broken, scope, WebTexts("missing"), closeScope = appScope)
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
+        reader.events.emit(relocate("epubcfi(/6/6!/4/2)")); advanceUntilIdle()
+        reader.events.emit(FromWeb.Painted(sessionId = "s-1")); advanceUntilIdle()
+        assertFalse(c.state.value.loading)
+        c.close(); advanceUntilIdle() // writeNow fails too
+        assertEquals(listOf("s-1"), opener.closed) // the session is still released
+    }
+
+    // Minor 1: the close-out (last position, session release) runs even when the controller's scope is gone.
+    @Test fun close_out_runs_on_the_app_scope_after_the_activity_scope_is_cancelled() = runTest(dispatcher) {
+        val activityScope = CoroutineScope(dispatcher + SupervisorJob())
+        val c = controller(activityScope)
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
+        reader.events.emit(relocate("epubcfi(/6/6!/4/4)")); advanceUntilIdle()
+        activityScope.cancel() // onDestroy: lifecycleScope is already cancelled
+        c.close(); advanceUntilIdle()
+        assertEquals(listOf("s-1"), opener.closed)
+        assertEquals("epubcfi(/6/6!/4/4)", library.position(library.knownBookId(ref)!!)!!.cfi)
     }
 }

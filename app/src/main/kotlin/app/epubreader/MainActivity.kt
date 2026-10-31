@@ -51,7 +51,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val graph = (application as EpubReaderApp).graph
         reader = ReaderEngine(this, graph.server)
-        controller = ReaderController(reader, graph.opener, graph.library, graph.positions, lifecycleScope, WebTexts(Copy.missingPart), probe)
+        controller = ReaderController(
+            reader, graph.opener, graph.library, graph.positions, lifecycleScope, WebTexts(Copy.missingPart), probe,
+            closeScope = graph.appScope, // onDestroy's close-out must not run on the already-cancelled lifecycleScope
+        )
         val home = HomeState(graph.library, lifecycleScope)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {

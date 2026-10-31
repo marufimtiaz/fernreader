@@ -19,6 +19,8 @@ import kotlinx.coroutines.async
 /** Process-wide objects (manual DI). The database opens lazily on first query, off the main thread. */
 class AppGraph(app: Application) {
     private val io = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    /** Outlives activities: work that must finish after onDestroy (the reader's close-out) runs here. */
+    val appScope: CoroutineScope get() = io
     val db = buildDatabase(androidDatabaseBuilder(app))
     val clock = HybridClock(System::currentTimeMillis)
     val library = LibraryRepository(db, clock)
