@@ -22,6 +22,9 @@ class ProtocolFixtureTest {
     @Test fun every_from_web_fixture_decodes() {
         for (n in listOf("opened", "relocate", "painted", "seeked", "tap", "error")) assertNotNull(decodeFromWeb(fixture(n)), n)
         assertEquals(FromWeb.Seeked(sessionId = "s-1", id = 1), decodeFromWeb(fixture("seeked")))
+        assertEquals(FromWeb.History(sessionId = "s-1", depth = 1), decodeFromWeb(fixture("history")))
+        assertEquals(FromWeb.Footnote(sessionId = "s-1", open = true), decodeFromWeb(fixture("footnote")))
+        assertEquals(FromWeb.ExternalLink(sessionId = "s-1", href = "https://www.gutenberg.org/"), decodeFromWeb(fixture("externalLink")))
         assertEquals(FromWeb.Relocate(sessionId = "s-1", cfi = "epubcfi(/6/4!/4/2/1:0)", fraction = 0.12, sectionIndex = 1, tocHref = "OEBPS/c1.xhtml", page = 3, pages = 12, sectionFraction = 0.18),
             decodeFromWeb(fixture("relocate")))
         assertEquals(FromWeb.PageCounts(sessionId = "s-1", gen = 2, linear = listOf(0, 1, 2), counts = listOf(listOf(1, 4), listOf(2, 9)), sample = true),
@@ -38,6 +41,7 @@ class ProtocolFixtureTest {
             "goToSeek" to ToWeb.GoTo(target = "epubcfi(/6/6!/4/2)", id = 1),
             "goToText" to ToWeb.GoToText(sectionIndex = 4, offset = 1234, length = 8, needle = "Borodinó"),
             "clearSearchHighlight" to ToWeb.ClearSearchHighlight(),
+            "back" to ToWeb.Back(), "closeFootnote" to ToWeb.CloseFootnote(),
             "goToFraction" to ToWeb.GoToFraction(fraction = 0.25),
             "setSettings" to ToWeb.SetSettings(settings = WebSettings(1.4, "literata", 1.8, 3, "justify", "warm", "scrolled", "rtl", "none")),
         )

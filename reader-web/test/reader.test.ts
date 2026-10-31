@@ -504,3 +504,159 @@ describe('page animation (F-032)', () => {
     expect(FakeView.all[0].renderer.hasAttribute('animated')).toBe(false)
   })
 })
+
+describe('links, history, footnotes (F-042, F-043, F-044)', () => {
+  const OPS = 'http://www.idpf.org/2007/ops'
+  const xhtml = (body: string) => new DOMParser().parseFromString(
+    `<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="${OPS}"><head><title>t</title></head><body>${body}</body></html>`,
+    'application/xhtml+xml')
+  const NOTES = `<h1>Notes</h1><aside epub:type="footnote" id="n5"><p><a href="ch1.xhtml#r5">5.</a> Footnote number 5 text. <a href="https://www.gutenberg.org/">site</a></p></aside>`
+  const CH1 = `<p>Text<a epub:type="noteref" href="notes.xhtml#n5" id="r5">5</a>. See <a href="ch2.xhtml#target">the target</a>.</p>`
+  /** Spine: 0 ch1, 1 ch2, 2 notes; hrefs resolve like foliate's (book paths, `#id` anchors). */
+  const linkBook = () => ({
+    ...book(),
+    sections: [
+      { id: 'c1', createDocument: async () => xhtml(CH1), resolveHref: (h: string) => (/^\w+:/.test(h) ? h : `OEBPS/${h}`) },
+      { id: 'c2', createDocument: async () => xhtml('<p id="target">Target</p>'), resolveHref: (h: string) => `OEBPS/${h}` },
+      { id: 'n', createDocument: async () => xhtml(NOTES), resolveHref: (h: string) => (/^\w+:/.test(h) ? h : `OEBPS/${h}`) },
+    ],
+    resolveHref: (href: string) => {
+      const [path, hash] = href.split('#')
+      const index = ['OEBPS/ch1.xhtml', 'OEBPS/ch2.xhtml', 'OEBPS/notes.xhtml'].indexOf(path)
+      if (index < 0) return null
+      return { index, anchor: hash ? (d: Document) => d.getElementById(hash) : () => 0 }
+    },
+  })
+  const ch1 = xhtml(CH1)
+  const link = (v: FakeView, a: Element, href: string) => {
+    const e = new CustomEvent('link', { detail: { a, href }, cancelable: true })
+    v.dispatchEvent(e)
+    return e
+  }
+  const external = (v: FakeView, href_: string) => {
+    const e = new CustomEvent('external-link', { detail: { a: null, href_ }, cancelable: true })
+    v.dispatchEvent(e)
+    return e
+  }
+  const without = (t: string) => sent.filter(m => m.type !== t && m.type !== 'painted')
+  const popup = () => document.getElementById('er-footnote')
+  const panel = () => popup()?.querySelector('[role="dialog"]') as HTMLElement | null
+  const opened = async () => { h.epubInit.mockImplementation(async () => linkBook()); open('s1', 'cfi-origin'); await settle(); sent = [] }
+
+  it('a followed link pushes the exact origin, goes there through foliate, and says history depth 1', async () => {
+    await opened()
+    const v = FakeView.all[0]
+    const e = link(v, ch1.querySelectorAll('a')[1], 'OEBPS/ch2.xhtml#target'); await settle()
+    expect(e.defaultPrevented).toBe(true) // foliate's own navigation is not used
+    expect(without('relocate')).toEqual([{ v: 1, type: 'history', sessionId: 's1', depth: 1 }])
+    expect(v.goTo).toHaveBeenCalledWith('OEBPS/ch2.xhtml#target')
+    expect(sent.filter(m => m.type === 'relocate').map(m => (m as { cfi: string }).cfi)).toEqual(['OEBPS/ch2.xhtml#target'])
+  })
+
+  it('back returns to the origin location and walks the history; an empty history moves nothing', async () => {
+    await opened()
+    const v = FakeView.all[0]
+    link(v, ch1.querySelectorAll('a')[1], 'OEBPS/ch2.xhtml#target'); await settle()
+    v.relocateTo('cfi-later') // a page turn after the jump
+    link(v, ch1.querySelectorAll('a')[1], 'OEBPS/ch2.xhtml#target'); await settle()
+    sent = []
+    send({ v: 1, type: 'back' }); await settle()
+    expect(sent.filter(m => m.type !== 'painted')).toEqual([
+      { v: 1, type: 'history', sessionId: 's1', depth: 1 },
+      expect.objectContaining({ type: 'relocate', cfi: 'cfi-later' }),
+    ])
+    sent = []
+    send({ v: 1, type: 'back' }); await settle()
+    expect(sent.filter(m => m.type !== 'painted').map(m => (m as any).cfi ?? (m as any).depth)).toEqual([0, 'cfi-origin'])
+    sent = []; v.goTo.mockClear()
+    send({ v: 1, type: 'back' }); await settle()
+    expect(without('x')).toEqual([{ v: 1, type: 'history', sessionId: 's1', depth: 0 }])
+    expect(v.goTo).not.toHaveBeenCalled()
+  })
+
+  it('TOC jumps do not create history entries, and a new open starts with none', async () => {
+    await opened()
+    const v = FakeView.all[0]
+    send({ v: 1, type: 'goTo', target: 'c2.xhtml' }); await settle()
+    expect(types()).not.toContain('history')
+    link(v, ch1.querySelectorAll('a')[1], 'OEBPS/ch2.xhtml#target'); await settle()
+    send({ v: 1, type: 'close' }); open('s2', null); await settle(); sent = []
+    send({ v: 1, type: 'back' }); await settle()
+    expect(without('x')).toEqual([{ v: 1, type: 'history', sessionId: 's2', depth: 0 }])
+  })
+
+  it('a note reference opens the popup with the note text instead of navigating', async () => {
+    await opened()
+    const v = FakeView.all[0]
+    v.goTo.mockClear()
+    const e = link(v, ch1.querySelector('a')!, 'OEBPS/notes.xhtml#n5'); await settle()
+    expect(e.defaultPrevented).toBe(true)
+    expect(without('x')).toEqual([{ v: 1, type: 'footnote', sessionId: 's1', open: true }])
+    expect(panel()?.textContent).toContain('Footnote number 5 text.')
+    expect(panel()?.querySelector('script, [onclick], [href]')).toBeNull()
+    expect(v.goTo).not.toHaveBeenCalled()
+    expect((window as any).__readerTest.footnote()).toContain('Footnote number 5')
+  })
+
+  it('a plain link to an element marked as a note in a loaded section opens the popup too', async () => {
+    await opened()
+    const v = FakeView.all[0]
+    v.renderer.getContents = () => [{ index: 0, doc: xhtml(CH1) }, { index: 2, doc: xhtml(NOTES) }]
+    const a = xhtml('<p><a href="notes.xhtml#n5">see note</a></p>').querySelector('a')!
+    link(v, a, 'OEBPS/notes.xhtml#n5'); await settle()
+    expect(panel()?.textContent).toContain('Footnote number 5')
+  })
+
+  it('a tap outside the popup closes it and tells the app; a tap inside does not', async () => {
+    await opened()
+    link(FakeView.all[0], ch1.querySelector('a')!, 'OEBPS/notes.xhtml#n5'); await settle(); sent = []
+    panel()!.querySelector('p')!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    expect(popup()).not.toBeNull()
+    popup()!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    expect(popup()).toBeNull()
+    expect(without('x')).toEqual([{ v: 1, type: 'footnote', sessionId: 's1', open: false }])
+  })
+
+  it('closeFootnote closes it (Back in the app)', async () => {
+    await opened()
+    link(FakeView.all[0], ch1.querySelector('a')!, 'OEBPS/notes.xhtml#n5'); await settle(); sent = []
+    send({ v: 1, type: 'closeFootnote' }); await settle()
+    expect(popup()).toBeNull()
+    expect(without('x')).toEqual([{ v: 1, type: 'footnote', sessionId: 's1', open: false }])
+  })
+
+  it('an internal link in the note closes the popup and navigates with history; an external one asks the app', async () => {
+    await opened()
+    const v = FakeView.all[0]
+    link(v, ch1.querySelector('a')!, 'OEBPS/notes.xhtml#n5'); await settle(); sent = []
+    const [back, site] = [...panel()!.querySelectorAll('a')]
+    site.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+    expect(without('x')).toEqual([{ v: 1, type: 'externalLink', sessionId: 's1', href: 'https://www.gutenberg.org/' }])
+    expect(popup()).not.toBeNull()
+    sent = []
+    back.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })); await settle()
+    expect(popup()).toBeNull()
+    expect(without('relocate')).toEqual([
+      { v: 1, type: 'footnote', sessionId: 's1', open: false },
+      { v: 1, type: 'history', sessionId: 's1', depth: 1 },
+    ])
+    expect(v.goTo).toHaveBeenCalledWith('OEBPS/ch1.xhtml#r5')
+  })
+
+  it('external links go to the app; unsafe schemes are dropped; the view never opens a window', async () => {
+    await opened()
+    const v = FakeView.all[0]
+    const e = external(v, 'https://www.gutenberg.org/')
+    expect(e.defaultPrevented).toBe(true)
+    for (const bad of ['javascript:alert(1)', 'file:///etc/hosts', 'content://x', 'intent://x#Intent;end']) expect(external(v, bad).defaultPrevented).toBe(true)
+    await settle()
+    expect(without('x')).toEqual([{ v: 1, type: 'externalLink', sessionId: 's1', href: 'https://www.gutenberg.org/' }])
+  })
+
+  it('close removes an open popup', async () => {
+    await opened()
+    link(FakeView.all[0], ch1.querySelector('a')!, 'OEBPS/notes.xhtml#n5'); await settle()
+    send({ v: 1, type: 'close' })
+    expect(popup()).toBeNull()
+  })
+})

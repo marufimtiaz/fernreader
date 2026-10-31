@@ -28,6 +28,10 @@ import kotlinx.serialization.json.Json
      */
     @Serializable @SerialName("goToText") data class GoToText(val v: Int = 1, val sectionIndex: Int, val offset: Int, val length: Int, val needle: String) : ToWeb
     @Serializable @SerialName("clearSearchHighlight") data class ClearSearchHighlight(val v: Int = 1) : ToWeb
+    /** F-042: back to where the last followed link was tapped (sent only while [FromWeb.History.depth] > 0). */
+    @Serializable @SerialName("back") data class Back(val v: Int = 1) : ToWeb
+    /** F-043: close the footnote popup (system Back). */
+    @Serializable @SerialName("closeFootnote") data class CloseFootnote(val v: Int = 1) : ToWeb
 }
 
 @Serializable data class WebSettings(
@@ -71,6 +75,12 @@ import kotlinx.serialization.json.Json
         val sample: Boolean = false, val done: Boolean = false,
     ) : FromWeb
     @Serializable @SerialName("tap") data class Tap(val v: Int = 1, val sessionId: String, val x: Double, val y: Double) : FromWeb
+    /** F-042: entries in the followed-links history after each push or pop; Back pops one while it is > 0. */
+    @Serializable @SerialName("history") data class History(val v: Int = 1, val sessionId: String, val depth: Int) : FromWeb
+    /** F-043: the footnote popup opened or closed (a tap outside closes it on the web side). */
+    @Serializable @SerialName("footnote") data class Footnote(val v: Int = 1, val sessionId: String, val open: Boolean) : FromWeb
+    /** F-044: an http(s) or mailto link was tapped (the web side drops every other scheme). */
+    @Serializable @SerialName("externalLink") data class ExternalLink(val v: Int = 1, val sessionId: String, val href: String) : FromWeb
 }
 
 val BridgeJson = Json { classDiscriminator = "type"; ignoreUnknownKeys = true; encodeDefaults = true }

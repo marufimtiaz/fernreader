@@ -9,6 +9,8 @@ import { PageCounter } from './counter'
 import { shareSections } from './sections'
 import { resolveTextRange } from './textpos'
 import { effectiveDir, swipeToTurn } from './swipe'
+import { externalHref, isNoteTarget, noteElement, noteRef, sanitizeNote } from './links'
+import { FootnotePopup } from './footnote'
 import { applySettings as applyStyles, DEFAULT_SETTINGS, readerCss, THEMES, type WebSettings } from './styles'
 
 /* foliate-js is untyped JS; keep `any` at this boundary only. */
@@ -51,6 +53,14 @@ export class Reader {
   private countTimer: ReturnType<typeof setTimeout> | null = null
   /** The one temporary search highlight (F-050): its CFI and section, drawn again whenever that section's overlayer is made. */
   private search: { cfi: string; index: number } | null = null
+  /**
+   * F-042 followed-links history: the exact location (CFI) where each followed link was tapped, newest last. Only
+   * links push; TOC, search and slider jumps do not (Back after them leaves the book). foliate's own view.history is
+   * not used: it also records every goTo and goToFraction. Reset per open; the app mirrors its depth (`history`).
+   */
+  private links: string[] = []
+  /** F-043 note popup in the host page. */
+  private readonly popup = new FootnotePopup(document, href => this.onPopupLink(href), () => this.sendFootnote(false))
 
   constructor(private bridge: Bridge) {
     // Read-only probes for the app's instrumented tests (evaluateJavascript); nothing in the app calls them.
@@ -96,6 +106,32 @@ export class Reader {
       linear: () => (this.book?.sections ?? []).map((x: any, i: number) => (x.linear !== 'no' ? i : -1)).filter((i: number) => i >= 0),
       goIndex: (i: number) => { void this.view?.renderer?.goTo({ index: i, anchor: 0 }) },
       htmlVar: (index: number, name: string) => this.view?.renderer?.getContents?.().find((x: any) => x.index === index)?.doc?.documentElement.style.getPropertyValue(name) ?? null,
+      /** F-043: text of the open footnote popup, or null. */
+      footnote: () => this.popup.text(),
+      /** F-042: entries in the followed-links history. */
+      historyDepth: () => this.links.length,
+      /**
+       * Host-viewport rectangle (CSS px) of the first link in the shown sections whose text is [text], with the
+       * device pixel ratio, so a test can tap it for real; null if there is none.
+       */
+      linkRect: (text: string) => {
+        for (const c of this.view?.renderer?.getContents?.() ?? []) {
+          const a = [...(c.doc?.querySelectorAll('a[href]') ?? [])].find((x: any) => x.textContent?.trim() === text) as Element | undefined
+          if (!a) continue
+          const box = (c.doc.defaultView?.frameElement as HTMLElement | null)?.getBoundingClientRect()
+          const r = a.getClientRects()[0] ?? a.getBoundingClientRect()
+          return { x: (box?.left ?? 0) + r.left, y: (box?.top ?? 0) + r.top, w: r.width, h: r.height, dpr: window.devicePixelRatio, vw: window.innerWidth, vh: window.innerHeight }
+        }
+        return null
+      },
+      /** Clicks the first link whose text is [text] in the shown sections (like a tap; foliate's link handling runs). */
+      clickLink: (text: string) => {
+        for (const c of this.view?.renderer?.getContents?.() ?? []) {
+          const a = [...(c.doc?.querySelectorAll('a[href]') ?? [])].find((x: any) => x.textContent?.trim() === text) as HTMLElement | undefined
+          if (a) { a.click(); return true }
+        }
+        return false
+      },
       overlayCount: (index: number) => this.view?.renderer?.getContents?.().find((x: any) => x.index === index)?.overlayer?.element?.childElementCount ?? -1,
     }
     // A new viewport (rotation, window size) is a new layout: count again (F-034, P-022).
@@ -113,6 +149,8 @@ export class Reader {
         case 'goTo': this.enqueue({ kind: 'goTo', target: m.target, id: m.id }); break
         case 'goToText': this.enqueue({ kind: 'text', index: m.sectionIndex, offset: m.offset, length: m.length, needle: m.needle }); break
         case 'clearSearchHighlight': this.enqueue({ kind: 'clearSearch' }); break
+        case 'back': this.back(); break
+        case 'closeFootnote': if (this.popup.close()) this.sendFootnote(false); break
       }
     })
   }
@@ -159,7 +197,9 @@ export class Reader {
         if (e.detail.annotation?.value === this.search?.cfi) e.detail.draw(Overlayer.highlight, { color: SEARCH_COLOR })
       })
       view.addEventListener('create-overlay', (e: CustomEvent) => { if (this.search && e.detail.index === this.search.index) this.drawSearch(view) })
-      view.addEventListener('external-link', (e: Event) => e.preventDefault()) // F-044 arrives in M6
+      // foliate's link handling (view.js #handleLinks) finds the link and emits these; the host decides what happens.
+      view.addEventListener('link', (e: CustomEvent) => { e.preventDefault(); void this.onLink(view, sessionId, e.detail?.a, e.detail?.href) })
+      view.addEventListener('external-link', (e: CustomEvent) => { e.preventDefault(); this.onExternal(sessionId, e.detail?.href_) })
       await view.open(book)
       if (stale()) return
       const r = view.renderer
@@ -407,6 +447,75 @@ export class Reader {
     if (t) this.turn(t)
   }
 
+  /**
+   * F-042/F-043: a tapped link inside the book. A note reference (marked, or a superscript link, or a link to an
+   * element marked as a note in a section that is already loaded) whose note can be found opens the popup; anything
+   * else is followed with a history entry. Ordinary links never wait for another section to load before moving.
+   */
+  private async onLink(view: any, sessionId: string, a: Element | undefined, href: string | undefined) {
+    if (this.view !== view || this.sessionId !== sessionId || !href) return
+    const book = this.book
+    let target: { index: number; anchor?: (d: Document) => Element | Range | number | null } | null = null
+    try { target = book?.resolveHref?.(href) ?? null } catch (e) { console.warn('link did not resolve', href, e) }
+    if (!target || !(target.index >= 0)) { console.warn('link target is not in the book', href); return }
+    const ref = a ? noteRef(a) : 'no'
+    try {
+      const loaded = (view.renderer?.getContents?.() ?? []).find((c: any) => c.index === target!.index)?.doc as Document | undefined
+      const doc: Document | undefined = ref !== 'no' ? await book.sections?.[target.index]?.createDocument?.() : loaded
+      if (this.view !== view || this.sessionId !== sessionId) return
+      const found = doc && target.anchor ? target.anchor(doc) : null
+      const el = typeof found === 'object' ? noteElement(found) : null
+      if (el && el !== doc!.body && (ref !== 'no' || isNoteTarget(el))) {
+        const section = book.sections[target.index]
+        const content = sanitizeNote(el, document, h => { try { return section?.resolveHref?.(h) ?? h } catch { return h } })
+        this.popup.show(content, this.settings)
+        this.sendFootnote(true)
+        return
+      }
+    } catch (e) { console.warn('note lookup failed', href, e) }
+    this.follow(href)
+  }
+
+  /** Follows an in-book link: the current location goes on the history, then the jump is queued like a goTo. */
+  private follow(href: string) {
+    const cfi = this.view?.lastLocation?.cfi
+    if (cfi) { this.links.push(cfi); this.sendHistory() }
+    this.enqueue({ kind: 'goTo', target: href })
+  }
+
+  /** F-042 Back: to where the last followed link was tapped. With nothing to go back to, only the depth is confirmed. */
+  private back() {
+    if (!this.sessionId) return
+    const cfi = this.links.pop()
+    this.sendHistory()
+    if (cfi) this.enqueue({ kind: 'goTo', target: cfi })
+  }
+
+  /** A link in the popup: external ones go to the app; internal ones close the popup and are followed. */
+  private onPopupLink(href: string) {
+    const sessionId = this.sessionId
+    if (!sessionId) return
+    if (/^(?!blob)\w+:/i.test(href)) { this.onExternal(sessionId, href); return }
+    if (this.popup.close()) this.sendFootnote(false)
+    this.follow(href)
+  }
+
+  /** F-044: only http(s) and mailto reach the app (it confirms and opens them); other schemes are dropped here. */
+  private onExternal(sessionId: string, href: string | undefined) {
+    if (this.sessionId !== sessionId || !href) return
+    const url = externalHref(href)
+    if (url) this.bridge.send({ v: 1, type: 'externalLink', sessionId, href: url })
+    else console.warn('ignoring link with an unsupported scheme')
+  }
+
+  private sendHistory() {
+    if (this.sessionId) this.bridge.send({ v: 1, type: 'history', sessionId: this.sessionId, depth: this.links.length })
+  }
+
+  private sendFootnote(open: boolean) {
+    if (this.sessionId) this.bridge.send({ v: 1, type: 'footnote', sessionId: this.sessionId, open })
+  }
+
   /** Center-tap detection for the chrome (F-033); edge taps are page turns when tap zones are on (decided in Kotlin). */
   private onLoad(sessionId: string, doc: Document) {
     doc.addEventListener('click', (e: MouseEvent) => {
@@ -433,6 +542,8 @@ export class Reader {
     this.counter?.stop(); this.counter = null
     this.queue = []
     this.seeking = false
+    this.links = []
+    this.popup.close()
     const view = this.view
     if (view) this.clearSearch(view)
     this.search = null

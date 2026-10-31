@@ -17,8 +17,12 @@ export type ToWeb =
   /** Search hit (F-050): [needle] is the hit text; the web side finds it near [offset] in the section's text. */
   | { v: 1; type: 'goToText'; sectionIndex: number; offset: number; length: number; needle: string }
   | { v: 1; type: 'clearSearchHighlight' }
+  /** F-042: back to where the last followed link was tapped (the app knows the depth from `history`). */
+  | { v: 1; type: 'back' }
+  /** F-043: close the footnote popup (system Back). */
+  | { v: 1; type: 'closeFootnote' }
 
-export const TO_WEB_TYPES: ReadonlyArray<ToWeb['type']> = ['ping', 'open', 'close', 'next', 'prev', 'goTo', 'setSettings', 'goToFraction', 'goToText', 'clearSearchHighlight']
+export const TO_WEB_TYPES: ReadonlyArray<ToWeb['type']> = ['ping', 'open', 'close', 'next', 'prev', 'goTo', 'setSettings', 'goToFraction', 'goToText', 'clearSearchHighlight', 'back', 'closeFootnote']
 
 export type FromWeb =
   | { v: 1; type: 'ready'; engine: string }
@@ -33,3 +37,9 @@ export type FromWeb =
   | { v: 1; type: 'seeked'; sessionId: string; id: number }
   | { v: 1; type: 'pageCounts'; sessionId: string; gen: number; linear?: number[]; counts: [number, number][]; sample: boolean; done: boolean }
   | { v: 1; type: 'tap'; sessionId: string; x: number; y: number }
+  /** F-042: entries in the followed-links history after a push or a pop (0 = Back leaves the book). */
+  | { v: 1; type: 'history'; sessionId: string; depth: number }
+  /** F-043: the footnote popup opened or closed (a tap outside closes it on the web side). */
+  | { v: 1; type: 'footnote'; sessionId: string; open: boolean }
+  /** F-044: an external http(s) or mailto link was tapped ([href] normalised; other schemes are never sent). */
+  | { v: 1; type: 'externalLink'; sessionId: string; href: string }
