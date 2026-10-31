@@ -29,8 +29,15 @@ class BookOpenerTest {
         override fun stamp(ref: SourceRef) = "1"
     }
 
+    /** A loadable one-section package (the search text of a session needs a valid one). */
     private val epub = ByteArrayOutputStream().also { out ->
-        ZipOutputStream(out).use { z -> z.putNextEntry(ZipEntry("mimetype")); z.write("application/epub+zip".toByteArray()); z.closeEntry() }
+        ZipOutputStream(out).use { z ->
+            fun put(name: String, data: String) { z.putNextEntry(ZipEntry(name)); z.write(data.toByteArray()); z.closeEntry() }
+            put("mimetype", "application/epub+zip")
+            put("META-INF/container.xml", """<?xml version="1.0"?><container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0"><rootfiles><rootfile full-path="OPS/p.opf" media-type="application/oebps-package+xml"/></rootfiles></container>""")
+            put("OPS/p.opf", """<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="u"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="u">x</dc:identifier><dc:title>X</dc:title></metadata><manifest><item id="c0" href="c0.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="c0"/></spine></package>""")
+            put("OPS/c0.xhtml", """<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>c</title></head><body><p>x</p></body></html>""")
+        }
     }.toByteArray()
     private val ref = SourceRef.Content("content://provider/doc/1")
 
