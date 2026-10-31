@@ -1,5 +1,5 @@
-import '../vendor/foliate-js/view.js' // registers <foliate-view>; warms the module graph before any book is opened
 import { Bridge } from './bridge/bridge'
+import { Reader } from './reader/reader'
 
 declare global {
   interface Window {
@@ -8,7 +8,7 @@ declare global {
   }
 }
 
-const post = (json: string) => window.ReaderBridge?.postMessage(json)
-const bridge = new Bridge(post)
+const bridge = new Bridge(json => window.ReaderBridge?.postMessage(json))
+new Reader(bridge) // imports foliate-js view.js: the module graph is warm before any book is opened
 window.__reader = { receive: json => bridge.receive(json) }
 bridge.send({ v: 1, type: 'ready', engine: 'foliate-js@78914ae' })

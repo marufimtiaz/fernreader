@@ -1,4 +1,4 @@
-import type { FromWeb, ToWeb } from './protocol'
+import { TO_WEB_TYPES, type FromWeb, type ToWeb } from './protocol'
 
 export type Post = (json: string) => void
 
@@ -12,15 +12,12 @@ export class Bridge {
   onMessage(h: (m: ToWeb) => void) { this.handlers.push(h) }
 
   receive(json: string) {
-    let m: { v?: number; type?: string; [k: string]: unknown }
-    try { m = JSON.parse(json) } catch { return }
-    switch (m.type) {
-      case 'ping':
-        this.send({ v: 1, type: 'pong', id: Number(m.id) })
-        return
-      default:
-        if (!['ping'].includes(String(m.type))) { console.warn('bridge: ignoring unknown message', m.type); return }
-    }
+    let parsed: unknown
+    try { parsed = JSON.parse(json) } catch { return }
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return
+    const m = parsed as { type?: unknown; id?: unknown }
+    if (!TO_WEB_TYPES.includes(m.type as ToWeb['type'])) { console.warn('bridge: ignoring unknown message', m.type); return }
+    if (m.type === 'ping') { this.send({ v: 1, type: 'pong', id: Number(m.id) }); return }
     for (const h of this.handlers) h(m as ToWeb)
   }
 }

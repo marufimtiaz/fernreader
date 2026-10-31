@@ -7,12 +7,29 @@ import kotlinx.serialization.json.Json
 /** Kotlin side of the reader bridge. Mirrors reader-web/src/bridge/protocol.ts; both are tested against bridge/fixtures. */
 @Serializable sealed interface ToWeb {
     @Serializable @SerialName("ping") data class Ping(val v: Int = 1, val id: Int) : ToWeb
+    @Serializable @SerialName("open") data class Open(val v: Int = 1, val sessionId: String, val position: String? = null, val texts: WebTexts) : ToWeb
+    @Serializable @SerialName("close") data class Close(val v: Int = 1) : ToWeb
+    @Serializable @SerialName("next") data class Next(val v: Int = 1) : ToWeb
+    @Serializable @SerialName("prev") data class Prev(val v: Int = 1) : ToWeb
+    @Serializable @SerialName("goTo") data class GoTo(val v: Int = 1, val target: String) : ToWeb
 }
+
+@Serializable data class WebTexts(val missingPart: String)
+@Serializable data class TocItem(val label: String, val href: String, val depth: Int, val missing: Boolean = false)
 
 @Serializable sealed interface FromWeb {
     @Serializable @SerialName("ready") data class Ready(val v: Int = 1, val engine: String) : FromWeb
     @Serializable @SerialName("pong") data class Pong(val v: Int = 1, val id: Int) : FromWeb
-    @Serializable @SerialName("error") data class Error(val v: Int = 1, val kind: String, val message: String) : FromWeb
+    @Serializable @SerialName("error") data class Error(val v: Int = 1, val sessionId: String? = null, val kind: String, val message: String) : FromWeb
+    @Serializable @SerialName("opened") data class Opened(
+        val v: Int = 1, val sessionId: String, val identifier: String? = null, val title: String, val authors: List<String>,
+        val dir: String, val fixedLayout: Boolean, val sections: Int, val toc: List<TocItem>,
+    ) : FromWeb
+    @Serializable @SerialName("relocate") data class Relocate(
+        val v: Int = 1, val sessionId: String, val cfi: String, val fraction: Double, val sectionIndex: Int, val tocHref: String? = null,
+    ) : FromWeb
+    @Serializable @SerialName("painted") data class Painted(val v: Int = 1, val sessionId: String) : FromWeb
+    @Serializable @SerialName("tap") data class Tap(val v: Int = 1, val sessionId: String, val x: Double, val y: Double) : FromWeb
 }
 
 val BridgeJson = Json { classDiscriminator = "type"; ignoreUnknownKeys = true; encodeDefaults = true }
