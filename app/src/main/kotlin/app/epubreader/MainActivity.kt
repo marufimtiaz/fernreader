@@ -159,6 +159,7 @@ class MainActivity : ComponentActivity() {
             settingsStore = graph.settings,
             search = graph.bookSearch, searchHistory = graph.searchHistory,
             links = ::openExternalLink,
+            bookmarks = graph.bookmarks,
             closeScope = graph.appScope, // onDestroy's close-out must not run on the already-cancelled lifecycleScope
         )
         val library = LibraryState(graph.library.libraryLive(graph.scans.state.map { it.found }), graph.library.failures(), graph.scans.state, graph.settings, graph.removal::remove, lifecycleScope,
@@ -193,6 +194,7 @@ class MainActivity : ComponentActivity() {
                 app.epubreader.settings.AppThemeMode.DARK -> true
             }
             androidx.compose.runtime.LaunchedEffect(mode) { withContext(Dispatchers.IO) { app.epubreader.settings.AppThemeCache.write(this@MainActivity, mode) } }
+            val dateFormat = androidx.compose.runtime.remember { java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT) } // bookmark dates (F-041)
             val inReader = nav.top == Route.Reader
             val ui by controller.state.collectAsState()
             val win = readerWindowState(inReader, ui.open, ui.chromeVisible, rs)
@@ -201,7 +203,7 @@ class MainActivity : ComponentActivity() {
                 App(
                     dark = dark, webViewTooOld = webViewTooOld, nav = nav, library = library, reader = controller, probe = probe,
                     readerSurface = { ReaderSurface(reader, covered = nav.top != Route.Reader, background = theme.background, fullscreen = rs.fullscreen) },
-                    fonts = fonts,
+                    fonts = fonts, formatDate = { ms -> dateFormat.format(java.util.Date(ms)) },
                     onOpenPicker = { pick.launch(arrayOf("application/epub+zip", "application/octet-stream")) },
                     onGrantAccess = access::request, onLeave = ::finish,
                     onOpen = ::openBook, onBack = { goBack() }, onRescan = graph.scans::rescan,

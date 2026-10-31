@@ -33,7 +33,11 @@ import app.epubreader.core.data.SourceRef
 import app.epubreader.reader.display.DisplayPanel
 import app.epubreader.reader.display.ReadingTheme
 import app.epubreader.reader.search.SearchPanel
-import app.epubreader.reader.toc.TocPanel
+import app.epubreader.reader.contents.ContentsPanel
+import app.epubreader.reader.controls.BookmarkFilledIcon
+import androidx.compose.material3.Icon
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.material3.Slider
 import androidx.compose.runtime.mutableStateOf
@@ -52,7 +56,10 @@ import app.epubreader.reader.settings.ReaderSettingsSheet
  * While loading or on error the screen is opaque (P-015: frame + progress at once). The controls overlay is in [app.epubreader.reader.controls].
  */
 @Composable
-fun ReaderScreen(c: ReaderController, onBack: () -> Unit, onForget: (SourceRef) -> Unit, probe: EventProbe, fonts: Map<String, FontFamily> = emptyMap()) {
+fun ReaderScreen(
+    c: ReaderController, onBack: () -> Unit, onForget: (SourceRef) -> Unit, probe: EventProbe, fonts: Map<String, FontFamily> = emptyMap(),
+    /** Bookmark dates (locale and time zone are the platform's). */ formatDate: (Long) -> String = { it.toString() },
+) {
     val s by c.state.collectAsState()
     val settings by c.settings.collectAsState()
     val page by c.page.collectAsState()
@@ -85,7 +92,15 @@ fun ReaderScreen(c: ReaderController, onBack: () -> Unit, onForget: (SourceRef) 
             display = c::showDisplay, settings = c::showSettings, seek = c::seek,
         )
         if (s.chromeVisible && s.error == null) {
-            ReaderTopBar(chapterTitle(s.toc, s.currentTocHref, s.title), s.title, s.toc.isNotEmpty(), actions, Modifier.align(Alignment.TopStart))
+            ReaderTopBar(chapterTitle(s.toc, s.currentTocHref, s.title), s.title, s.toc.isNotEmpty(), s.bookmarked, actions, Modifier.align(Alignment.TopStart))
+        }
+        // F-041: the page marker, over the page's top-right corner; visible without the controls, never moves the text.
+        if (s.bookmarked && !s.chromeVisible && !s.loading && s.error == null) {
+            Icon(
+                BookmarkFilledIcon, Copy.bookmarkedPage,
+                Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(end = 12.dp).size(36.dp).offset(y = (-6).dp),
+                tint = MaterialTheme.colorScheme.primary,
+            )
         }
         // F-034: always visible, in the page's bottom margin (32 px). Paged mode keeps that margin free of text; in scroll
         // mode text scrolls through it, so the label sits on a strip of page colour and the text passes under it.
@@ -106,12 +121,16 @@ fun ReaderScreen(c: ReaderController, onBack: () -> Unit, onForget: (SourceRef) 
             DisplayPanel(settings, fonts, onChange = c::updateSettings, modifier = Modifier.align(Alignment.BottomCenter))
         }
         if (s.settingsVisible && s.error == null) ReaderSettingsSheet(settings, onChange = c::updateSettings, modifier = Modifier.align(Alignment.BottomCenter))
-        if (s.tocVisible) TocPanel(s.toc, s.currentTocHref, onSelect = c::onTocSelected, onDismiss = c::hideToc, probe = probe)
+        if (s.tocVisible) ContentsPanel(
+            s.contentsTab, c::selectContentsTab, s.toc, s.currentTocHref, c::onTocSelected,
+            s.bookmarks, page, formatDate, c::onBookmarkSelected, c::removeBookmark, c::hideToc, probe,
+        )
         if (s.searchVisible && s.error == null) SearchPanel(c.searcher, onDismiss = c::hideSearch)
         s.notice?.let {
             LaunchedEffect(it) { kotlinx.coroutines.delay(3_000); c.dismissNotice() }
             Snackbar(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(16.dp)) {
-                Text(when (it) { Notice.HitNotFound -> Copy.hitNotFound; Notice.NoAppForLink -> Copy.noAppForLink; Notice.MissingTarget -> Copy.missingTarget })
+                Text(when (it) { Notice.HitNotFound -> Copy.hitNotFound; Notice.NoAppForLink -> Copy.noAppForLink; Notice.MissingTarget -> Copy.missingTarget
+                    Notice.BookmarkAdded -> Copy.bookmarkAdded; Notice.BookmarkRemoved -> Copy.bookmarkRemoved })
             }
         }
         // F-044: confirmation naming the link's host; Back or a tap outside cancels.

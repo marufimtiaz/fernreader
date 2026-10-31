@@ -27,36 +27,28 @@ import app.epubreader.reader.EventProbe
 import app.epubreader.reader.bridge.TocItem
 import app.epubreader.ui.Copy
 
-/** Full-screen contents list. The tree is built when the panel opens (O(n), well inside P-031 for 2000 entries). */
+/** The Contents tab's list. The tree is built when the tab opens (O(n), well inside P-031 for 2000 entries). */
 @Composable
-fun TocPanel(items: List<TocItem>, currentHref: String?, onSelect: (TocItem) -> Unit, onDismiss: () -> Unit, probe: EventProbe) {
+fun TocList(items: List<TocItem>, currentHref: String?, onSelect: (TocItem) -> Unit, probe: EventProbe) {
     val tree = remember(items) { TocTreeState(items) }
     val current = remember(tree) { tree.indexOfHref(currentHref)?.also(tree::reveal) }
     val rows = tree.visibleRows()
     val list = rememberLazyListState(initialFirstVisibleItemIndex = current?.let { rows.indexOf(it).coerceAtLeast(0) } ?: 0)
     LaunchedEffect(Unit) { withFrameNanos { }; probe.ev("toc_shown", "") }
-    Surface(Modifier.fillMaxSize()) {
-        Column(Modifier.safeDrawingPadding()) {
-            Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(Copy.contents, Modifier.weight(1f).padding(start = 8.dp), style = MaterialTheme.typography.titleLarge)
-                TextButton(onClick = onDismiss) { Text(Copy.close) }
-            }
-            LazyColumn(state = list) {
-                items(rows, key = { it }) { i ->
-                    val item = tree.items[i]
-                    Row(
-                        Modifier.fillMaxWidth().clickable { onSelect(item) }.padding(start = (16 + 20 * item.depth).dp, end = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            item.label.ifBlank { Copy.untitledEntry }, Modifier.weight(1f).padding(vertical = 12.dp),
-                            fontWeight = if (i == current) FontWeight.Bold else null,
-                            color = if (item.missing) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f) else MaterialTheme.colorScheme.onSurface,
-                        )
-                        if (tree.hasChildren(i)) TextButton(onClick = { tree.toggle(i) }, Modifier.width(56.dp)) {
-                            Text(if (tree.isExpanded(i)) "−" else "+")
-                        }
-                    }
+    LazyColumn(state = list, modifier = Modifier.fillMaxSize()) {
+        items(rows, key = { it }) { i ->
+            val item = tree.items[i]
+            Row(
+                Modifier.fillMaxWidth().clickable { onSelect(item) }.padding(start = (16 + 20 * item.depth).dp, end = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    item.label.ifBlank { Copy.untitledEntry }, Modifier.weight(1f).padding(vertical = 12.dp),
+                    fontWeight = if (i == current) FontWeight.Bold else null,
+                    color = if (item.missing) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f) else MaterialTheme.colorScheme.onSurface,
+                )
+                if (tree.hasChildren(i)) TextButton(onClick = { tree.toggle(i) }, Modifier.width(56.dp)) {
+                    Text(if (tree.isExpanded(i)) "−" else "+")
                 }
             }
         }

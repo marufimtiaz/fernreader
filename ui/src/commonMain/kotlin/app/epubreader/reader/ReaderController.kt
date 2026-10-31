@@ -1,5 +1,7 @@
 package app.epubreader.reader
 
+import app.epubreader.core.data.Bookmark
+import app.epubreader.core.data.BookmarkPort
 import app.epubreader.core.data.LibraryRepository
 import app.epubreader.core.data.OpenedBookInfo
 import app.epubreader.core.data.PositionWriter
@@ -43,7 +45,7 @@ sealed interface ReaderError {
     data object FileChanged : ReaderError
 }
 
-enum class Notice { MissingTarget, HitNotFound, NoAppForLink }
+enum class Notice { MissingTarget, HitNotFound, NoAppForLink, BookmarkAdded, BookmarkRemoved }
 
 data class ReaderUiState(
     val open: Boolean = false,
@@ -55,6 +57,12 @@ data class ReaderUiState(
     val fraction: Double = 0.0,
     val chromeVisible: Boolean = false,
     val tocVisible: Boolean = false,
+    /** The Contents panel's tab (F-041, F-062); opening the panel always starts on Contents. */
+    val contentsTab: ContentsTab = ContentsTab.Contents,
+    /** F-041: the open book's bookmarks, in book order (live). */
+    val bookmarks: List<Bookmark> = emptyList(),
+    /** F-041: the visible page holds a bookmark: the marker is drawn and the bookmark button is filled. */
+    val bookmarked: Boolean = false,
     val searchVisible: Boolean = false,
     val displayVisible: Boolean = false,
     val settingsVisible: Boolean = false,
@@ -98,6 +106,8 @@ class ReaderController(
     private val searchHistory: SearchHistoryPort? = null,
     /** Opens external links in another app (F-044); null in tests that do not care (links are then dropped). */
     private val links: ExternalLinkOpener? = null,
+    /** Bookmarks (F-041); null in tests that do not care (the bookmark button then does nothing). */
+    private val bookmarks: BookmarkPort? = null,
 ) {
     private class Session(val id: String, val ref: SourceRef, val cdDigest: String, val size: Long, val hadPosition: Boolean) {
         var bookId: String? = null
@@ -120,6 +130,15 @@ class ReaderController(
         var linkDepth = 0
         /** `back` commands sent and not yet answered by a `history`. */
         var pendingBacks = 0
+        /** F-041: the book's bookmarks as last read (book order), watched from `opened` until the session ends. */
+        var bookmarkList: List<Bookmark> = emptyList()
+        var bookmarkJob: Job? = null
+        /** Virtual CFIs of the bookmarks on the visible page, as the web side reported them (edited at once by add/remove). */
+        var marks: Set<String> = emptySet()
+        /** The latest location, which a new bookmark takes. */
+        var at: FromWeb.Relocate? = null
+        /** An add/remove is being written: a second tap meanwhile is ignored (no duplicate bookmarks). */
+        var bookmarkBusy = false
     }
 
     private val _state = MutableStateFlow(ReaderUiState())
@@ -285,6 +304,7 @@ class ReaderController(
         openJob?.cancel(); openJob = null
         val s = session
         session = null
+        s?.bookmarkJob?.cancel()
         searcher.reset()
         _state.value = ReaderUiState()
         if (s == null) return
@@ -406,7 +426,7 @@ class ReaderController(
     }
 
     fun toggleChrome() = _state.update { it.copy(chromeVisible = !it.chromeVisible) }
-    fun showToc() { probe.ev("toc_cmd", ""); _state.update { it.copy(tocVisible = true, chromeVisible = false) } }
+    fun showToc() { probe.ev("toc_cmd", ""); _state.update { it.copy(tocVisible = true, contentsTab = ContentsTab.Contents, chromeVisible = false) } }
     fun hideToc() = _state.update { it.copy(tocVisible = false) }
     fun showSearch() { probe.ev("search_open", ""); _state.update { it.copy(searchVisible = true, chromeVisible = false) }; searcher.loadHistory() }
     fun hideSearch() = _state.update { it.copy(searchVisible = false) }
@@ -422,8 +442,101 @@ class ReaderController(
     fun showSettings() { probe.ev("settings_cmd", ""); _state.update { it.copy(settingsVisible = true, chromeVisible = false) } }
     fun hideSettings() = _state.update { it.copy(settingsVisible = false) }
 
-    /** Adds or removes the bookmark at the current location (F-033 button). Task 6 implements it; until then it does nothing. */
-    fun toggleBookmark() = Unit
+    /** Opens the Contents panel on a tab (the Highlights tab is filled by the annotations list). */
+    fun selectContentsTab(tab: ContentsTab) = _state.update { it.copy(contentsTab = tab) }
+
+    /**
+     * F-041, the controls' bookmark button: a bookmark on the visible page is removed, otherwise the page is
+     * bookmarked (the page's relocate CFI, a range from its first visible position, against the original documents;
+     * a jump to it lands on that very page, which a bare point at a line break does not, see bridge-protocol.md.
+     * Also the book fraction, section and current chapter label). Both show a
+     * confirmation. Does nothing before the book is known and a location has arrived, or while the last tap is written.
+     */
+    fun toggleBookmark() {
+        val s = session ?: return
+        val port = bookmarks ?: return
+        val bookId = s.bookId ?: return
+        val at = s.at ?: return
+        if (s.bookmarkBusy) return
+        val here = s.bookmarkList.filter { s.map.cfiToVirtual(it.cfi) in s.marks }
+        val st = _state.value
+        val chapter = chapterTitle(st.toc, st.currentTocHref, st.title)
+        s.bookmarkBusy = true
+        scope.launch {
+            try {
+                if (here.isNotEmpty()) {
+                    here.forEach { port.remove(it.id) }
+                    if (session !== s) return@launch
+                    s.bookmarkList = s.bookmarkList.filter { b -> here.none { it.id == b.id } }
+                    s.marks = s.marks - here.map { s.map.cfiToVirtual(it.cfi) }.toSet()
+                    publishBookmarks(s, Notice.BookmarkRemoved)
+                } else {
+                    val b = port.add(bookId, s.map.cfiToOriginal(at.cfi), at.sectionIndex, at.fraction, chapter)
+                    if (session !== s) return@launch
+                    s.bookmarkList = s.bookmarkList + b
+                    s.marks = s.marks + s.map.cfiToVirtual(b.cfi)
+                    publishBookmarks(s, Notice.BookmarkAdded)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                failed("toggling a bookmark", e, showIfOpen = false)
+            } finally {
+                s.bookmarkBusy = false
+            }
+        }
+    }
+
+    /** The list's remove button (F-041): removes that bookmark; the page marker follows if it was on this page. */
+    fun removeBookmark(b: Bookmark) {
+        val s = session ?: return
+        val port = bookmarks ?: return
+        scope.launch {
+            try {
+                port.remove(b.id)
+                if (session !== s) return@launch
+                s.bookmarkList = s.bookmarkList.filter { it.id != b.id }
+                publishBookmarks(s, Notice.BookmarkRemoved)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                failed("removing a bookmark", e, showIfOpen = false)
+            }
+        }
+    }
+
+    /** The list's row (F-041): jump to the bookmark and close the panel. */
+    fun onBookmarkSelected(b: Bookmark) {
+        val s = session ?: return
+        _state.update { it.copy(tocVisible = false) }
+        reader.send(ToWeb.GoTo(target = s.map.cfiToVirtual(b.cfi)))
+    }
+
+    /** Shows the session's list and page marker; [notice] is the confirmation of the change that caused it, if any. */
+    private fun publishBookmarks(s: Session, notice: Notice? = null) {
+        if (session !== s) return
+        val on = s.bookmarkList.any { s.map.cfiToVirtual(it.cfi) in s.marks }
+        _state.update { it.copy(bookmarks = s.bookmarkList, bookmarked = on, notice = notice ?: it.notice) }
+    }
+
+    /** Follows the book's bookmarks: every change goes to the web side (which reports the ones on the page) and to the state. */
+    private fun watchBookmarks(s: Session, bookId: String) {
+        val port = bookmarks ?: return
+        s.bookmarkJob = scope.launch {
+            try {
+                port.bookmarks(bookId).collect { list ->
+                    if (session !== s) return@collect
+                    s.bookmarkList = list
+                    reader.send(ToWeb.SetBookmarks(sessionId = s.id, cfis = list.map { s.map.cfiToVirtual(it.cfi) }))
+                    publishBookmarks(s)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                failed("reading bookmarks", e, showIfOpen = false)
+            }
+        }
+    }
     fun dismissNotice() = _state.update { it.copy(notice = null) }
 
     /** R-001: a missing target shows a notice and the page stays; otherwise jump (href is the reader's own). */
@@ -459,6 +572,7 @@ class ReaderController(
                 s.sections = m.sections
                 s.dir = m.dir
                 _state.update { it.copy(title = m.title, toc = m.toc) }
+                watchBookmarks(s, rec.bookId)
             }
             is FromWeb.Relocate -> if (m.sessionId == s.id) {
                 probe.ev("relocate", m.cfi)
@@ -468,10 +582,14 @@ class ReaderController(
                     positions.await().submit(u)
                 }
                 if (session === s) {
+                    s.at = m
+                    s.marks = m.bookmarks?.toSet() ?: emptySet()
                     _state.update { it.copy(currentTocHref = m.tocHref, fraction = m.fraction) }
+                    publishBookmarks(s)
                     totals.onRelocate(m)
                 }
             }
+            is FromWeb.PageBookmarks -> if (m.sessionId == s.id) { s.marks = m.cfis.toSet(); publishBookmarks(s) }
             is FromWeb.PageCounts -> if (m.sessionId == s.id) totals.onCounts(m)
             is FromWeb.Seeked -> if (m.sessionId == s.id && m.id == s.seek) { s.seek = null; probe.ev("seeked", "") }
             is FromWeb.Painted -> if (m.sessionId == s.id) {

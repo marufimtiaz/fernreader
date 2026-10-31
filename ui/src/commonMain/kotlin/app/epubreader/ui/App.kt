@@ -45,6 +45,7 @@ fun App(
     pages: @Composable (Route) -> Unit = {},
     /** Dialogs that may show over any route (backup restore offered from a file manager). */
     overlay: @Composable () -> Unit = {},
+    formatDate: (Long) -> String = { it.toString() },
 ) = AppTheme(dark) {
     if (webViewTooOld) {
         Surface(Modifier.fillMaxSize()) {
@@ -64,7 +65,7 @@ fun App(
                 ),
                 probe = probe,
             )
-            Route.Reader -> ReaderScreen(reader, onBack = onBack, onForget = onForget, probe = probe, fonts = fonts)
+            Route.Reader -> ReaderScreen(reader, onBack = onBack, onForget = onForget, probe = probe, fonts = fonts, formatDate = formatDate)
             else -> pages(nav.top)
         }
         overlay()

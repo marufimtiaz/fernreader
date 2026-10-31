@@ -32,6 +32,11 @@ import kotlinx.serialization.json.Json
     @Serializable @SerialName("back") data class Back(val v: Int = 1) : ToWeb
     /** F-043: close the footnote popup (system Back). */
     @Serializable @SerialName("closeFootnote") data class CloseFootnote(val v: Int = 1) : ToWeb
+    /**
+     * F-041: the book's bookmarks as virtual CFIs (sent whenever the list changes, and after `opened`). The web side
+     * reports which are on the visible page in each [FromWeb.Relocate] and in a [FromWeb.PageBookmarks] answer.
+     */
+    @Serializable @SerialName("setBookmarks") data class SetBookmarks(val v: Int = 1, val sessionId: String, val cfis: List<String>) : ToWeb
 }
 
 @Serializable data class WebSettings(
@@ -61,7 +66,11 @@ import kotlinx.serialization.json.Json
         val v: Int = 1, val sessionId: String, val cfi: String, val fraction: Double, val sectionIndex: Int, val tocHref: String? = null,
         /** Paged: 1-based text page within the section and the section's text pages; 0 and 0 in scrolled mode. */
         val page: Int = 0, val pages: Int = 0, val sectionFraction: Double = 0.0,
+        /** F-041: the entries of the last [ToWeb.SetBookmarks] that lie on the visible page (same strings); null when none. */
+        val bookmarks: List<String>? = null,
     ) : FromWeb
+    /** F-041: answer to [ToWeb.SetBookmarks] for the page now visible. */
+    @Serializable @SerialName("pageBookmarks") data class PageBookmarks(val v: Int = 1, val sessionId: String, val cfis: List<String>) : FromWeb
     @Serializable @SerialName("painted") data class Painted(val v: Int = 1, val sessionId: String) : FromWeb
     /** Sent after the `relocate` of a [ToWeb.GoTo] that carried an id. */
     @Serializable @SerialName("seeked") data class Seeked(val v: Int = 1, val sessionId: String, val id: Int) : FromWeb

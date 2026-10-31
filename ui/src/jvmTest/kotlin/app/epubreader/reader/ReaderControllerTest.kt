@@ -1,6 +1,8 @@
 package app.epubreader.reader
 
 import app.epubreader.core.epub.TextPos
+import app.epubreader.core.data.Bookmark
+import app.epubreader.core.data.BookmarkPort
 import app.epubreader.core.data.HybridClock
 import app.epubreader.core.data.LibraryRepository
 import app.epubreader.core.data.PositionWriter
@@ -112,9 +114,24 @@ class ReaderControllerTest {
         override fun open(url: String): Boolean { opened += url; return works }
     }
     private val links = FakeLinks()
+    /** In-memory bookmarks of all books; `bookmarks(id)` is live like the database's. */
+    private class FakeBookmarks : BookmarkPort {
+        val all = MutableStateFlow<List<Bookmark>>(emptyList())
+        val asked = mutableListOf<String>()
+        private var n = 0
+        override fun bookmarks(bookId: String): kotlinx.coroutines.flow.Flow<List<Bookmark>> {
+            asked += bookId
+            return kotlinx.coroutines.flow.flow { all.collect { l -> emit(l.filter { it.bookId == bookId }.sortedWith(compareBy({ it.spineIndex }, { it.fraction }))) } }
+        }
+        override suspend fun add(bookId: String, cfi: String, spineIndex: Int, fraction: Double, chapter: String) =
+            Bookmark("b${++n}", bookId, cfi, spineIndex, fraction, chapter, 1_000L + n, 1_000L + n).also { all.value = all.value + it }
+        override suspend fun remove(id: String) { all.value = all.value.filter { it.id != id } }
+    }
+    private val bookmarkPort = FakeBookmarks()
     private suspend fun controller(controllerScope: CoroutineScope = scope, opener: FakeOpener = this.opener) = ReaderController(
         reader, opener, library, CompletableDeferred(PositionWriter.create(db, clock, appScope)), controllerScope, WebTexts("missing"),
         closeScope = appScope, settingsStore = settings, search = searchPort, searchHistory = searchHistory, links = links,
+        bookmarks = bookmarkPort,
     )
     /** Every later library query fails (stands in for a corrupt database or a full disk). */
     private suspend fun breakDatabase() = db.useWriterConnection { it.execSQL("DROP TABLE book_file"); it.execSQL("DROP TABLE book") }
@@ -386,7 +403,7 @@ class ReaderControllerTest {
         c.open(other); advanceUntilIdle()
         assertEquals(null, (reader.sent.single() as ToWeb.Open).position) // not known under this source yet
         reader.events.emit(opened("s-2")); advanceUntilIdle()
-        val goTo = reader.sent.last() as ToWeb.GoTo
+        val goTo = reader.sent.filterIsInstance<ToWeb.GoTo>().last()
         assertEquals("epubcfi(/6/6!/4/2)", goTo.target)
         val id = assertNotNull(goTo.id)
 
@@ -571,16 +588,6 @@ class ReaderControllerTest {
         assertFalse(c.state.value.chromeVisible) // the tap only closed the sheet
     }
 
-    @Test fun toggle_bookmark_stub_is_harmless() = runTest(dispatcher) {
-        val c = controller()
-        c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
-        val before = c.state.value
-        reader.sent.clear()
-        c.toggleBookmark()
-        assertEquals(before, c.state.value)
-        assertTrue(reader.sent.isEmpty())
-    }
-
     @Test fun settings_sheet_edits_the_new_fields_live_and_persist() = runTest(dispatcher) {
         val c = controller()
         c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
@@ -701,5 +708,137 @@ class ReaderControllerTest {
         assertEquals("a@b.c", externalLinkTarget("mailto:a@b.c")?.label)
         for (h in listOf("javascript:x", "JAVASCRIPT:x", "file:///a", "content://a", "intent:#Intent;end", "data:,x", "ftp://a/", "https:///x", "nothing", ""))
             assertNull(externalLinkTarget(h), h)
+    }
+
+    // ---- Bookmarks (F-041) ----
+    private val rangeCfi = "epubcfi(/6/4!/4,/2/1:0,/6/1:5)"
+    private val pointCfi = "epubcfi(/6/4!/4/2/1:0)"
+    private suspend fun kotlinx.coroutines.test.TestScope.openedAt(c: ReaderController, cfi: String = rangeCfi, marks: List<String>? = null) {
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
+        reader.events.emit(FromWeb.Relocate(sessionId = "s-1", cfi = cfi, fraction = 0.3, sectionIndex = 2, tocHref = "c1.xhtml", bookmarks = marks)); advanceUntilIdle()
+    }
+
+    @Test fun bookmark_button_adds_the_page_start_with_chapter_and_a_visible_confirmation() = runTest(dispatcher) {
+        val c = controller(); openedAt(c)
+        assertFalse(c.state.value.bookmarked)
+        c.toggleBookmark(); advanceUntilIdle()
+        val b = bookmarkPort.all.value.single()
+        assertEquals(rangeCfi, b.cfi) // the page's location (a range from its first visible position), against the original documents
+        assertEquals(2, b.spineIndex); assertEquals(0.3, b.fraction); assertEquals("One", b.chapter)
+        assertEquals(library.knownBookId(ref), b.bookId)
+        assertEquals(Notice.BookmarkAdded, c.state.value.notice)
+        assertTrue(c.state.value.bookmarked) // the marker shows at once, before the web side has answered
+        assertEquals(listOf(b), c.state.value.bookmarks)
+        assertEquals(ToWeb.SetBookmarks(sessionId = "s-1", cfis = listOf(rangeCfi)), reader.sent.filterIsInstance<ToWeb.SetBookmarks>().last())
+    }
+
+    @Test fun bookmark_button_on_a_bookmarked_page_removes_it_with_a_confirmation() = runTest(dispatcher) {
+        val c = controller(); openedAt(c)
+        c.toggleBookmark(); advanceUntilIdle(); c.dismissNotice()
+        reader.events.emit(FromWeb.PageBookmarks(sessionId = "s-1", cfis = listOf(rangeCfi))); advanceUntilIdle()
+        c.toggleBookmark(); advanceUntilIdle()
+        assertEquals(emptyList(), bookmarkPort.all.value)
+        assertEquals(Notice.BookmarkRemoved, c.state.value.notice)
+        assertFalse(c.state.value.bookmarked)
+        assertEquals(emptyList(), c.state.value.bookmarks)
+        assertEquals(ToWeb.SetBookmarks(sessionId = "s-1", cfis = emptyList()), reader.sent.filterIsInstance<ToWeb.SetBookmarks>().last())
+    }
+
+    @Test fun two_bookmarks_on_one_page_are_both_removed() = runTest(dispatcher) {
+        val c = controller(); openedAt(c)
+        val id = library.knownBookId(ref)!!
+        bookmarkPort.add(id, pointCfi, 2, 0.3, "One"); bookmarkPort.add(id, "epubcfi(/6/4!/4/4/1:3)", 2, 0.31, "One"); advanceUntilIdle()
+        reader.events.emit(FromWeb.PageBookmarks(sessionId = "s-1", cfis = listOf(pointCfi, "epubcfi(/6/4!/4/4/1:3)"))); advanceUntilIdle()
+        c.toggleBookmark(); advanceUntilIdle()
+        assertEquals(emptyList(), bookmarkPort.all.value)
+    }
+
+    @Test fun the_marker_follows_the_relocates_and_page_bookmark_answers() = runTest(dispatcher) {
+        val c = controller()
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
+        val id = library.knownBookId(ref)!!
+        bookmarkPort.add(id, rangeCfi, 2, 0.3, "One"); advanceUntilIdle()
+        assertEquals(ToWeb.SetBookmarks(sessionId = "s-1", cfis = listOf(rangeCfi)), reader.sent.filterIsInstance<ToWeb.SetBookmarks>().last())
+        assertFalse(c.state.value.bookmarked)
+        reader.events.emit(FromWeb.Relocate(sessionId = "s-1", cfi = rangeCfi, fraction = 0.3, sectionIndex = 2, bookmarks = listOf(rangeCfi))); advanceUntilIdle()
+        assertTrue(c.state.value.bookmarked)
+        reader.events.emit(FromWeb.Relocate(sessionId = "s-1", cfi = "epubcfi(/6/4!/4,/8/1:0,/10/1:0)", fraction = 0.4, sectionIndex = 2)); advanceUntilIdle()
+        assertFalse(c.state.value.bookmarked)
+        reader.events.emit(FromWeb.PageBookmarks(sessionId = "s-1", cfis = listOf(rangeCfi))); advanceUntilIdle()
+        assertTrue(c.state.value.bookmarked)
+        reader.events.emit(FromWeb.PageBookmarks(sessionId = "other", cfis = emptyList())); advanceUntilIdle()
+        assertTrue(c.state.value.bookmarked) // another session's answer is ignored
+        reader.events.emit(FromWeb.PageBookmarks(sessionId = "s-1", cfis = listOf("epubcfi(/6/4!/4/99/1:0)"))); advanceUntilIdle()
+        assertFalse(c.state.value.bookmarked) // a CFI that is no bookmark (removed meanwhile) marks nothing
+    }
+
+    @Test fun bookmarks_are_per_book_live_and_survive_a_reopen() = runTest(dispatcher) {
+        val c = controller(); openedAt(c)
+        val id = library.knownBookId(ref)!!
+        assertEquals(listOf(id), bookmarkPort.asked)
+        c.toggleBookmark(); advanceUntilIdle()
+        bookmarkPort.add("another-book", "epubcfi(/6/2!/4/2/1:0)", 0, 0.0, "x"); advanceUntilIdle()
+        assertEquals(1, c.state.value.bookmarks.size) // only this book's
+        c.close(); advanceUntilIdle()
+        assertEquals(emptyList(), c.state.value.bookmarks)
+        reader.sent.clear()
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
+        assertEquals(1, c.state.value.bookmarks.size)
+        assertEquals(ToWeb.SetBookmarks(sessionId = "s-1", cfis = listOf(rangeCfi)), reader.sent.filterIsInstance<ToWeb.SetBookmarks>().single())
+    }
+
+    @Test fun the_bookmark_button_does_nothing_before_the_book_is_known() = runTest(dispatcher) {
+        val c = controller()
+        c.toggleBookmark(); advanceUntilIdle() // nothing open
+        c.open(ref); advanceUntilIdle()
+        c.toggleBookmark(); advanceUntilIdle() // opened not yet received: no bookId, no location
+        reader.events.emit(opened()); advanceUntilIdle()
+        c.toggleBookmark(); advanceUntilIdle() // no relocate yet
+        assertEquals(emptyList(), bookmarkPort.all.value)
+        assertNull(c.state.value.notice)
+    }
+
+    @Test fun a_quick_double_tap_adds_one_bookmark() = runTest(dispatcher) {
+        val c = controller(); openedAt(c)
+        c.toggleBookmark(); c.toggleBookmark(); advanceUntilIdle()
+        assertEquals(1, bookmarkPort.all.value.size)
+    }
+
+    @Test fun tapping_a_bookmark_jumps_to_its_virtual_cfi_and_closes_the_panel() = runTest(dispatcher) {
+        val c = controller(); openedAt(c)
+        c.toggleBookmark(); advanceUntilIdle()
+        c.showToc(); c.selectContentsTab(ContentsTab.Bookmarks)
+        reader.sent.clear()
+        c.onBookmarkSelected(c.state.value.bookmarks.single())
+        assertEquals(ToWeb.GoTo(target = rangeCfi), reader.sent.single())
+        assertFalse(c.state.value.tocVisible)
+    }
+
+    @Test fun removing_from_the_list_removes_without_a_page_change() = runTest(dispatcher) {
+        val c = controller(); openedAt(c)
+        c.toggleBookmark(); advanceUntilIdle()
+        c.removeBookmark(c.state.value.bookmarks.single()); advanceUntilIdle()
+        assertEquals(emptyList(), bookmarkPort.all.value)
+        assertEquals(Notice.BookmarkRemoved, c.state.value.notice)
+        assertFalse(c.state.value.bookmarked)
+    }
+
+    @Test fun the_contents_panel_opens_on_contents_and_remembers_nothing_between_openings() = runTest(dispatcher) {
+        val c = controller(); openedAt(c)
+        assertEquals(ContentsTab.Contents, c.state.value.contentsTab)
+        c.showToc(); c.selectContentsTab(ContentsTab.Bookmarks)
+        assertEquals(ContentsTab.Bookmarks, c.state.value.contentsTab)
+        c.hideToc(); c.showToc()
+        assertEquals(ContentsTab.Contents, c.state.value.contentsTab)
+    }
+
+    @Test fun the_list_page_is_derived_from_the_fraction_against_the_book_total() {
+        fun p(total: Int?, scope: Boolean = false) = PageIndicator(page = 1, total = total, exact = true, chapterScope = scope)
+        assertEquals(1, bookmarkPage(0.0, p(200)))
+        assertEquals(101, bookmarkPage(0.5, p(200)))
+        assertEquals(200, bookmarkPage(1.0, p(200)))
+        assertNull(bookmarkPage(0.5, p(null)))
+        assertNull(bookmarkPage(0.5, p(200, scope = true))) // a chapter's total says nothing about the book
+        assertEquals(50, bookmarkPercent(0.504))
     }
 }

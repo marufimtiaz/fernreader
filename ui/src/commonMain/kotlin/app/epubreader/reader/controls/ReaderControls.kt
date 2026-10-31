@@ -52,7 +52,7 @@ class ControlActions(
  * meets the page; floats over the page (it never changes the page's size).
  */
 @Composable
-fun ReaderTopBar(chapter: String, bookTitle: String, tocEnabled: Boolean, a: ControlActions, modifier: Modifier = Modifier) {
+fun ReaderTopBar(chapter: String, bookTitle: String, tocEnabled: Boolean, bookmarked: Boolean, a: ControlActions, modifier: Modifier = Modifier) {
     Surface(
         modifier.fillMaxWidth(),
         shape = RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp),
@@ -69,7 +69,9 @@ fun ReaderTopBar(chapter: String, bookTitle: String, tocEnabled: Boolean, a: Con
                 }
             }
             IconButton(onClick = a.search) { Icon(Icons.Filled.Search, Copy.search) }
-            IconButton(onClick = a.bookmark) { Icon(BookmarkIcon, Copy.addBookmark) }
+            IconButton(onClick = a.bookmark) {
+                if (bookmarked) Icon(BookmarkFilledIcon, Copy.removeBookmark, tint = MaterialTheme.colorScheme.primary) else Icon(BookmarkIcon, Copy.addBookmark)
+            }
             IconButton(onClick = a.contents, enabled = tocEnabled) { Icon(Icons.AutoMirrored.Filled.List, Copy.contents) }
         }
     }
@@ -110,5 +112,15 @@ private val BookmarkIcon: ImageVector = ImageVector.Builder("Bookmark", 24.dp, 2
         verticalLineTo(21f); lineTo(12f, 18f); lineTo(19f, 21f); verticalLineTo(5f)
         curveTo(19f, 3.9f, 18.1f, 3f, 17f, 3f); close()
         moveTo(17f, 18f); lineTo(12f, 15.8f); lineTo(7f, 18f); verticalLineTo(5f); horizontalLineTo(17f); close()
+    }
+}.build()
+
+/** Filled ribbon: the bookmark button on a bookmarked page, and the page marker. */
+val BookmarkFilledIcon: ImageVector = ImageVector.Builder("BookmarkFilled", 24.dp, 24.dp, 24f, 24f).apply {
+    path(fill = SolidColor(Color.Black)) {
+        moveTo(17f, 3f); horizontalLineTo(7f)
+        curveTo(5.9f, 3f, 5f, 3.9f, 5f, 5f)
+        verticalLineTo(21f); lineTo(12f, 18f); lineTo(19f, 21f); verticalLineTo(5f)
+        curveTo(19f, 3.9f, 18.1f, 3f, 17f, 3f); close()
     }
 }.build()

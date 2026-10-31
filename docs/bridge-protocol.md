@@ -126,7 +126,8 @@ foliate's `animated` attribute (instant turns).
   the bookmark's own start, compared with epubcfi `compare`: start <= bookmark < end (`reader.ts` `visibleBookmarks`,
   `bookmarks.ts`). The end belongs to the next page, so a bookmark is on one page only. After a layout change the
   same rule puts the bookmark on whatever page now holds its position. O(bookmarks) per relocate; no layout work.
-- The app stores the start of the page (`epubcfi(P+S)` of the range) so a bookmark is a point.
+- The app stores the page's `relocate` CFI as it is (a range). A jump to it lands on that page; a bare point at a line
+  break would resolve to the end of the previous line, one page early (a collapsed range has upstream affinity).
 
 ### Display settings (M4)
 

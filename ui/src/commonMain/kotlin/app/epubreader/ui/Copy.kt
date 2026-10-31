@@ -217,6 +217,18 @@ object Copy {
     }
     const val search = "Search"
     const val addBookmark = "Add bookmark"
+    const val removeBookmark = "Remove bookmark"
+    const val bookmarkAdded = "Bookmark added"
+    const val bookmarkRemoved = "Bookmark removed"
+    /** Describes the ribbon drawn on a bookmarked page. */
+    const val bookmarkedPage = "Bookmarked page"
+    const val bookmarksTab = "Bookmarks"
+    const val highlightsTab = "Highlights"
+    const val noBookmarks = "No bookmarks yet. Tap the bookmark button in the reader's top bar to keep your place."
+    const val noHighlights = "No highlights yet. Select text on a page to highlight it."
+    /** The list's page estimate comes from the bookmark's place in the book, so it is approximate. */
+    fun bookmarkPage(n: Int) = "Page ≈ $n"
+    fun bookmarkPercent(p: Int) = "$p% through the book"
     const val readerSettings = "Reader settings"
     const val settingsPageTurning = "Page turning"
     const val settingsScreen = "Screen"
