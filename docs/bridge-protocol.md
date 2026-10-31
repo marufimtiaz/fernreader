@@ -37,14 +37,16 @@ current session.
 | app to web | `clearSearchHighlight` | none |
 | app to web | `back` | none (M6, F-042: back to where the last followed link was tapped; sent only while `history.depth` > 0) |
 | app to web | `closeFootnote` | none (M6, F-043: closes the footnote popup) |
+| app to web | `setBookmarks` | `sessionId`, `cfis[]` (M6, F-041: the book's bookmarks as virtual CFIs; sent after `opened` and whenever the list changes) |
 | web to app | `ready`, `pong` | `engine` / `id` |
 | web to app | `opened` | `sessionId`, `identifier` (unique-identifier text or null), `title`, `authors[]`, `dir`, `fixedLayout`, `sections`, `toc[] {label, href, depth, missing, index}` (`index`: spine section of the target, -1 if none; M5) |
-| web to app | `relocate` | `sessionId`, `cfi`, `fraction`, `sectionIndex`, `tocHref`, `page`/`pages` (paged: 1-based text page in the section and its text pages; 0/0 scrolled), `sectionFraction` (M4) |
+| web to app | `relocate` | `sessionId`, `cfi`, `fraction`, `sectionIndex`, `tocHref`, `page`/`pages` (paged: 1-based text page in the section and its text pages; 0/0 scrolled), `sectionFraction` (M4), `bookmarks[]` (M6, optional: the `setBookmarks` entries on the visible page, same strings; omitted when none) |
 | web to app | `painted` | `sessionId` (two animation frames after `relocate`) |
 | web to app | `seeked` | `sessionId`, `id` (after the `relocate` of a `goTo` that carried `id`) |
 | web to app | `tap` | `sessionId`, `x`, `y` (fractions of the viewport; links and selections excluded) |
 | web to app | `history` | `sessionId`, `depth` (M6, F-042: entries in the followed-links history, after every push and every `back`) |
 | web to app | `footnote` | `sessionId`, `open` (M6, F-043: the popup opened, or closed on the web side or by `closeFootnote`) |
+| web to app | `pageBookmarks` | `sessionId`, `cfis[]` (M6, F-041: answer to `setBookmarks`, the entries on the page showing now; empty while a seek is running) |
 | web to app | `externalLink` | `sessionId`, `href` (M6, F-044: a tapped http, https or mailto link, normalised; other schemes are never sent) |
 | web to app | `error` | `sessionId` (or null), `kind` (`open_failed`, `nothing_readable`, or `hit_not_found`: not fatal, see below), `message` |
 
@@ -112,6 +114,19 @@ foliate's `animated` attribute (instant turns).
 - `externalLink` carries only http(s) URLs with a host and mailto; javascript:, file:, content:, intent:, data: and
   every other scheme are dropped on the web side (and again in the app). The app asks first (setting
   `confirmExternalLinks`, a dialog naming the host or address) and then opens an ACTION_VIEW intent.
+
+### Bookmarks (M6, F-041)
+
+- The app owns the bookmarks (database, original CFIs); the web side only decides which are on the visible page. The
+  app sends them as virtual CFIs (`setBookmarks`, replaces the whole list); the web side keeps the list for the session
+  (cleared by every `open` and `close`) and puts the matching strings into each `relocate` (`bookmarks`) and, on
+  `setBookmarks`, into a `pageBookmarks` answer for the page already showing. Strings, not indices, so a list that
+  changed meanwhile can never be misread.
+- "On the page": the page's location (foliate's relocate CFI, a range from the first to the last visible position) and
+  the bookmark's own start, compared with epubcfi `compare`: start <= bookmark < end (`reader.ts` `visibleBookmarks`,
+  `bookmarks.ts`). The end belongs to the next page, so a bookmark is on one page only. After a layout change the
+  same rule puts the bookmark on whatever page now holds its position. O(bookmarks) per relocate; no layout work.
+- The app stores the start of the page (`epubcfi(P+S)` of the range) so a bookmark is a point.
 
 ### Display settings (M4)
 

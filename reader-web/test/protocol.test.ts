@@ -7,7 +7,7 @@ import type { ToWeb } from '../src/bridge/protocol'
 const fixture = (n: string) => readFileSync(resolve(__dirname, `../../bridge/fixtures/${n}.json`), 'utf8').trim()
 
 describe('protocol v1', () => {
-  it.each(['open', 'close', 'next', 'prev', 'goTo', 'goToSeek', 'setSettings', 'goToFraction', 'goToText', 'clearSearchHighlight', 'back', 'closeFootnote'])('dispatches %s to handlers unchanged', name => {
+  it.each(['open', 'close', 'next', 'prev', 'goTo', 'goToSeek', 'setSettings', 'goToFraction', 'goToText', 'clearSearchHighlight', 'back', 'closeFootnote', 'setBookmarks'])('dispatches %s to handlers unchanged', name => {
     const seen: ToWeb[] = []
     const b = new Bridge(vi.fn())
     b.onMessage(m => seen.push(m))
@@ -26,7 +26,11 @@ describe('protocol v1', () => {
     const h = vi.fn(); const b = new Bridge(vi.fn()); b.onMessage(h)
     expect(() => b.receive(json)).not.toThrow(); expect(h).not.toHaveBeenCalled()
   })
-  it.each(['opened', 'relocate', 'painted', 'seeked', 'tap', 'error', 'pageCounts', 'history', 'footnote', 'externalLink'])('%s fixture is well-formed JSON with v and type', name => {
+  it.each(['{"v":1,"type":"setBookmarks","sessionId":"x"}', '{"v":1,"type":"setBookmarks","sessionId":"x","cfis":[1]}', '{"v":1,"type":"setBookmarks","cfis":[]}'])('drops malformed setBookmarks %#', json => {
+    const h = vi.fn(); const b = new Bridge(vi.fn()); b.onMessage(h)
+    b.receive(json); expect(h).not.toHaveBeenCalled()
+  })
+  it.each(['opened', 'relocate', 'painted', 'seeked', 'tap', 'error', 'pageCounts', 'history', 'footnote', 'externalLink', 'pageBookmarks'])('%s fixture is well-formed JSON with v and type', name => {
     const m = JSON.parse(fixture(name)); expect(m.v).toBe(1); expect(m.type).toBe(name)
   })
   it.each([

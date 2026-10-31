@@ -21,8 +21,10 @@ export type ToWeb =
   | { v: 1; type: 'back' }
   /** F-043: close the footnote popup (system Back). */
   | { v: 1; type: 'closeFootnote' }
+  /** F-041: the book's bookmarks (virtual CFIs, book order); the web side reports which are on the visible page. */
+  | { v: 1; type: 'setBookmarks'; sessionId: string; cfis: string[] }
 
-export const TO_WEB_TYPES: ReadonlyArray<ToWeb['type']> = ['ping', 'open', 'close', 'next', 'prev', 'goTo', 'setSettings', 'goToFraction', 'goToText', 'clearSearchHighlight', 'back', 'closeFootnote']
+export const TO_WEB_TYPES: ReadonlyArray<ToWeb['type']> = ['ping', 'open', 'close', 'next', 'prev', 'goTo', 'setSettings', 'goToFraction', 'goToText', 'clearSearchHighlight', 'back', 'closeFootnote', 'setBookmarks']
 
 export type FromWeb =
   | { v: 1; type: 'ready'; engine: string }
@@ -32,7 +34,9 @@ export type FromWeb =
       dir: 'ltr' | 'rtl'; fixedLayout: boolean; sections: number; toc: TocItem[] }
   | { v: 1; type: 'relocate'; sessionId: string; cfi: string; fraction: number; sectionIndex: number; tocHref: string | null;
       /** Paged: 1-based text page in the section and the section's text pages; 0 and 0 in scrolled mode. */
-      page: number; pages: number; sectionFraction: number }
+      page: number; pages: number; sectionFraction: number;
+      /** F-041: the `setBookmarks` entries on the visible page (omitted when none). */
+      bookmarks?: string[] }
   | { v: 1; type: 'painted'; sessionId: string }
   | { v: 1; type: 'seeked'; sessionId: string; id: number }
   | { v: 1; type: 'pageCounts'; sessionId: string; gen: number; linear?: number[]; counts: [number, number][]; sample: boolean; done: boolean }
@@ -43,3 +47,5 @@ export type FromWeb =
   | { v: 1; type: 'footnote'; sessionId: string; open: boolean }
   /** F-044: an external http(s) or mailto link was tapped ([href] normalised; other schemes are never sent). */
   | { v: 1; type: 'externalLink'; sessionId: string; href: string }
+  /** F-041: answer to `setBookmarks`: the bookmarks on the page now visible (same strings as sent). */
+  | { v: 1; type: 'pageBookmarks'; sessionId: string; cfis: string[] }

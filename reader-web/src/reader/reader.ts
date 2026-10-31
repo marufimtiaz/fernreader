@@ -11,6 +11,7 @@ import { resolveTextRange } from './textpos'
 import { effectiveDir, swipeToTurn } from './swipe'
 import { externalHref, isNoteTarget, noteElement, noteRef, sanitizeNote } from './links'
 import { FootnotePopup } from './footnote'
+import { visibleBookmarks } from './bookmarks'
 import { applySettings as applyStyles, DEFAULT_SETTINGS, readerCss, THEMES, type WebSettings } from './styles'
 
 /* foliate-js is untyped JS; keep `any` at this boundary only. */
@@ -28,6 +29,8 @@ export class Reader {
   private book: Book = null
   private has: ((n: string) => boolean) | null = null
   private sessionId: string | null = null
+  /** F-041: the book's bookmarks (virtual CFIs) as last set by the app; empty at every open and close. */
+  private bookmarks: string[] = []
   private warm: Warm | null = null
   private token = 0
   /** Resolves when the current open (parse, layout, seek) has finished; queued commands wait for it. */
@@ -151,6 +154,7 @@ export class Reader {
         case 'clearSearchHighlight': this.enqueue({ kind: 'clearSearch' }); break
         case 'back': this.back(); break
         case 'closeFootnote': if (this.popup.close()) this.sendFootnote(false); break
+        case 'setBookmarks': this.setBookmarks(m.sessionId, m.cfis); break
       }
     })
   }
@@ -158,6 +162,7 @@ export class Reader {
   private async open(sessionId: string, position: string | null, missingPart: string) {
     this.close()
     this.sessionId = sessionId
+    this.bookmarks = []
     const token = ++this.token
     const stale = () => this.token !== token
     let settle!: () => void
@@ -424,12 +429,21 @@ export class Reader {
       // foliate reports NaN while a section has no layout yet; JSON turns NaN into null, which Kotlin rejects.
       v: 1, type: 'relocate', sessionId, cfi: d.cfi ?? '', fraction: Number.isFinite(d.fraction) ? d.fraction : 0,
       sectionIndex: d.section?.current ?? 0, tocHref: d.tocItem?.href ?? null, ...pageOf(view.renderer),
+      ...onPage(this.bookmarks, d.cfi),
     })
     requestAnimationFrame(() => requestAnimationFrame(() => {
       if (this.token !== token) return
       this.bridge.send({ v: 1, type: 'painted', sessionId })
       if (!this.counter) this.startCounter(sessionId) // first page on screen: counting may start
     }))
+  }
+
+  /** F-041: remember the bookmarks and tell the app which are on the page now showing (the page itself did not change). */
+  private setBookmarks(sessionId: string, cfis: string[]) {
+    if (this.sessionId !== sessionId) return
+    this.bookmarks = cfis
+    const at = this.view?.lastLocation?.cfi
+    this.bridge.send({ v: 1, type: 'pageBookmarks', sessionId, cfis: this.seeking || !at ? [] : visibleBookmarks(cfis, at) })
   }
 
   /**
@@ -537,6 +551,7 @@ export class Reader {
    * (P-016). Its events are dropped while closed (sessionId is null). A view that never reached a location is released.
    */
   private close() {
+    this.bookmarks = []
     this.token++ // invalidates any open still in flight
     if (this.countTimer) { clearTimeout(this.countTimer); this.countTimer = null }
     this.counter?.stop(); this.counter = null
@@ -570,6 +585,13 @@ type Cmd = { kind: 'turn'; dir: 'next' | 'prev' } | { kind: 'goTo'; target: stri
 /** Which settings each section document has (so a stale one can be caught up). */
 const applied = new WeakMap<Document, WebSettings>()
 function applySettings(doc: Document, s: WebSettings) { applyStyles(doc, s); applied.set(doc, s) }
+
+/** F-041: the `bookmarks` field of a relocate (left out when none is on the page). */
+function onPage(bookmarks: readonly string[], cfi: string | undefined): { bookmarks?: string[] } {
+  if (!bookmarks.length || !cfi) return {}
+  const on = visibleBookmarks(bookmarks, cfi)
+  return on.length ? { bookmarks: on } : {}
+}
 
 /** Position inside the visible section as the paginator sees it (bridge relocate fields). */
 function pageOf(r: any): { page: number; pages: number; sectionFraction: number } {

@@ -660,3 +660,38 @@ describe('links, history, footnotes (F-042, F-043, F-044)', () => {
     expect(popup()).toBeNull()
   })
 })
+
+describe('bookmarks on the visible page (F-041)', () => {
+  const PAGE = 'epubcfi(/6/4!/4,/2/1:0,/6/1:5)'
+  const HERE = 'epubcfi(/6/4!/4/2/1:10)'
+  const ELSEWHERE = 'epubcfi(/6/8!/4/6/1:0)'
+  const setBookmarks = (cfis: string[]) => send({ v: 1, type: 'setBookmarks', sessionId: 's1', cfis })
+
+  it('answers setBookmarks with the ones on the page now showing, and puts them on every later relocate', async () => {
+    open('s1'); await settle(); FakeView.all[0].relocateTo(PAGE); await settle()
+    sent = []
+    setBookmarks([HERE, ELSEWHERE]); await settle()
+    expect(sent).toEqual([{ v: 1, type: 'pageBookmarks', sessionId: 's1', cfis: [HERE] }])
+    sent = []
+    FakeView.all[0].relocateTo(PAGE); await settle()
+    expect(sent.find(m => m.type === 'relocate')).toMatchObject({ bookmarks: [HERE] })
+    sent = []
+    FakeView.all[0].relocateTo('epubcfi(/6/6!/4/2/1:0)'); await settle() // another page
+    const r = sent.find(m => m.type === 'relocate') as Record<string, unknown>
+    expect(r.bookmarks).toBeUndefined()
+  })
+
+  it('an empty list clears the marks; a stale session id is ignored; a new open forgets the list', async () => {
+    open('s1'); await settle(); FakeView.all[0].relocateTo(PAGE); await settle()
+    setBookmarks([HERE]); await settle(); sent = []
+    setBookmarks([]); await settle()
+    expect(sent).toEqual([{ v: 1, type: 'pageBookmarks', sessionId: 's1', cfis: [] }])
+    sent = []
+    send({ v: 1, type: 'setBookmarks', sessionId: 'other', cfis: [HERE] }); await settle()
+    expect(sent).toEqual([])
+    setBookmarks([HERE]); await settle()
+    send({ v: 1, type: 'close' }); open('s1', PAGE); await settle(); FakeView.all[0].relocateTo(PAGE); await settle()
+    const rel = sent.filter(m => m.type === 'relocate').pop() as Record<string, unknown>
+    expect(rel.bookmarks).toBeUndefined()
+  })
+})
