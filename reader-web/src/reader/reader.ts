@@ -225,7 +225,13 @@ export class Reader {
             if (hit && !(await goToTarget(view, hit.cfi))) hit = null // the CFI did not resolve: same as not found
             if (!hit) await view.renderer.goTo({ index: c.index, anchor: 0 })
           } else await goToTarget(view, c.target)
-        } catch (e) { console.warn('goTo failed', e) }
+        } catch (e) {
+          console.warn('goTo failed', e)
+          if (c.kind === 'text') { // a hit whose jump threw is a hit not found: no highlight, section start, error below
+            hit = null
+            try { await view.renderer.goTo({ index: c.index, anchor: 0 }) } catch (e2) { console.warn('goTo section start failed', e2) }
+          }
+        }
         if (this.token !== token || this.view !== view) break
         this.seeking = false
         // One relocate where it landed (or, if the target did not resolve, where it stayed), then the answer.

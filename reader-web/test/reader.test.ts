@@ -330,6 +330,17 @@ describe('goToText (F-050)', () => {
     expect(probe()).toBeNull()
   })
 
+  it('a jump that throws is a hit not found: section start, no highlight, hit_not_found', async () => {
+    open('s1', null); await settle()
+    const v = FakeView.all[0]; sent = []
+    v.goTo.mockRejectedValueOnce(new Error('boom'))
+    goToText('borodino', 11); await settle()
+    expect(v.renderer.goTo).toHaveBeenCalledWith({ index: 2, anchor: 0 })
+    expect(v.addAnnotation).not.toHaveBeenCalled()
+    expect(probe()).toBeNull()
+    expect(sent.some(m => m.type === 'error' && (m as any).kind === 'hit_not_found')).toBe(true)
+  })
+
   it('a section without a document is not found too', async () => {
     open('s1', null); await settle()
     sent = []
