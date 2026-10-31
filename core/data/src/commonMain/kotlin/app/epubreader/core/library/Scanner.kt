@@ -129,6 +129,10 @@ class Scanner(
             throw e
         } catch (e: Exception) { // an I/O failure while reading (file shrank, removed mid-read): retry next scan
             Loaded.Unreadable
+        } catch (e: OutOfMemoryError) { // hostile content beyond the parser's bounds: report it, never retry or crash
+            Loaded.Failure(FailReason.BROKEN_PACKAGE)
+        } catch (e: StackOverflowError) {
+            Loaded.Failure(FailReason.BROKEN_PACKAGE)
         }
     }
 }

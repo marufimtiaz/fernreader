@@ -164,4 +164,14 @@ class ScannerTest {
         scanner().scan(ScanScope.Everywhere)
         assertTrue("My Untitled Book" in titles())
     }
+
+    // Final review C1: a small file with a hostile package never stops the scan; it is reported.
+    @Test fun hostile_package_is_reported_and_scan_completes() = runBlocking {
+        val deep = "<x>".repeat(200_000)
+        f("Download/hostile.epub").writeBytes(ScanFixtures.epub("urn:uuid:hostile", "Hostile$deep"))
+        val done = scanner().scan(ScanScope.Everywhere)
+        assertTrue("Folder Test download" in titles())
+        assertEquals(2, done.failed, "${repo.failures().first()}")
+        assertTrue(repo.failures().first().any { it.name == "hostile.epub" })
+    }
 }

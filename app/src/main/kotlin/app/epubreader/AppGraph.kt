@@ -19,7 +19,9 @@ import app.epubreader.core.data.buildDatabase
 import app.epubreader.reader.BookContentServer
 import app.epubreader.reader.BookOpener
 import app.epubreader.reader.BookSources
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
+import android.util.Log
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
@@ -28,7 +30,8 @@ import kotlinx.coroutines.async
 
 /** Process-wide objects (manual DI). The database opens lazily on first query, off the main thread. */
 class AppGraph(app: Application) {
-    private val io = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    /** Last guard: a failure in background work (scan, covers, close-out) is logged, never a process crash (R-002). */
+    private val io = CoroutineScope(SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, e -> Log.e("EPR", "background work failed", e) })
     /** Outlives activities: work that must finish after onDestroy (the reader's close-out) runs here. */
     val appScope: CoroutineScope get() = io
     val db = buildDatabase(androidDatabaseBuilder(app))

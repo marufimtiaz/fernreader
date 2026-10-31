@@ -1,7 +1,11 @@
 package app.epubreader.core.data
 
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.flow.sample
 
 data class OpenedBookInfo(val identityKey: String, val title: String, val authors: List<String>, val source: SourceRef, val size: Long)
 data class OpenRecord(val bookId: String, val position: ReadingPositionEntity?)
@@ -21,14 +25,23 @@ class LibraryRepository(private val db: AppDatabase, private val clock: HybridCl
 
     suspend fun forget(ref: SourceRef) = db.libraryDao().forgetOpened(ref.key)
 
-    fun library(): Flow<List<LibraryBook>> = db.libraryDao().library().map { rows ->
-        rows.map {
-            LibraryBook(
-                it.id, it.title, it.authors.split('\n').filter(String::isNotBlank), it.titleDirection, it.coverThumb, it.addedAt,
-                it.lastOpenedAt, it.sortTitle, it.sortAuthor, it.path, it.paths.split('\n'),
-            )
-        }
-    }
+    fun library(): Flow<List<LibraryBook>> = db.libraryDao().library().map { rows -> rows.map(::toBook) }
+
+    /**
+     * [library] plus a fresh read each time [added] changes (at most every [everyMs]). During a scan the workers hold
+     * the database's writer connection, and Room's change tracking needs it too, so the plain flow only updates when
+     * the scan ends; the extra reads use a reader connection, so books appear as they are found (F-012, P-050).
+     */
+    @OptIn(kotlinx.coroutines.FlowPreview::class)
+    fun libraryLive(added: Flow<Int>, everyMs: Long = 150): Flow<List<LibraryBook>> = merge(
+        library(),
+        added.distinctUntilChanged().filter { it > 0 }.sample(everyMs).map { db.libraryDao().librarySnapshot().map(::toBook) },
+    )
+
+    private fun toBook(it: LibraryRow) = LibraryBook(
+        it.id, it.title, it.authors.split('\n').filter(String::isNotBlank), it.titleDirection, it.coverThumb, it.addedAt,
+        it.lastOpenedAt, it.sortTitle, it.sortAuthor, it.path, it.paths.split('\n'),
+    )
 
     fun failures(): Flow<List<ScanFailureEntity>> = db.libraryDao().failures()
     suspend fun removeBook(bookId: String) = db.libraryDao().removeBook(bookId, clock.now())

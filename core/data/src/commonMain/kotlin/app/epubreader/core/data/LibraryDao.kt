@@ -110,14 +110,9 @@ abstract class LibraryDao {
         return id
     }
 
-    @Query(
-        "SELECT b.id AS id, b.title AS title, b.authors AS authors, b.titleDirection AS titleDirection, b.coverThumb AS coverThumb, " +
-            "b.addedAt AS addedAt, b.lastOpenedAt AS lastOpenedAt, b.sortTitle AS sortTitle, b.sortAuthor AS sortAuthor, " +
-            "(SELECT f.path FROM book_file f WHERE f.bookId = b.id ORDER BY f.source = 'scan' DESC, f.path LIMIT 1) AS path, " +
-            "(SELECT GROUP_CONCAT(f.path, char(10)) FROM book_file f WHERE f.bookId = b.id) AS paths " +
-            "FROM book b WHERE b.deleted = 0 AND b.hidden = 0 AND EXISTS (SELECT 1 FROM book_file f WHERE f.bookId = b.id)",
-    )
-    abstract fun library(): Flow<List<LibraryRow>>
+    @Query(LIBRARY_QUERY) abstract fun library(): Flow<List<LibraryRow>>
+    /** The same rows read once (a reader connection): used while a scan holds the writer, see LibraryRepository. */
+    @Query(LIBRARY_QUERY) abstract suspend fun librarySnapshot(): List<LibraryRow>
 
     @Query("SELECT * FROM scan_failure ORDER BY folder, name") abstract fun failures(): Flow<List<ScanFailureEntity>>
     /** Books whose cover was never looked for, with a local file to read it from (`coverThumb` "" = none found). */
@@ -134,6 +129,13 @@ abstract class LibraryDao {
     @Transaction
     open suspend fun removeBook(id: String, now: Long) { deleteFiles(id); tombstone(id, now) }
 }
+
+private const val LIBRARY_QUERY =
+    "SELECT b.id AS id, b.title AS title, b.authors AS authors, b.titleDirection AS titleDirection, b.coverThumb AS coverThumb, " +
+        "b.addedAt AS addedAt, b.lastOpenedAt AS lastOpenedAt, b.sortTitle AS sortTitle, b.sortAuthor AS sortAuthor, " +
+        "(SELECT f.path FROM book_file f WHERE f.bookId = b.id ORDER BY f.source = 'scan' DESC, f.path LIMIT 1) AS path, " +
+        "(SELECT GROUP_CONCAT(f.path, char(10)) FROM book_file f WHERE f.bookId = b.id) AS paths " +
+        "FROM book b WHERE b.deleted = 0 AND b.hidden = 0 AND EXISTS (SELECT 1 FROM book_file f WHERE f.bookId = b.id)"
 
 data class LibraryRow(
     val id: String, val title: String, val authors: String, val titleDirection: String, val coverThumb: String?,
