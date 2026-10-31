@@ -22,11 +22,12 @@ abstract class LibraryDao {
     abstract suspend fun touchOpened(id: String, at: Long)
     @Query("SELECT * FROM book_file WHERE path = :path") abstract suspend fun fileRow(path: String): BookFileEntity?
 
-    @Query("DELETE FROM book_file WHERE path = :path AND source = 'opened'") abstract suspend fun forgetOpened(path: String)
+    @Query("DELETE FROM book_file WHERE path = :path AND source IN ('opened', 'session')") abstract suspend fun forgetOpened(path: String)
+    @Query("DELETE FROM book_file WHERE source = 'session'") abstract suspend fun dropSessionFiles()
 
     /** Book by identity (created on first sight) + its source; one transaction. Returns the book id. */
     @Transaction
-    open suspend fun recordOpened(identityKey: String, title: String, authors: String, path: String, size: Long, now: Long): String {
+    open suspend fun recordOpened(identityKey: String, title: String, authors: String, path: String, size: Long, now: Long, source: String = "opened"): String {
         val id = byIdentity(identityKey)?.id ?: newId().also {
             insertBook(
                 BookEntity(
@@ -41,7 +42,7 @@ abstract class LibraryDao {
         // is deleted, and the next scan would load it again as changed.
         val row = fileRow(path)
         if (row?.source != "scan" || row.bookId != id) {
-            upsertFile(BookFileEntity(path = path, bookId = id, source = "opened", folder = "", size = size, mtimeMs = 0, lastSeenScan = 0))
+            upsertFile(BookFileEntity(path = path, bookId = id, source = source, folder = "", size = size, mtimeMs = 0, lastSeenScan = 0))
         }
         return id
     }
@@ -78,6 +79,7 @@ abstract class LibraryDao {
 
     @Query("UPDATE book SET identityKey = :key, updatedAt = :now WHERE id = :id")
     protected abstract suspend fun setIdentity(id: String, key: String, now: Long)
+    @Query("UPDATE book SET coverThumb = NULL WHERE id = :id") protected abstract suspend fun forgetCover(id: String)
     @Query(
         "UPDATE book SET title = :title, sortTitle = :sortTitle, authors = :authors, sortAuthor = :sortAuthor, language = :language, " +
             "titleDirection = :dir, deleted = 0, updatedAt = :now WHERE id = :id",
@@ -92,6 +94,7 @@ abstract class LibraryDao {
      */
     @Transaction
     open suspend fun recordScanned(s: ScannedBook, scanId: Long, now: Long): String {
+        val before = fileRow(s.path)
         var book = byIdentity(s.identityKey)
         if (book == null) {
             val prev = bookIdForPath(s.path)?.let { byId(it) }
@@ -104,6 +107,8 @@ abstract class LibraryDao {
         }
         val id = if (book != null) {
             updateScanned(book.id, s.title, s.sortTitle, s.authors, s.sortAuthor, s.language, s.titleDirection, now)
+            // This book's own file changed in place (M3 deferred): its cover may have changed too, so look again.
+            if (before?.bookId == book.id && (before.size != s.size || before.mtimeMs != s.mtimeMs)) forgetCover(book.id)
             book.id
         } else newId().also {
             insertBook(
@@ -137,6 +142,7 @@ abstract class LibraryDao {
             "FROM book b WHERE b.deleted = 0 AND b.coverThumb IS NULL AND path IS NOT NULL",
     )
     abstract suspend fun coverJobs(): List<CoverJob>
+    @Query("SELECT coverThumb FROM book WHERE coverThumb IS NOT NULL AND coverThumb != ''") abstract suspend fun coverPaths(): List<String>
     @Query("UPDATE book SET coverThumb = :thumb WHERE id = :id") abstract suspend fun setCover(id: String, thumb: String?)
     @Query("UPDATE book SET deleted = 1, updatedAt = :now WHERE id = :id") protected abstract suspend fun tombstone(id: String, now: Long)
     @Query("DELETE FROM book_file WHERE bookId = :id") protected abstract suspend fun deleteFiles(id: String)

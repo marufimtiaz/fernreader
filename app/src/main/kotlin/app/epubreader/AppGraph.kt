@@ -51,7 +51,14 @@ class AppGraph(app: Application) {
     val library = LibraryRepository(
         db, clock, deleteFile = { java.io.File(it).delete() }, // F-025 "also delete the file"
         onBookFilesDeleted = { covers.dropThumb(it) },
+        grantPersisted = { uri -> app.contentResolver.persistedUriPermissions.any { it.isReadPermission && it.uri.toString() == uri } },
+        beforeRecordOpened = { sessionCleanup.await() },
     )
+    /**
+     * M3 deferred: open-with sources whose grant could not be kept are dropped at process start. Runs first on IO;
+     * [LibraryRepository.recordOpened] waits for it so a cold open-with is never dropped.
+     */
+    val sessionCleanup: Deferred<Unit> = io.async { runCatching { library.dropSessionFiles() }; Unit }
     /** Created on IO when first awaited: PositionWriter.create seeds the clock from the stored positions. */
     val positions: Deferred<PositionWriter> = io.async(start = CoroutineStart.LAZY) { PositionWriter.create(db, clock, io) }
     val server = BookContentServer()

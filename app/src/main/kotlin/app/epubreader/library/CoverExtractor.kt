@@ -45,7 +45,7 @@ class CoverExtractor(private val dir: File) {
             Bitmap.createScaledBitmap(decoded, MAX_WIDTH, (decoded.height.toLong() * MAX_WIDTH / decoded.width).toInt().coerceAtLeast(1), true)
         } else decoded
         dir.mkdirs()
-        val out = File(dir, "$bookId.webp"); val tmp = File(dir, "$bookId.tmp")
+        val out = File(dir, ThumbFiles.name(bookId, System.currentTimeMillis())); val tmp = File(dir, "$bookId.tmp")
         @Suppress("DEPRECATION")
         val format = if (Build.VERSION.SDK_INT >= 30) Bitmap.CompressFormat.WEBP_LOSSY else Bitmap.CompressFormat.WEBP
         tmp.outputStream().use { thumb.compress(format, 80, it) }
@@ -61,13 +61,27 @@ class CoverExtractor(private val dir: File) {
         null
     }
 
-    fun drop(bookId: String) { File(dir, "$bookId.webp").delete() }
+    /** Every thumbnail of the book (any version). */
+    fun drop(bookId: String) { dir.listFiles()?.filter { it.name.startsWith("$bookId-") || it.name == "$bookId.webp" }?.forEach { it.delete() } }
+
+    /** Deletes thumbnails no book points to (replaced versions, books gone). */
+    fun sweep(referenced: Set<String>) {
+        val files = dir.listFiles()?.map { it.path } ?: return
+        ThumbFiles.orphans(files, referenced).forEach { File(it).delete() }
+    }
 
     companion object {
         const val MAX_WIDTH = 360
         const val MAX_HEIGHT = 1080
         const val MAX_PIXELS = 4_000_000L
     }
+}
+
+/** Thumbnail file names: one per extraction, so an image cache never shows a replaced cover (M3 deferred). */
+object ThumbFiles {
+    fun name(bookId: String, stamp: Long) = "$bookId-$stamp.webp"
+    /** Files in the thumbnail folder that no book references (older versions, deleted books, leftovers). */
+    fun orphans(files: List<String>, referenced: Set<String>): List<String> = files.filter { it !in referenced }
 }
 
 /**
@@ -93,6 +107,7 @@ class CoverQueue(private val repo: LibraryRepository, private val extractor: Cov
                         try { repo.setCover(job.bookId, extractor.extract(job.bookId, job.path) ?: "") } catch (e: CoverExtractor.Retry) { Log.w("EPR", "cover later: ${job.path}") }
                     }
                 }
+                extractor.sweep(repo.coverPaths())
             }.onFailure { Log.w("EPR", "cover queue: $it") }
         }
     }

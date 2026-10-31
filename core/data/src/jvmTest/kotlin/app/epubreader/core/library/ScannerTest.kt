@@ -216,4 +216,19 @@ class ScannerTest {
         scanner().scan(ScanScope.Everywhere)
         assertNotEquals(a, bookOf(p.path))
     }
+
+    /** M3 deferred: a file changed in place (same book, C-009) gets its cover looked up again. */
+    @Test fun changed_in_place_forgets_the_cover(): Unit = runBlocking {
+        val f = f("Books/inplace.epub").apply { parentFile.mkdirs(); writeBytes(ScanFixtures.epub("urn:inplace", "In Place")) }
+        scanner().scan(ScanScope.Everywhere)
+        val id = bookOf(f.path)!!
+        repo.setCover(id, "/thumbs/$id-1.webp")
+        val other = bookOf(f("Download/download.epub").path)!!
+        repo.setCover(other, "/thumbs/$other-1.webp")
+        f.writeBytes(ScanFixtures.epub("urn:inplace", "In Place, 2nd edition", extra = "new chapter")); f.setLastModified(f.lastModified() + 5_000)
+        scanner().scan(ScanScope.Everywhere)
+        assertEquals(id, bookOf(f.path))
+        assertNull(db.libraryDao().byId(id)!!.coverThumb) // queued for a new thumbnail
+        assertEquals("/thumbs/$other-1.webp", db.libraryDao().byId(other)!!.coverThumb) // unchanged books keep theirs
+    }
 }

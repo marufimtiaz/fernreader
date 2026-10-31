@@ -29,6 +29,10 @@ class LibraryRepository(
     private val clock: HybridClock,
     private val deleteFile: (String) -> Boolean = { false },
     private val onBookFilesDeleted: (bookId: String) -> Unit = {},
+    /** Whether the app holds a lasting read grant for a content:// source (open-with grants often can't be kept). */
+    private val grantPersisted: (uri: String) -> Boolean = { true },
+    /** Awaited before recording an open (the start-up [dropSessionFiles] must not remove a source opened just now). */
+    private val beforeRecordOpened: suspend () -> Unit = {},
 ) : LibraryOps {
     suspend fun knownBookId(ref: SourceRef): String? = db.libraryDao().bookIdForPath(ref.key)
 
@@ -38,8 +42,11 @@ class LibraryRepository(
     suspend fun position(bookId: String): ReadingPositionEntity? = db.positionDao().get(bookId)
 
     suspend fun recordOpened(info: OpenedBookInfo): OpenRecord {
+        beforeRecordOpened()
+        val session = info.source is SourceRef.Content && !grantPersisted(info.source.key)
         val id = db.libraryDao().recordOpened(
             info.identityKey, info.title, info.authors.joinToString("\n"), info.source.key, info.size, clock.now(),
+            source = if (session) "session" else "opened",
         )
         return OpenRecord(id, db.positionDao().get(id))
     }
@@ -48,6 +55,12 @@ class LibraryRepository(
     /** Derived per-book data for this file version ([digest]), or null (missing or computed for another version). */
     suspend fun cached(bookId: String, kind: String, digest: String): String? = db.bookCacheDao().get(bookId, kind, digest)
     suspend fun storeCache(bookId: String, kind: String, digest: String, json: String) = db.bookCacheDao().put(BookCacheEntity(bookId, kind, digest, json))
+
+    /**
+     * At process start: sources that were readable only in the last session (a content:// grant that could not be
+     * persisted) are gone; their entries leave the library. Reading data stays by book id for the next open.
+     */
+    suspend fun dropSessionFiles() = db.libraryDao().dropSessionFiles()
 
     suspend fun forget(ref: SourceRef) = db.libraryDao().forgetOpened(ref.key)
 
@@ -128,4 +141,6 @@ class LibraryRepository(
     suspend fun removeBook(bookId: String) = db.libraryDao().removeBook(bookId, clock.now())
     suspend fun setCover(bookId: String, thumbPath: String?) = db.libraryDao().setCover(bookId, thumbPath)
     suspend fun coverJobs(): List<CoverJob> = db.libraryDao().coverJobs()
+    /** Thumbnail files books point to (including hidden and tombstoned books, which may come back). */
+    suspend fun coverPaths(): Set<String> = db.libraryDao().coverPaths().toSet()
 }

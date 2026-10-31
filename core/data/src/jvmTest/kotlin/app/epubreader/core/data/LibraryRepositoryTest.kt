@@ -51,4 +51,29 @@ class LibraryRepositoryTest {
         repo.forget(SourceRef.File("/b.epub"))
         assertEquals(listOf("A"), repo.library().first().map { it.title })
     }
+
+    /** M3 deferred: an open-with content:// grant that could not be persisted is gone after a restart; so is the entry. */
+    @Test fun session_only_source_is_dropped_at_the_next_start_and_the_book_resumes_when_reopened() = runTest {
+        val db = testDb()
+        val clock = HybridClock(System::currentTimeMillis)
+        val first = LibraryRepository(db, clock, grantPersisted = { false })
+        val ref = SourceRef.Content("content://mail/attachment/7")
+        val id = first.recordOpened(OpenedBookInfo("id-mail", "Mail book", listOf("A"), ref, 9)).bookId
+        db.positionDao().put(id, "epubcfi(/6/4!/4/2/1:9)", 0.2, 1, clock.now())
+        assertEquals(listOf("Mail book"), first.library().first().map { it.title }) // usable in this session
+        val next = LibraryRepository(db, clock, grantPersisted = { false })
+        next.dropSessionFiles() // next process start
+        assertEquals(emptyList(), next.library().first())
+        val again = next.recordOpened(OpenedBookInfo("id-mail", "Mail book", listOf("A"), ref, 9))
+        assertEquals(id, again.bookId); assertEquals("epubcfi(/6/4!/4/2/1:9)", again.position!!.cfi)
+    }
+
+    @Test fun persisted_grants_and_files_are_kept_at_start() = runTest {
+        val db = testDb()
+        val repo = LibraryRepository(db, HybridClock(System::currentTimeMillis), grantPersisted = { true })
+        repo.recordOpened(info("id-1", SourceRef.Content("content://picker/1"), "Kept"))
+        repo.recordOpened(info("id-2", SourceRef.File("/sdcard/b.epub"), "File"))
+        repo.dropSessionFiles()
+        assertEquals(setOf("Kept", "File"), repo.library().first().map { it.title }.toSet())
+    }
 }
