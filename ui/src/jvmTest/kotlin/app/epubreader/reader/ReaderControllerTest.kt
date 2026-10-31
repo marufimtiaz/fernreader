@@ -7,7 +7,11 @@ import app.epubreader.core.data.PositionWriter
 import app.epubreader.core.data.Flow
 import app.epubreader.core.data.ReaderSettings
 import app.epubreader.core.data.ReadingThemeId
+import app.epubreader.core.data.SearchHistoryStore
 import app.epubreader.core.data.SettingsPort
+import app.epubreader.core.search.SearchHit
+import app.epubreader.core.search.SearchQuery
+import app.epubreader.core.search.SearchUpdate
 import app.epubreader.core.data.SourceRef
 import app.epubreader.core.data.buildDatabase
 import app.epubreader.core.data.jvmDatabaseBuilder
@@ -68,7 +72,7 @@ class ReaderControllerTest {
     private val clock = HybridClock(System::currentTimeMillis)
     private val library = LibraryRepository(db, clock)
     private val ref = SourceRef.File("/books/a.epub")
-    private val toc = listOf(TocItem("One", "c1.xhtml", 0), TocItem("Gone", "gone.xhtml", 0, missing = true))
+    private val toc = listOf(TocItem("One", "c1.xhtml", 0, index = 0), TocItem("Gone", "gone.xhtml", 0, missing = true))
     private fun opened(sid: String = "s-1") = FromWeb.Opened(sessionId = sid, identifier = "urn:x", title = "A", authors = listOf("B"), dir = "ltr", fixedLayout = false, sections = 3, toc = toc)
     // The controller's event collector runs forever, so it gets its own scope (cancelled after each test) instead of
     // the test's. Not backgroundScope: advanceUntilIdle() stops once only background tasks remain, so it would never
@@ -86,9 +90,20 @@ class ReaderControllerTest {
         override suspend fun put(key: String, value: String) { map[key] = value; puts++ }
     }
     private val settings = MemSettings()
+    private class FakeSearch : SearchPort {
+        val ensured = mutableListOf<Triple<String, String, String>>()
+        val queries = mutableListOf<SearchQuery>()
+        override fun ensureIndex(bookId: String, digest: String, sessionId: String) { ensured += Triple(bookId, digest, sessionId) }
+        override fun search(bookId: String, digest: String, sessionId: String, query: SearchQuery): kotlinx.coroutines.flow.Flow<SearchUpdate> {
+            queries += query
+            return kotlinx.coroutines.flow.flowOf(SearchUpdate(listOf(SearchHit(2, 40, 8, "…Borodinó…", 1, 9, "Borodinó")), 1, false, true))
+        }
+    }
+    private val searchPort = FakeSearch()
+    private val searchHistory = SearchHistoryStore(db, clock)
     private suspend fun controller(controllerScope: CoroutineScope = scope, opener: FakeOpener = this.opener) = ReaderController(
         reader, opener, library, CompletableDeferred(PositionWriter.create(db, clock, appScope)), controllerScope, WebTexts("missing"),
-        closeScope = appScope, settingsStore = settings,
+        closeScope = appScope, settingsStore = settings, search = searchPort, searchHistory = searchHistory,
     )
     /** Every later library query fails (stands in for a corrupt database or a full disk). */
     private suspend fun breakDatabase() = db.useWriterConnection { it.execSQL("DROP TABLE book_file"); it.execSQL("DROP TABLE book") }
@@ -338,5 +353,55 @@ class ReaderControllerTest {
         assertEquals(listOf("s1"), opener.closed)
         assertTrue(reader.sent.none { it is ToWeb.Open })
         assertFalse(c.state.value.open)
+    }
+
+    @Test fun search_for_opens_the_panel_runs_the_query_and_records_it() = runTest(dispatcher) {
+        val c = controller()
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
+        val bookId = library.knownBookId(ref)!!
+        c.searchFor("Borodinó"); advanceUntilIdle()
+        assertTrue(c.state.value.searchVisible)
+        assertFalse(c.state.value.chromeVisible)
+        assertEquals(listOf(Triple(bookId, "d".repeat(64), "s-1")), searchPort.ensured)
+        assertEquals(listOf(SearchQuery("Borodinó")), searchPort.queries)
+        assertEquals("Borodinó", c.searcher.state.value.query)
+        assertEquals(listOf("One"), c.searcher.state.value.results.map { it.chapter })
+        assertEquals(listOf("Borodinó"), searchHistory.recent(bookId))
+    }
+
+    @Test fun selecting_a_result_sends_the_jump_hides_the_panel_and_keeps_the_results() = runTest(dispatcher) {
+        val c = controller()
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
+        c.showSearch(); c.searcher.submit("Borodinó"); advanceUntilIdle()
+        reader.sent.clear()
+        c.searcher.select(c.searcher.state.value.results.single())
+        assertEquals(ToWeb.GoToText(sectionIndex = 2, offset = 40, length = 8, needle = "Borodinó"), reader.sent.single())
+        assertFalse(c.state.value.searchVisible)
+        c.showSearch()
+        assertEquals(1, c.searcher.state.value.results.size)
+    }
+
+    @Test fun back_closes_the_search_panel_first() = runTest(dispatcher) {
+        val c = controller()
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
+        c.showSearch()
+        assertTrue(c.backInside())
+        assertFalse(c.state.value.searchVisible)
+        assertFalse(c.backInside())
+    }
+
+    @Test fun search_state_resets_when_another_book_opens_and_history_is_per_book() = runTest(dispatcher) {
+        val c = controller()
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
+        c.showSearch(); c.searcher.submit("Borodinó"); advanceUntilIdle()
+        c.close(); advanceUntilIdle()
+        assertEquals(app.epubreader.reader.search.SearchState(), c.searcher.state.value)
+        opener.next = OpenResult.Ok("s-2", "e".repeat(64), 100)
+        c.open(SourceRef.File("/books/b.epub")); advanceUntilIdle()
+        reader.events.emit(FromWeb.Opened(sessionId = "s-2", identifier = "urn:y", title = "Y", authors = emptyList(), dir = "ltr", fixedLayout = false, sections = 1, toc = emptyList())); advanceUntilIdle()
+        c.showSearch(); advanceUntilIdle()
+        assertEquals(emptyList<String>(), c.searcher.state.value.history)
+        c.searcher.clearHistory(); advanceUntilIdle()
+        assertEquals(1, searchHistory.recent(library.knownBookId(ref)!!).size) // the other book's history is untouched
     }
 }

@@ -28,6 +28,14 @@ interface BookOpenerPort {
     suspend fun sectionStats(sessionId: String): List<SectionStat>? = null
 }
 
+/** In-book search as the UI sees it (implemented in app over core/search's SearchIndexes). */
+interface SearchPort {
+    /** Starts (or resumes) building this book's index in the background; idempotent. Must not block. */
+    fun ensureIndex(bookId: String, digest: String, sessionId: String)
+    /** Hits in book order, in batches; the last update has `done = true`. Cancelling the collector stops the search. */
+    fun search(bookId: String, digest: String, sessionId: String, query: app.epubreader.core.search.SearchQuery): Flow<app.epubreader.core.search.SearchUpdate>
+}
+
 /** [chars]: canonical text length with whitespace runs as one; [images]: img/image/svg elements. */
 @kotlinx.serialization.Serializable
 data class SectionStat(val chars: Int, val images: Int)

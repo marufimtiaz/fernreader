@@ -86,6 +86,22 @@ object Copy {
         "atkinson" -> "Atkinson"
         else -> "Book's font"
     }
+    const val search = "Search"
+    const val searchInBook = "Search in this book"
+    const val clearSearch = "Clear search text"
+    const val wholeWords = "Whole words"
+    const val searching = "Searching…"
+    const val noResults = "No results"
+    const val recentSearches = "Recent searches"
+    const val clearHistory = "Clear history"
+    const val noRecentSearches = "Type a word or phrase to look through the whole book. Your searches will be kept here."
+    /** The count line: [capped] means the list stops at its limit; [running] with nothing found yet reads as waiting. */
+    fun resultCount(total: Int, capped: Boolean, running: Boolean) = when {
+        total == 0 -> if (running) searching else noResults
+        capped -> "$total+ results"
+        total == 1 -> "1 result"
+        else -> "$total results"
+    }
     const val contents = "Contents"
     const val close = "Close"
     const val untitledEntry = "Untitled"

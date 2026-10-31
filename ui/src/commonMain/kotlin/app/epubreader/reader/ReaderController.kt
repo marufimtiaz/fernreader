@@ -6,6 +6,7 @@ import app.epubreader.core.data.PositionWriter
 import app.epubreader.core.data.Align
 import app.epubreader.core.data.Flow
 import app.epubreader.core.data.ReaderSettings
+import app.epubreader.core.data.SearchHistoryPort
 import app.epubreader.core.data.SettingsPort
 import app.epubreader.core.data.SourceRef
 import app.epubreader.core.epub.PositionMap
@@ -17,6 +18,8 @@ import app.epubreader.reader.bridge.ToWeb
 import app.epubreader.reader.bridge.TocItem
 import app.epubreader.reader.bridge.WebSettings
 import app.epubreader.reader.bridge.WebTexts
+import app.epubreader.reader.search.ReaderSearch
+import app.epubreader.reader.search.SearchBookRef
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
@@ -50,6 +53,7 @@ data class ReaderUiState(
     val fraction: Double = 0.0,
     val chromeVisible: Boolean = false,
     val tocVisible: Boolean = false,
+    val searchVisible: Boolean = false,
     val displayVisible: Boolean = false,
     val notice: Notice? = null,
     val error: ReaderError? = null,
@@ -81,6 +85,10 @@ class ReaderController(
     private val closeScope: CoroutineScope = scope,
     /** Where [settings] are stored (F-100 persistence); null in tests that do not care. */
     private val settingsStore: SettingsPort? = null,
+    /** In-book search (F-050); null in tests that do not care. The panel is useless without it but harmless. */
+    private val search: SearchPort? = null,
+    /** Where the per-book search history lives; null in tests that do not care. */
+    private val searchHistory: SearchHistoryPort? = null,
 ) {
     private class Session(val id: String, val ref: SourceRef, val cdDigest: String, val size: Long, val hadPosition: Boolean) {
         var bookId: String? = null
@@ -112,6 +120,14 @@ class ReaderController(
     private val _settings = MutableStateFlow(ReaderSettings())
     /** Display settings (F-070..F-075), one value for every book. */
     val settings: StateFlow<ReaderSettings> = _settings
+    /** F-050 search state for the open book (reset when another opens). */
+    val searcher = ReaderSearch(
+        scope, search, searchHistory, probe,
+        book = { session?.let { s -> s.bookId?.let { SearchBookRef(it, s.cdDigest, s.id) } } },
+        toc = { _state.value.toc },
+        jump = { h -> goToText(TextPos(h.spineIndex, h.offset), h.length, h.text) },
+        hidePanel = ::hideSearch,
+    )
     private var landscape = false
     private var saveJob: Job? = null
     /** Settings are read before the first open is sent, so a book never opens with the defaults first. */
@@ -152,6 +168,7 @@ class ReaderController(
     fun open(ref: SourceRef) {
         close()
         totals.reset()
+        searcher.reset()
         _state.value = ReaderUiState(open = true, loading = true, source = ref)
         val previous = closing
         openJob = scope.launch {
@@ -242,6 +259,7 @@ class ReaderController(
         openJob?.cancel(); openJob = null
         val s = session
         session = null
+        searcher.reset()
         _state.value = ReaderUiState()
         if (s == null) return
         reader.send(ToWeb.Close())
@@ -306,6 +324,7 @@ class ReaderController(
 
     /** Handles Back inside the reader (closes the TOC first). Returns false if Back should leave the reader. */
     fun backInside(): Boolean = when {
+        _state.value.searchVisible -> { hideSearch(); true }
         _state.value.displayVisible -> { hideDisplay(); true }
         _state.value.tocVisible -> { hideToc(); true }
         else -> false
@@ -314,6 +333,15 @@ class ReaderController(
     fun toggleChrome() = _state.update { it.copy(chromeVisible = !it.chromeVisible) }
     fun showToc() { probe.ev("toc_cmd", ""); _state.update { it.copy(tocVisible = true, chromeVisible = false) } }
     fun hideToc() = _state.update { it.copy(tocVisible = false) }
+    fun showSearch() { probe.ev("search_open", ""); _state.update { it.copy(searchVisible = true, chromeVisible = false) }; searcher.loadHistory() }
+    fun hideSearch() = _state.update { it.copy(searchVisible = false) }
+
+    /** F-051 entry point: opens the search panel and runs [text] (the selected text, from M6). */
+    fun searchFor(text: String) {
+        if (session == null) return
+        showSearch()
+        searcher.submit(text)
+    }
     fun showDisplay() { probe.ev("display_cmd", ""); _state.update { it.copy(displayVisible = true, chromeVisible = false) } }
     fun hideDisplay() = _state.update { it.copy(displayVisible = false) }
     fun dismissNotice() = _state.update { it.copy(notice = null) }
