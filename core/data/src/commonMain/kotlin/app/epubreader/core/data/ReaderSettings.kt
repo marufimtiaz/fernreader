@@ -52,6 +52,8 @@ data class ReaderSettings(
     val orientation: OrientationLock = OrientationLock.SYSTEM,
     /** F-044: ask before opening a link that leaves the book. */
     val confirmExternalLinks: Boolean = true,
+    /** F-060: the colour a new highlight or underline gets (the last one chosen), a [HighlightColors] id. */
+    val highlightColor: String = HighlightColors.YELLOW,
 ) {
     fun clamped(): ReaderSettings = copy(
         fontScale = tenth(fontScale.coerceIn(MIN_FONT, MAX_FONT)),
@@ -59,6 +61,7 @@ data class ReaderSettings(
         lineHeight = tenth(lineHeight.coerceIn(1.3, 2.0)),
         marginPercent = marginPercent.coerceIn(0, 10),
         brightness = brightness?.let { if (it.isNaN()) null else (it.coerceIn(0.05, 1.0) * 100).roundToInt() / 100.0 },
+        highlightColor = highlightColor.takeIf { it in HighlightColors.ALL } ?: HighlightColors.YELLOW,
     )
 
     /** F-070: one 10 % step up or down, staying within 80 %..260 %. */
@@ -105,6 +108,7 @@ data class ReaderSettings(
                 keepScreenOn = bool("keepScreenOn", d.keepScreenOn),
                 orientation = enum("orientation", OrientationLock.entries.toTypedArray(), d.orientation),
                 confirmExternalLinks = bool("confirmExternalLinks", d.confirmExternalLinks),
+                highlightColor = str("highlightColor") ?: d.highlightColor,
             ).clamped()
         }
     }

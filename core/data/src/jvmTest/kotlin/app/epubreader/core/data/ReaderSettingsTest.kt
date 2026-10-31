@@ -78,4 +78,13 @@ class ReaderSettingsTest {
         assertEquals(ReadingThemeId.WARM, s.theme)
         assertEquals(ReaderSettings(1.4, ReaderSettings.LITERATA, 1.8, 3, Align.JUSTIFY, ReadingThemeId.WARM, Flow.AUTO, 0.4, IndicatorScope.CHAPTER), s)
     }
+
+    @Test fun highlight_colour_defaults_to_yellow_round_trips_and_rejects_unknown_ids() {
+        assertEquals(HighlightColors.YELLOW, ReaderSettings().highlightColor)
+        val s = ReaderSettings(highlightColor = HighlightColors.PURPLE)
+        assertEquals(s, ReaderSettings.decode(s.encode()))
+        assertEquals(HighlightColors.YELLOW, ReaderSettings.decode("""{"highlightColor":"neon"}""").highlightColor)
+        assertEquals(HighlightColors.YELLOW, ReaderSettings.decode("""{"highlightColor":3}""").highlightColor)
+        assertEquals(HighlightColors.YELLOW, ReaderSettings(highlightColor = "x").clamped().highlightColor)
+    }
 }

@@ -1,7 +1,10 @@
 package app.epubreader.reader
 
 import app.epubreader.core.epub.TextPos
+import app.epubreader.core.data.Annotation
+import app.epubreader.core.data.AnnotationPort
 import app.epubreader.core.data.Bookmark
+import app.epubreader.core.epub.PositionMap
 import app.epubreader.core.data.BookmarkPort
 import app.epubreader.core.data.HybridClock
 import app.epubreader.core.data.LibraryRepository
@@ -128,10 +131,39 @@ class ReaderControllerTest {
         override suspend fun remove(id: String) { all.value = all.value.filter { it.id != id } }
     }
     private val bookmarkPort = FakeBookmarks()
-    private suspend fun controller(controllerScope: CoroutineScope = scope, opener: FakeOpener = this.opener) = ReaderController(
+    /** In-memory annotations (F-060); records adds and updates. */
+    private class FakeAnnotations : AnnotationPort {
+        val all = MutableStateFlow<List<Annotation>>(emptyList())
+        val updates = mutableListOf<Triple<String, String?, String?>>()
+        private var n = 0
+        override fun annotations(bookId: String) = kotlinx.coroutines.flow.flow { all.collect { l -> emit(l.filter { it.bookId == bookId }) } }
+        override suspend fun add(bookId: String, cfi: String, spineIndex: Int, text: String, chapter: String, color: String, style: String) =
+            Annotation("a${++n}", bookId, cfi, spineIndex, text, chapter, color, style, null, 1L, 1L).also { all.value = all.value + it }
+        override suspend fun update(id: String, color: String?, style: String?, note: String?) {
+            updates += Triple(id, color, style)
+            all.value = all.value.map { if (it.id == id) it.copy(color = color ?: it.color, style = style ?: it.style) else it }
+        }
+        override suspend fun remove(id: String) { all.value = all.value.filter { it.id != id } }
+    }
+    private val annotationPort = FakeAnnotations()
+    private class FakeTextActions : TextActions {
+        val copied = mutableListOf<String>()
+        val shared = mutableListOf<String>()
+        override fun copy(text: String) { copied += text }
+        override fun share(text: String) { shared += text }
+    }
+    private val textActions = FakeTextActions()
+    /** Virtual CFIs carry a "v:" marker here, so a test sees which side of the map each value is on (M8 chunking). */
+    private val markedMap = object : PositionMap {
+        override fun cfiToOriginal(virtualCfi: String) = virtualCfi.removePrefix("v:")
+        override fun cfiToVirtual(originalCfi: String) = "v:$originalCfi"
+        override fun textToVirtual(p: TextPos) = TextPos(p.spineIndex + 10, p.offset)
+        override fun textToOriginal(p: TextPos) = TextPos(p.spineIndex - 10, p.offset)
+    }
+    private suspend fun controller(controllerScope: CoroutineScope = scope, opener: FakeOpener = this.opener, map: PositionMap = PositionMap.Identity) = ReaderController(
         reader, opener, library, CompletableDeferred(PositionWriter.create(db, clock, appScope)), controllerScope, WebTexts("missing"),
         closeScope = appScope, settingsStore = settings, search = searchPort, searchHistory = searchHistory, links = links,
-        bookmarks = bookmarkPort,
+        bookmarks = bookmarkPort, annotations = annotationPort, textActions = textActions, positionMap = { map },
     )
     /** Every later library query fails (stands in for a corrupt database or a full disk). */
     private suspend fun breakDatabase() = db.useWriterConnection { it.execSQL("DROP TABLE book_file"); it.execSQL("DROP TABLE book") }
@@ -840,5 +872,118 @@ class ReaderControllerTest {
         assertNull(bookmarkPage(0.5, p(null)))
         assertNull(bookmarkPage(0.5, p(200, scope = true))) // a chapter's total says nothing about the book
         assertEquals(50, bookmarkPercent(0.504))
+    }
+
+    // ---- Selection menu (F-060, F-051) ----
+    private val selCfi = "epubcfi(/6/4!/4/2,/1:4,/1:10)"
+    private fun selection(text: String = " quick\n brown ", cfi: String? = selCfi, index: Int = 2, sid: String = "s-1") =
+        FromWeb.Selection(sessionId = sid, text = text, cfi = cfi, sectionIndex = index)
+    private suspend fun kotlinx.coroutines.test.TestScope.selected(c: ReaderController, sel: FromWeb.Selection = selection()) {
+        openedAt(c); reader.events.emit(sel); advanceUntilIdle(); reader.sent.clear()
+    }
+
+    @Test fun copy_puts_exactly_the_selected_text_on_the_clipboard_and_clears_the_selection() = runTest(dispatcher) {
+        val c = controller(); selected(c)
+        c.copySelection(); advanceUntilIdle()
+        assertEquals(listOf(" quick\n brown "), textActions.copied) // no trimming: what Selection.toString() gave
+        assertEquals(listOf<ToWeb>(ToWeb.ClearSelection()), reader.sent)
+        c.copySelection(); advanceUntilIdle()
+        assertEquals(1, textActions.copied.size) // the selection is gone after an action
+    }
+
+    @Test fun share_hands_the_selected_text_to_the_share_sheet() = runTest(dispatcher) {
+        val c = controller(); selected(c)
+        c.shareSelection(); advanceUntilIdle()
+        assertEquals(listOf(" quick\n brown "), textActions.shared)
+        assertEquals(listOf<ToWeb>(ToWeb.ClearSelection()), reader.sent)
+    }
+
+    @Test fun search_in_book_runs_the_search_with_the_selection_trimmed_collapsed_and_capped() = runTest(dispatcher) {
+        val c = controller(); selected(c)
+        c.searchSelection(); advanceUntilIdle()
+        assertTrue(c.state.value.searchVisible)
+        assertEquals("quick brown", c.searcher.state.value.query)
+        assertEquals(listOf(SearchQuery("quick brown")), searchPort.queries)
+        assertTrue(reader.sent.contains(ToWeb.ClearSelection()))
+        reader.events.emit(selection(text = "word ".repeat(100))); advanceUntilIdle()
+        c.searchSelection(); advanceUntilIdle()
+        val q = c.searcher.state.value.query
+        assertTrue(q.length in 190..200, "capped: ${q.length}")
+        assertEquals(q, q.trim())
+        assertTrue(q.startsWith("word word "))
+    }
+
+    @Test fun highlight_stores_the_original_cfi_and_draws_the_virtual_one_in_the_last_used_colour() = runTest(dispatcher) {
+        val c = controller(map = markedMap)
+        openedAt(c, cfi = "v:$rangeCfi")
+        reader.events.emit(selection(cfi = "v:$selCfi", index = 12)); advanceUntilIdle(); reader.sent.clear()
+        c.highlightSelection(); advanceUntilIdle()
+        val a = annotationPort.all.value.single()
+        assertEquals(selCfi, a.cfi) // original documents
+        assertEquals(2, a.spineIndex)
+        assertEquals("quick brown", a.text)
+        assertEquals("One", a.chapter)
+        assertEquals("yellow", a.color) // default colour
+        assertEquals("highlight", a.style)
+        assertEquals(library.knownBookId(ref), a.bookId)
+        assertEquals(ToWeb.ClearSelection(), reader.sent.first())
+        assertEquals(ToWeb.AddAnnotation(sessionId = "s-1", id = a.id, cfi = "v:$selCfi", color = "yellow", style = "highlight"), reader.sent.last())
+        assertEquals(HighlightPicker(a.id, "yellow"), c.state.value.highlightPicker) // the colour row offers the other five
+    }
+
+    @Test fun underline_is_an_annotation_with_the_underline_style() = runTest(dispatcher) {
+        val c = controller(); selected(c)
+        c.underlineSelection(); advanceUntilIdle()
+        val a = annotationPort.all.value.single()
+        assertEquals("underline", a.style)
+        assertEquals(ToWeb.AddAnnotation(sessionId = "s-1", id = a.id, cfi = selCfi, color = "yellow", style = "underline"), reader.sent.last())
+    }
+
+    @Test fun a_colour_from_the_row_recolours_the_new_highlight_and_becomes_the_next_default() = runTest(dispatcher) {
+        val c = controller(); selected(c)
+        c.highlightSelection(); advanceUntilIdle()
+        val id = annotationPort.all.value.single().id
+        reader.sent.clear()
+        c.recolorHighlight("purple"); advanceUntilIdle()
+        assertEquals(listOf(Triple<String, String?, String?>(id, "purple", null)), annotationPort.updates)
+        assertEquals(ToWeb.AddAnnotation(sessionId = "s-1", id = id, cfi = selCfi, color = "purple", style = "highlight"), reader.sent.single())
+        assertNull(c.state.value.highlightPicker)
+        assertEquals("purple", c.settings.value.highlightColor)
+        reader.events.emit(selection(cfi = "epubcfi(/6/4!/4/8,/1:0,/1:3)")); advanceUntilIdle()
+        c.highlightSelection(); advanceUntilIdle()
+        assertEquals("purple", annotationPort.all.value.last().color)
+    }
+
+    @Test fun back_or_a_tap_closes_the_colour_row_first() = runTest(dispatcher) {
+        val c = controller(); selected(c)
+        c.highlightSelection(); advanceUntilIdle()
+        assertTrue(c.backInside())
+        assertNull(c.state.value.highlightPicker)
+        reader.events.emit(selection(cfi = "epubcfi(/6/4!/4/8,/1:0,/1:3)")); advanceUntilIdle()
+        c.highlightSelection(); advanceUntilIdle()
+        reader.events.emit(FromWeb.Tap(sessionId = "s-1", x = 0.5, y = 0.5)); advanceUntilIdle()
+        assertNull(c.state.value.highlightPicker)
+        assertFalse(c.state.value.chromeVisible) // that tap only closed the row
+    }
+
+    @Test fun without_a_selection_the_menu_actions_do_nothing() = runTest(dispatcher) {
+        val c = controller(); openedAt(c); reader.sent.clear()
+        c.copySelection(); c.shareSelection(); c.searchSelection(); c.highlightSelection(); c.underlineSelection(); advanceUntilIdle()
+        reader.events.emit(selection()); reader.events.emit(selection(text = "", cfi = null, index = -1)); advanceUntilIdle() // selected, then cleared
+        c.copySelection(); c.highlightSelection(); advanceUntilIdle()
+        reader.events.emit(selection(sid = "other")); advanceUntilIdle() // another session's selection
+        c.copySelection(); advanceUntilIdle()
+        assertEquals(emptyList<String>(), textActions.copied + textActions.shared)
+        assertEquals(emptyList(), annotationPort.all.value)
+        assertFalse(c.state.value.searchVisible)
+        assertEquals(emptyList(), reader.sent)
+    }
+
+    @Test fun the_selection_belongs_to_the_open_book_only() = runTest(dispatcher) {
+        val c = controller(); selected(c)
+        c.close(); advanceUntilIdle()
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
+        c.copySelection(); advanceUntilIdle()
+        assertEquals(emptyList(), textActions.copied)
     }
 }

@@ -229,6 +229,23 @@ object Copy {
     /** The list's page estimate comes from the bookmark's place in the book, so it is approximate. */
     fun bookmarkPage(n: Int) = "Page ≈ $n"
     fun bookmarkPercent(p: Int) = "$p% through the book"
+    // F-060 selection menu (the system's text actions, e.g. Translate, follow these)
+    const val selHighlight = "Highlight"
+    const val selUnderline = "Underline"
+    const val selSearch = "Search in book"
+    const val selCopy = "Copy"
+    const val selShare = "Share"
+    /** The colour row after Highlight/Underline (its accessibility label). */
+    const val highlightColors = "Highlight colour"
+    fun highlightColorName(id: String) = when (id) {
+        "yellow" -> "Yellow"
+        "green" -> "Green"
+        "blue" -> "Blue"
+        "pink" -> "Pink"
+        "orange" -> "Orange"
+        "purple" -> "Purple"
+        else -> id
+    }
     const val readerSettings = "Reader settings"
     const val settingsPageTurning = "Page turning"
     const val settingsScreen = "Screen"

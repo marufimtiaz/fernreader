@@ -29,6 +29,8 @@ class ProtocolFixtureTest {
         assertEquals(FromWeb.ExternalLink(sessionId = "s-1", href = "https://www.gutenberg.org/"), decodeFromWeb(fixture("externalLink")))
         assertEquals(FromWeb.Relocate(sessionId = "s-1", cfi = "epubcfi(/6/4!/4,/2/1:0,/6/1:5)", fraction = 0.12, sectionIndex = 1, tocHref = "OEBPS/c1.xhtml", page = 3, pages = 12, sectionFraction = 0.18, bookmarks = listOf("epubcfi(/6/4!/4/2/1:10)")),
             decodeFromWeb(fixture("relocate")))
+        assertEquals(FromWeb.Selection(sessionId = "s-1", text = "quick ", cfi = "epubcfi(/6/4!/4/2,/1:4,/1:10)", sectionIndex = 1), decodeFromWeb(fixture("selection")))
+        assertEquals(FromWeb.Selection(sessionId = "s-1", text = "", cfi = null, sectionIndex = -1), decodeFromWeb(fixture("selectionCleared")))
         assertEquals(FromWeb.PageBookmarks(sessionId = "s-1", cfis = listOf("epubcfi(/6/4!/4/2/1:10)")), decodeFromWeb(fixture("pageBookmarks")))
         assertEquals(FromWeb.PageCounts(sessionId = "s-1", gen = 2, linear = listOf(0, 1, 2), counts = listOf(listOf(1, 4), listOf(2, 9)), sample = true),
             decodeFromWeb(fixture("pageCounts")))
@@ -47,6 +49,8 @@ class ProtocolFixtureTest {
             "back" to ToWeb.Back(), "closeFootnote" to ToWeb.CloseFootnote(),
             "setBookmarks" to ToWeb.SetBookmarks(sessionId = "s-1", cfis = listOf("epubcfi(/6/4!/4/2/1:10)", "epubcfi(/6/8!/4/6/1:0)")),
             "goToFraction" to ToWeb.GoToFraction(fraction = 0.25),
+            "addAnnotation" to ToWeb.AddAnnotation(sessionId = "s-1", id = "a-1", cfi = "epubcfi(/6/4!/4/2,/1:4,/1:9)", color = "yellow", style = "highlight"),
+            "clearSelection" to ToWeb.ClearSelection(),
             "setSettings" to ToWeb.SetSettings(settings = WebSettings(1.4, "literata", 1.8, 3, "justify", "warm", "scrolled", "rtl", "none")),
         )
         for ((n, m) in msgs) assertEquals(tree(fixture(n)), tree(encodeToWeb(m)), n)

@@ -1,6 +1,10 @@
 package app.epubreader.reader
 
+import app.epubreader.core.data.Annotation
+import app.epubreader.core.data.AnnotationPort
+import app.epubreader.core.data.AnnotationStyle
 import app.epubreader.core.data.Bookmark
+import app.epubreader.core.data.HighlightColors
 import app.epubreader.core.data.BookmarkPort
 import app.epubreader.core.data.LibraryRepository
 import app.epubreader.core.data.OpenedBookInfo
@@ -70,6 +74,8 @@ data class ReaderUiState(
     val footnoteOpen: Boolean = false,
     /** F-044: an external link waiting for the reader's confirmation (a dialog); Back cancels it. */
     val externalLink: ExternalLink? = null,
+    /** F-060: the colour row for the annotation just made from the selection menu; Back or a tap on the page closes it. */
+    val highlightPicker: HighlightPicker? = null,
     val notice: Notice? = null,
     val error: ReaderError? = null,
     val source: SourceRef? = null,
@@ -108,8 +114,17 @@ class ReaderController(
     private val links: ExternalLinkOpener? = null,
     /** Bookmarks (F-041); null in tests that do not care (the bookmark button then does nothing). */
     private val bookmarks: BookmarkPort? = null,
+    /** Highlights and underlines (F-060, F-061); null in tests that do not care (those menu items then do nothing). */
+    private val annotations: AnnotationPort? = null,
+    /** The selection menu's Copy and Share (F-060); null in tests that do not care. */
+    private val textActions: TextActions? = null,
+    /** The open book's virtual/original position map (M8: its ChunkMap); identity until then. */
+    private val positionMap: (SourceRef) -> PositionMap = { PositionMap.Identity },
 ) {
-    private class Session(val id: String, val ref: SourceRef, val cdDigest: String, val size: Long, val hadPosition: Boolean) {
+    private class Session(
+        val id: String, val ref: SourceRef, val cdDigest: String, val size: Long, val hadPosition: Boolean,
+        val map: PositionMap = PositionMap.Identity,
+    ) {
         var bookId: String? = null
         var last: PositionWriter.Update? = null
         var painted = false
@@ -122,7 +137,6 @@ class ReaderController(
          * Relocates before that are where the book opened (its start), not where the reader is: not stored (R-009).
          */
         var seek: Int? = null
-        val map: PositionMap = PositionMap.Identity // M8: the book's ChunkMap
         /**
          * F-042: entries in the web side's followed-links history, as last reported (`history`) and lowered at once by
          * each Back sent, so Back decides synchronously (R-005) and repeated Backs never wait for the web side.
@@ -139,6 +153,10 @@ class ReaderController(
         var at: FromWeb.Relocate? = null
         /** An add/remove is being written: a second tap meanwhile is ignored (no duplicate bookmarks). */
         var bookmarkBusy = false
+        /** F-060: the settled text selection as the web side last reported it (virtual CFI); null when there is none. */
+        var selection: FromWeb.Selection? = null
+        /** F-060: the annotation the colour row recolours (the one just made from the selection menu). */
+        var picked: Annotation? = null
     }
 
     private val _state = MutableStateFlow(ReaderUiState())
@@ -237,7 +255,7 @@ class ReaderController(
             when (r) {
                 is OpenResult.Failed -> _state.update { it.copy(loading = false, error = ReaderError.Open(r.reason)) }
                 is OpenResult.Ok -> try {
-                    val s = Session(r.sessionId, ref, r.cdDigest, r.size, hadPosition = saved != null).also { it.bookId = known }
+                    val s = Session(r.sessionId, ref, r.cdDigest, r.size, hadPosition = saved != null, map = positionMap(ref)).also { it.bookId = known }
                     reader.isReady.first { it }
                     settingsLoaded.await()
                     session = s
@@ -399,6 +417,7 @@ class ReaderController(
         val s = session
         return when {
             st.externalLink != null -> { cancelExternalLink(); true }
+            st.highlightPicker != null -> { dismissHighlightPicker(); true }
             st.footnoteOpen -> { _state.update { it.copy(footnoteOpen = false) }; reader.send(ToWeb.CloseFootnote()); true }
             st.searchVisible -> { hideSearch(); true }
             st.settingsVisible -> { hideSettings(); true }
@@ -539,6 +558,105 @@ class ReaderController(
     }
     fun dismissNotice() = _state.update { it.copy(notice = null) }
 
+    // ---- F-060 selection menu (the app's action mode calls these; each one ends the selection) ----
+
+    /** The current selection, taken: the web side is told to remove it, so the next action needs a new one. */
+    private fun takeSelection(s: Session): FromWeb.Selection? {
+        val sel = s.selection?.takeIf { it.cfi != null } ?: return null
+        s.selection = null
+        reader.send(ToWeb.ClearSelection())
+        return sel
+    }
+
+    /** Copy: exactly the selected text (Selection.toString(), whitespace as the browser gives it) as plain text. */
+    fun copySelection() {
+        val s = session ?: return
+        val t = textActions ?: return
+        val sel = takeSelection(s) ?: return
+        probe.ev("selection_copy", "${sel.text.length}")
+        try { t.copy(sel.text) } catch (e: Exception) { failed("copying the selection", e, showIfOpen = false) }
+    }
+
+    /** Share: the selected text to another app (the system share sheet). */
+    fun shareSelection() {
+        val s = session ?: return
+        val t = textActions ?: return
+        val sel = takeSelection(s) ?: return
+        try { t.share(sel.text) } catch (e: Exception) { failed("sharing the selection", e, showIfOpen = false) }
+    }
+
+    /** F-051 Search in book: the search panel runs the selected text (trimmed, whitespace collapsed, capped). */
+    fun searchSelection() {
+        val s = session ?: return
+        val sel = takeSelection(s) ?: return
+        val q = selectionQuery(sel.text)
+        if (q.isNotEmpty()) searchFor(q)
+    }
+
+    fun highlightSelection() = annotateSelection(AnnotationStyle.HIGHLIGHT)
+    fun underlineSelection() = annotateSelection(AnnotationStyle.UNDERLINE)
+
+    /**
+     * Highlight/Underline: stored at once in the last-used colour (original CFI and section, current chapter label),
+     * drawn on the page (virtual CFI), and the colour row opens to change the colour with one more tap.
+     */
+    private fun annotateSelection(style: String) {
+        val s = session ?: return
+        val port = annotations ?: return
+        val bookId = s.bookId ?: return
+        val sel = takeSelection(s) ?: return
+        val cfi = sel.cfi ?: return
+        val color = _settings.value.highlightColor
+        val st = _state.value
+        val chapter = chapterTitle(st.toc, st.currentTocHref, st.title)
+        val spine = s.map.textToOriginal(TextPos(sel.sectionIndex, 0)).spineIndex
+        scope.launch {
+            try {
+                val a = port.add(bookId, s.map.cfiToOriginal(cfi), spine, annotationText(sel.text), chapter, color, style)
+                if (session !== s) return@launch
+                probe.ev("annotation_added", style)
+                s.picked = a
+                drawAnnotation(s, a)
+                _state.update { it.copy(highlightPicker = HighlightPicker(a.id, a.color), chromeVisible = false) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                failed("adding a highlight", e, showIfOpen = false)
+            }
+        }
+    }
+
+    private fun drawAnnotation(s: Session, a: Annotation) =
+        reader.send(ToWeb.AddAnnotation(sessionId = s.id, id = a.id, cfi = s.map.cfiToVirtual(a.cfi), color = a.color, style = a.style))
+
+    /** The colour row: the new annotation takes [color], which becomes the default for the next one. */
+    fun recolorHighlight(color: String) {
+        val s = session ?: return
+        val port = annotations ?: return
+        val a = s.picked ?: return
+        if (color !in HighlightColors.ALL) return
+        dismissHighlightPicker()
+        updateSettings { it.copy(highlightColor = color) }
+        if (color == a.color) return
+        scope.launch {
+            try {
+                port.update(a.id, color = color)
+                if (session !== s) return@launch
+                val changed = a.copy(color = color)
+                drawAnnotation(s, changed)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                failed("changing a highlight colour", e, showIfOpen = false)
+            }
+        }
+    }
+
+    fun dismissHighlightPicker() {
+        session?.picked = null
+        _state.update { it.copy(highlightPicker = null) }
+    }
+
     /** R-001: a missing target shows a notice and the page stays; otherwise jump (href is the reader's own). */
     fun onTocSelected(item: TocItem) {
         if (item.missing) { _state.update { it.copy(notice = Notice.MissingTarget) }; return }
@@ -600,6 +718,7 @@ class ReaderController(
                 val set = _settings.value
                 val action = tapAction(m.x, set.tapZones, effectiveRtl(set.swipeDirection, s.dir))
                 when {
+                    _state.value.highlightPicker != null -> dismissHighlightPicker() // a tap on the page closes the colour row
                     _state.value.settingsVisible -> hideSettings() // a tap on the page closes the sheet or panel
                     _state.value.displayVisible -> hideDisplay()
                     action == TapAction.Controls -> toggleChrome()
@@ -616,6 +735,10 @@ class ReaderController(
             }
             is FromWeb.Footnote -> if (m.sessionId == s.id) {
                 _state.update { it.copy(footnoteOpen = m.open, chromeVisible = if (m.open) false else it.chromeVisible) }
+            }
+            is FromWeb.Selection -> if (m.sessionId == s.id) {
+                s.selection = m.takeIf { it.cfi != null }
+                if (s.selection != null && _state.value.highlightPicker != null) dismissHighlightPicker()
             }
             is FromWeb.ExternalLink -> if (m.sessionId == s.id) {
                 val l = externalLinkTarget(m.href) ?: return

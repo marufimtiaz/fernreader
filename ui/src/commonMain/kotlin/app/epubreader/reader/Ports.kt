@@ -46,6 +46,15 @@ fun interface ExternalLinkOpener {
     fun open(url: String): Boolean
 }
 
+/**
+ * F-060 selection menu: Copy and Share (implemented in app: the clipboard as plain text, an ACTION_SEND chooser).
+ * Main thread; must not block.
+ */
+interface TextActions {
+    fun copy(text: String)
+    fun share(text: String)
+}
+
 /** [chars]: canonical text length with whitespace runs as one; [images]: img/image/svg elements. */
 @kotlinx.serialization.Serializable
 data class SectionStat(val chars: Int, val images: Int)

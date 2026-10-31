@@ -50,6 +50,7 @@ import app.epubreader.reader.controls.ControlActions
 import app.epubreader.reader.controls.ReaderBottomBar
 import app.epubreader.reader.controls.ReaderTopBar
 import app.epubreader.reader.settings.ReaderSettingsSheet
+import app.epubreader.reader.selection.HighlightColorRow
 
 /**
  * Reader chrome drawn over the WebView (which lies underneath, full size). Nothing here reflows the page.
@@ -126,6 +127,11 @@ fun ReaderScreen(
             s.bookmarks, page, formatDate, c::onBookmarkSelected, c::removeBookmark, c::hideToc, probe,
         )
         if (s.searchVisible && s.error == null) SearchPanel(c.searcher, onDismiss = c::hideSearch)
+        // F-060: after Highlight/Underline, one more tap gives the new annotation another of the six colours.
+        s.highlightPicker?.let { p ->
+            LaunchedEffect(p) { kotlinx.coroutines.delay(8_000); c.dismissHighlightPicker() } // it goes away on its own too
+            if (s.error == null) HighlightColorRow(p.color, c::recolorHighlight, Modifier.align(Alignment.BottomCenter))
+        }
         s.notice?.let {
             LaunchedEffect(it) { kotlinx.coroutines.delay(3_000); c.dismissNotice() }
             Snackbar(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(16.dp)) {

@@ -37,6 +37,15 @@ import kotlinx.serialization.json.Json
      * reports which are on the visible page in each [FromWeb.Relocate] and in a [FromWeb.PageBookmarks] answer.
      */
     @Serializable @SerialName("setBookmarks") data class SetBookmarks(val v: Int = 1, val sessionId: String, val cfis: List<String>) : ToWeb
+    /**
+     * F-060/F-061: draw a user annotation: [cfi] a virtual range CFI, [color] a HighlightColors id, [style] "highlight" |
+     * "underline". The same [id] again changes its drawing. Drawn until the book closes.
+     */
+    @Serializable @SerialName("addAnnotation") data class AddAnnotation(
+        val v: Int = 1, val sessionId: String, val id: String, val cfi: String, val color: String, val style: String,
+    ) : ToWeb
+    /** F-060: remove the text selection (after a selection menu action). */
+    @Serializable @SerialName("clearSelection") data class ClearSelection(val v: Int = 1) : ToWeb
 }
 
 @Serializable data class WebSettings(
@@ -90,6 +99,13 @@ import kotlinx.serialization.json.Json
     @Serializable @SerialName("footnote") data class Footnote(val v: Int = 1, val sessionId: String, val open: Boolean) : FromWeb
     /** F-044: an http(s) or mailto link was tapped (the web side drops every other scheme). */
     @Serializable @SerialName("externalLink") data class ExternalLink(val v: Int = 1, val sessionId: String, val href: String) : FromWeb
+    /**
+     * F-060: the text selection settled: [text] exactly the document's Selection.toString(), [cfi] its virtual range CFI,
+     * [sectionIndex] its (virtual) section. Cleared: [cfi] null, [text] empty, [sectionIndex] -1.
+     */
+    @Serializable @SerialName("selection") data class Selection(
+        val v: Int = 1, val sessionId: String, val text: String = "", val cfi: String? = null, val sectionIndex: Int = -1,
+    ) : FromWeb
 }
 
 val BridgeJson = Json { classDiscriminator = "type"; ignoreUnknownKeys = true; encodeDefaults = true }
