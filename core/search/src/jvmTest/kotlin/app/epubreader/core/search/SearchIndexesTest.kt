@@ -261,6 +261,56 @@ class SearchIndexesTest {
         assertEquals(0, search("wp", "borodino").hits().size)
     }
 
+    @Test fun ensureBuilt_after_a_complete_build_launches_no_job() {
+        built("wp", wpLike)
+        runBlocking { withTimeout(30_000) { indexes.progress("wp").first { !it.running } } }
+        indexes.ensureBuilt("wp", "d") { error("a complete index for the same file must not start a build") }
+        Thread.sleep(200)
+        val p = indexes.progress("wp").value
+        assertTrue(p.complete && !p.running && !p.failed, "$p") // a started job would have failed on the error() factory
+        assertEquals(6, search("wp", "borodino").hits().size)
+    }
+
+    @Test fun ensureBuilt_with_a_new_digest_hides_the_old_completeness_until_the_builder_reports() {
+        val sections = List(3) { "<p>" + (if (it == 1) "alpha " else "") + "pad ".repeat(80) + "</p>" }
+        built("chg", ListBookText(sections), digest = "d1")
+        runBlocking { withTimeout(30_000) { indexes.progress("chg").first { !it.running } } }
+        val gate = Semaphore(0)
+        indexes.ensureBuilt("chg", "d2") { gate.acquire(); ListBookText(sections) }
+        val p = indexes.progress("chg").value
+        assertTrue(!p.complete && p.running, "$p")
+        Thread { Thread.sleep(300); gate.release(10) }.start()
+        val updates = search("chg", "alpha", whole = true, digest = "d2")
+        assertEquals(listOf(1), updates.hits().map { it.spineIndex })
+    }
+
+    @Test fun ensureBuilt_racing_a_delete_starts_no_build() {
+        val gate = Semaphore(0)
+        indexes.ensureBuilt("g", "d") { ListBookText(List(3) { "<p>" + "pad ".repeat(80) + "</p>" }) { gate.acquire() } }
+        runBlocking { withTimeout(30_000) { while (!java.io.File(dir, "g.db").exists()) kotlinx.coroutines.delay(10) } }
+        val deleter = Thread { runBlocking { indexes.delete("g") } }.also { it.start() }
+        Thread.sleep(300) // delete has cancelled the job and waits for the thread stuck in the gate
+        var started = false
+        indexes.ensureBuilt("g", "d") { started = true; null }
+        gate.release(10)
+        deleter.join(30_000)
+        Thread.sleep(200)
+        assertFalse(started, "a build started while the index was being deleted")
+        assertFalse(java.io.File(dir, "g.db").exists())
+        assertFalse(indexes.progress("g").value.running)
+    }
+
+    @Test fun exactly_cap_hits_is_not_capped_and_one_more_is() {
+        val book = miniBook(listOf("<p>alpha one alpha two alpha three alpha four alpha five</p>"))
+        built("five", book)
+        val exact = search("five", "alpha", whole = true, cap = 5)
+        assertEquals(5, exact.hits().size)
+        assertFalse(exact.last().capped); assertTrue(exact.last().done); assertEquals(5, exact.last().total)
+        val over = search("five", "alpha", whole = true, cap = 4)
+        assertEquals(4, over.hits().size)
+        assertTrue(over.last().capped && over.last().done && over.last().total == 4)
+    }
+
     // ---- generated stress books and the full corpus ----
 
     @Test fun many_chapters_marker_is_one_hit_in_chapter_1777() {

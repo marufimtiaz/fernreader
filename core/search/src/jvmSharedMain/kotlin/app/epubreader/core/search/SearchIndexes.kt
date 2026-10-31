@@ -37,6 +37,10 @@ class SearchIndexes(
     private val builds = HashMap<String, Job>()
     private val states = ConcurrentHashMap<String, MutableStateFlow<IndexProgress>>()
     private val fromDisk: MutableSet<String> = ConcurrentHashMap.newKeySet()
+    /** The file digest each book's [states] entry describes (last built or peeked). Guarded by [lock]. */
+    private val digests = HashMap<String, String>()
+    /** Books being deleted: [ensureBuilt] ignores them until the files are gone. Guarded by [lock]. */
+    private val deleting = HashSet<String>()
 
     /**
      * Build state of [bookId]'s index. Starts as "nothing" and is filled in by [ensureBuilt] or the first [search]
@@ -52,9 +56,16 @@ class SearchIndexes(
         val path = pathOf(bookId)
         val state = state(bookId)
         synchronized(lock) {
+            if (bookId in deleting) return
             if (builds[bookId]?.isActive == true) return
+            val known = state.value
+            // Complete for this very file: nothing to do (no job, no file open that would contend with a query).
+            if (known.complete && !known.failed && digests[bookId] == digest) return
             fromDisk += bookId
-            state.value = state.value.copy(running = true, failed = false)
+            // The file changed in place: what the old digest completed says nothing about this one.
+            state.value = if (digests[bookId] != null && digests[bookId] != digest) IDLE.copy(running = true)
+                else state.value.copy(running = true, failed = false)
+            digests[bookId] = digest
             val job = scope.launch(start = CoroutineStart.LAZY) {
                 try {
                     val book = text() ?: throw BookUnavailableException("no book")
@@ -71,8 +82,12 @@ class SearchIndexes(
             builds[bookId] = job
             // Whatever ended the job (also a scope cancelled before it started), nobody may wait for it any more.
             job.invokeOnCompletion {
-                state.value = state.value.copy(running = false)
-                synchronized(lock) { if (builds[bookId] === job) builds.remove(bookId) }
+                synchronized(lock) {
+                    if (builds[bookId] === job) {
+                        builds.remove(bookId)
+                        state.value = state.value.copy(running = false)
+                    }
+                }
             }
             job.start()
         }
@@ -89,7 +104,11 @@ class SearchIndexes(
         val path = pathOf(bookId)
         val state = state(bookId)
         if (fromDisk.add(bookId)) SearchIndex.peek(path)?.let { m ->
-            state.compareAndSet(IDLE, IndexProgress(m.sectionsDone, m.sections, m.complete, running = false, failed = false))
+            synchronized(lock) {
+                if (state.compareAndSet(IDLE, IndexProgress(m.sectionsDone, m.sections, m.complete, running = false, failed = false))) {
+                    digests[bookId] = m.digest
+                }
+            }
         }
         var reader: SQLiteConnection? = null
         var after = 0L
@@ -105,8 +124,9 @@ class SearchIndexes(
                     var capped = false
                     scan@ for (row in rows) {
                         for (h in QueryRunner.hitsOf(row)) {
-                            hits += h
+                            // Capped only when a hit exists beyond the cap: exactly cap hits is a complete result.
                             if (total + hits.size >= query.cap) { capped = true; break@scan }
+                            hits += h
                         }
                     }
                     if (rows.isNotEmpty()) after = rows.last().rowid
@@ -128,11 +148,18 @@ class SearchIndexes(
 
     /** Cancels a running build of [bookId] and removes its index. */
     suspend fun delete(bookId: String) {
-        val job = synchronized(lock) { builds[bookId] }
-        job?.cancelAndJoinQuietly()
-        SearchIndex.deleteFiles(pathOf(bookId))
-        fromDisk -= bookId
-        state(bookId).value = IDLE
+        val job = synchronized(lock) { deleting += bookId; builds[bookId] }
+        try {
+            job?.cancelAndJoinQuietly()
+            SearchIndex.deleteFiles(pathOf(bookId))
+        } finally {
+            synchronized(lock) {
+                fromDisk -= bookId
+                digests -= bookId
+                state(bookId).value = IDLE
+                deleting -= bookId
+            }
+        }
     }
 
     /** Books whose index file exists but is not complete (for the idle job that finishes them). */

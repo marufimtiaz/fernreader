@@ -14,7 +14,11 @@ import java.io.IOException
  */
 class ZipBookText(private val zip: ZipReader) : BookText {
     private val spine = try {
-        (PackageLoader.load(zip) as? LoadResult.Ok)?.pkg?.spine.orEmpty()
+        when (val r = PackageLoader.load(zip)) {
+            is LoadResult.Ok -> r.pkg.spine
+            // Not an index of "no text": the build fails (and resumes later) instead of completing an empty index.
+            else -> throw BookUnavailableException("package rejected: $r")
+        }
     } catch (e: IOException) {
         throw BookUnavailableException("book closed", e)
     }
