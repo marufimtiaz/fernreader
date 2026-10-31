@@ -5,6 +5,7 @@ import type { Bridge } from '../bridge/bridge'
 import { makeLoader } from './loader'
 import { flattenToc } from './toc'
 import { resolveSaved } from './position'
+import { applySettings, DEFAULT_SETTINGS, readerCss, THEMES, type WebSettings } from './styles'
 
 /* foliate-js is untyped JS; keep `any` at this boundary only. */
 type Book = any
@@ -37,6 +38,9 @@ export class Reader {
    * location where the seek lands (bridge-protocol.md, R-009).
    */
   private seeking = false
+  /** Display settings for every view (the open one, the warm one, preloaded sections). */
+  private settings: WebSettings = DEFAULT_SETTINGS
+  private readonly css = readerCss(new URL('./', location.href).href)
 
   constructor(private bridge: Bridge) {
     // Read-only probes for the app's instrumented tests (evaluateJavascript); nothing in the app calls them.
@@ -60,11 +64,28 @@ export class Reader {
         return true
       },
       lastPage: () => { const v = this.view; const i = v?.lastLocation?.section?.current; if (v && i != null) void v.renderer.goTo({ index: i, anchor: () => 1 }) },
+      /** Text of the block element where the visible range starts (F-070 check). */
+      firstVisibleBlock: () => {
+        const r = this.view?.lastLocation?.range
+        const n = r?.startContainer
+        const el = (n?.nodeType === 1 ? n : n?.parentElement)?.closest?.('p, li, blockquote, h1, h2, h3, h4, h5, h6, div')
+        return el?.textContent?.trim().slice(0, 80) ?? null
+      },
+      blockVisible: (text: string) => {
+        const r = this.view?.lastLocation?.range
+        const doc = r?.startContainer?.ownerDocument
+        const el = [...(doc?.querySelectorAll('p, li, blockquote, h1, h2, h3, h4, h5, h6, div') ?? [])].find(e => e.textContent?.trim().startsWith(text))
+        return !!el && r.intersectsNode(el)
+      },
+      htmlVar: (index: number, name: string) => this.view?.renderer?.getContents?.().find((x: any) => x.index === index)?.doc?.documentElement.style.getPropertyValue(name) ?? null,
       overlayCount: (index: number) => this.view?.renderer?.getContents?.().find((x: any) => x.index === index)?.overlayer?.element?.childElementCount ?? -1,
     }
     bridge.onMessage(m => {
       switch (m.type) {
-        case 'open': void this.open(m.sessionId, m.position, m.texts.missingPart); break
+        case 'open':
+          if (m.settings) this.settings = m.settings
+          void this.open(m.sessionId, m.position, m.texts.missingPart); break
+        case 'setSettings': this.setSettings(m.settings); break
         case 'close': this.close(); break
         case 'next': this.turn('next'); break
         case 'prev': this.turn('prev'); break
@@ -109,16 +130,15 @@ export class Reader {
       this.view = view
       document.body.append(view)
       view.addEventListener('relocate', (e: CustomEvent) => this.onRelocate(view, sessionId, e.detail))
-      view.addEventListener('load', (e: CustomEvent) => this.onLoad(sessionId, e.detail.doc))
+      view.addEventListener('load', (e: CustomEvent) => { applySettings(e.detail.doc, this.settings); this.onLoad(sessionId, e.detail.doc) })
       view.addEventListener('external-link', (e: Event) => e.preventDefault()) // F-044 arrives in M6
       await view.open(book)
       if (stale()) return
       const r = view.renderer
-      r.setAttribute('flow', 'paginated')
+      this.layoutAttributes(r)
       r.setAttribute('animated', '')
-      r.setAttribute('margin', '24px')
-      r.setAttribute('gap', '6%')
       r.setAttribute('max-column-count', '1')
+      r.setStyles(this.css)
       r.setAttribute('preload', '') // neighbour sections laid out in advance: boundary turns swap instantly (P-026)
       if (!position) { await view.init({}); return }
       // A position that no longer resolves exactly (the file changed in place) lands on the nearest valid place in its
@@ -187,6 +207,7 @@ export class Reader {
    */
   private async reopen(warm: Warm, sessionId: string, position: string | null, stale: () => boolean) {
     this.book = warm.book; this.has = warm.has; this.view = warm.view
+    this.applyToView(warm.view) // settings may have changed while the book was closed
     this.sendOpened(sessionId)
     warm.view.style.visibility = ''
     if (position && position !== warm.view.lastLocation?.cfi) {
@@ -197,6 +218,30 @@ export class Reader {
       this.seeking = false
     }
     this.onRelocate(warm.view, sessionId, warm.view.lastLocation)
+  }
+
+  /** Side margins (F-072: m % per side = foliate gap 2m %), the flow mode, and the vertical margins (page indicator room). */
+  private layoutAttributes(r: any) {
+    const s = this.settings
+    const set = (k: string, v: string) => { if (r.getAttribute(k) !== v) r.setAttribute(k, v) }
+    set('margin', '32px')
+    set('gap', `${2 * s.marginPercent}%`)
+    set('flow', s.flow)
+    document.body.style.background = THEMES[s.theme]?.bg ?? ''
+  }
+
+  /** Settings on every loaded document of [view]; the paginator re-expands and keeps the first visible text (F-070). */
+  private applyToView(view: any) {
+    const r = view?.renderer
+    if (!r) return
+    for (const c of r.getContents?.() ?? []) if (c.doc) applySettings(c.doc, this.settings)
+    this.layoutAttributes(r)
+  }
+
+  private setSettings(s: WebSettings) {
+    this.settings = s
+    if (this.view) this.applyToView(this.view)
+    else document.body.style.background = THEMES[s.theme]?.bg ?? ''
   }
 
   private sendOpened(sessionId: string) {
@@ -220,7 +265,7 @@ export class Reader {
     this.bridge.send({
       // foliate reports NaN while a section has no layout yet; JSON turns NaN into null, which Kotlin rejects.
       v: 1, type: 'relocate', sessionId, cfi: d.cfi ?? '', fraction: Number.isFinite(d.fraction) ? d.fraction : 0,
-      sectionIndex: d.section?.current ?? 0, tocHref: d.tocItem?.href ?? null,
+      sectionIndex: d.section?.current ?? 0, tocHref: d.tocItem?.href ?? null, ...pageOf(view.renderer),
     })
     requestAnimationFrame(() => requestAnimationFrame(() => {
       if (this.token === token) this.bridge.send({ v: 1, type: 'painted', sessionId })
@@ -265,6 +310,19 @@ export class Reader {
 const MAX_TURNS = 3
 
 type Cmd = { kind: 'turn'; dir: 'next' | 'prev' } | { kind: 'goTo'; target: string; id?: number }
+
+/** Position inside the visible section as the paginator sees it (bridge relocate fields). */
+function pageOf(r: any): { page: number; pages: number; sectionFraction: number } {
+  try {
+    if (!r || r.scrolled) {
+      const f = r && r.viewSize > 0 ? r.start / r.viewSize : 0
+      return { page: 0, pages: 0, sectionFraction: Number.isFinite(f) ? Math.min(1, Math.max(0, f)) : 0 }
+    }
+    const pages = Math.max(0, (r.pages ?? 0) - 2)
+    const page = Math.min(pages, Math.max(pages ? 1 : 0, r.page ?? 0))
+    return { page, pages, sectionFraction: pages > 1 ? (page - 1) / (pages - 1) : 0 }
+  } catch { return { page: 0, pages: 0, sectionFraction: 0 } }
+}
 
 const IS_CFI = /^epubcfi\(.*\)$/
 

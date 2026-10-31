@@ -29,12 +29,13 @@ current session.
 | Direction | type | Fields |
 |---|---|---|
 | app to web | `ping` | `id` |
-| app to web | `open` | `sessionId`, `position` (virtual CFI or null), `texts.missingPart` |
+| app to web | `open` | `sessionId`, `position` (virtual CFI or null), `texts.missingPart`, `settings` (as `setSettings`; optional) |
+| app to web | `setSettings` | `settings {fontScale, fontFamily, lineHeight, marginPercent, align: publisher\|start\|justify, theme: light\|dark\|black\|warm, flow: paginated\|scrolled}` (M4; AUTO flow already resolved by the app) |
 | app to web | `close`, `next`, `prev` | none |
 | app to web | `goTo` | `target` (CFI or href), `id` (optional integer: ask for `seeked`) |
 | web to app | `ready`, `pong` | `engine` / `id` |
 | web to app | `opened` | `sessionId`, `identifier` (unique-identifier text or null), `title`, `authors[]`, `dir`, `fixedLayout`, `sections`, `toc[] {label, href, depth, missing}` |
-| web to app | `relocate` | `sessionId`, `cfi`, `fraction`, `sectionIndex`, `tocHref` |
+| web to app | `relocate` | `sessionId`, `cfi`, `fraction`, `sectionIndex`, `tocHref`, `page`/`pages` (paged: 1-based text page in the section and its text pages; 0/0 scrolled), `sectionFraction` (M4) |
 | web to app | `painted` | `sessionId` (two animation frames after `relocate`) |
 | web to app | `seeked` | `sessionId`, `id` (after the `relocate` of a `goTo` that carried `id`) |
 | web to app | `tap` | `sessionId`, `x`, `y` (fractions of the viewport; links and selections excluded) |
@@ -64,3 +65,11 @@ whose target is absent carry `missing: true` (R-001). Book scripts never run (CS
 
 Every new message gets a fixture in `bridge/fixtures/` and a test on both sides
 (`reader-web/test/bridge.test.ts`, `ui/src/jvmTest/.../ProtocolFixtureTest.kt`).
+
+### Display settings (M4)
+
+`setSettings` changes CSS custom properties and `data-er-*` attributes on each section's `<html>` only (one style
+sheet injected per document, `reader-web/src/reader/styles.ts`), so a change reflows without rewriting styles
+(P-020). Side margins m % per side map to foliate's `gap` attribute (2m %). The paginator keeps the first visible
+range as its anchor, so a reflow keeps the passage (F-070). Preloaded neighbour sections get the same settings.
+

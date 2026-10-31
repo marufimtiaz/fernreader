@@ -3,6 +3,10 @@ package app.epubreader.reader
 import app.epubreader.core.data.HybridClock
 import app.epubreader.core.data.LibraryRepository
 import app.epubreader.core.data.PositionWriter
+import app.epubreader.core.data.Flow
+import app.epubreader.core.data.ReaderSettings
+import app.epubreader.core.data.ReadingThemeId
+import app.epubreader.core.data.SettingsPort
 import app.epubreader.core.data.SourceRef
 import app.epubreader.core.data.buildDatabase
 import app.epubreader.core.data.jvmDatabaseBuilder
@@ -10,6 +14,7 @@ import app.epubreader.reader.bridge.FromWeb
 import app.epubreader.reader.bridge.ToWeb
 import app.epubreader.reader.bridge.TocItem
 import app.epubreader.reader.bridge.WebTexts
+import app.epubreader.reader.bridge.WebSettings
 import androidx.room.execSQL
 import androidx.room.useWriterConnection
 import kotlinx.coroutines.CompletableDeferred
@@ -70,9 +75,16 @@ class ReaderControllerTest {
     /** Stands in for the app-scoped IO scope that close-out runs on (survives the activity's lifecycleScope). */
     private val appScope = CoroutineScope(dispatcher + SupervisorJob() + CoroutineExceptionHandler { _, e -> crashes += e })
     @AfterTest fun cancelScope() { scope.cancel(); appScope.cancel(); assertEquals(emptyList(), crashes) }
+    private class MemSettings : SettingsPort {
+        val map = mutableMapOf<String, String>()
+        var puts = 0
+        override suspend fun get(key: String) = map[key]
+        override suspend fun put(key: String, value: String) { map[key] = value; puts++ }
+    }
+    private val settings = MemSettings()
     private suspend fun controller(controllerScope: CoroutineScope = scope, opener: FakeOpener = this.opener) = ReaderController(
         reader, opener, library, CompletableDeferred(PositionWriter.create(db, clock, appScope)), controllerScope, WebTexts("missing"),
-        closeScope = appScope,
+        closeScope = appScope, settingsStore = settings,
     )
     /** Every later library query fails (stands in for a corrupt database or a full disk). */
     private suspend fun breakDatabase() = db.useWriterConnection { it.execSQL("DROP TABLE book_file"); it.execSQL("DROP TABLE book") }
@@ -88,6 +100,37 @@ class ReaderControllerTest {
         assertEquals(toc, c.state.value.toc)
         reader.events.emit(FromWeb.Painted(sessionId = "s-1")); advanceUntilIdle()
         assertFalse(c.state.value.loading)
+    }
+
+    @Test fun stored_settings_go_with_the_first_open() = runTest(dispatcher) {
+        settings.map[ReaderSettings.KEY] = ReaderSettings(fontScale = 1.6, theme = ReadingThemeId.BLACK, flow = Flow.AUTO).encode()
+        val c = controller()
+        c.open(ref); advanceUntilIdle()
+        assertEquals(WebSettings(fontScale = 1.6, theme = "black", flow = "paginated"), (reader.sent.single() as ToWeb.Open).settings)
+        assertEquals(1.6, c.settings.value.fontScale)
+    }
+
+    @Test fun settings_change_live_and_are_stored_once_after_a_drag() = runTest(dispatcher) {
+        val c = controller()
+        c.open(ref); advanceUntilIdle(); reader.sent.clear()
+        repeat(5) { c.updateSettings { it.copy(lineHeight = it.lineHeight + 0.1) } }
+        assertEquals(5, reader.sent.filterIsInstance<ToWeb.SetSettings>().size) // every step previews at once (F-075)
+        assertEquals(2.0, reader.sent.filterIsInstance<ToWeb.SetSettings>().last().settings.lineHeight)
+        advanceUntilIdle()
+        assertEquals(1, settings.puts)
+        assertEquals(2.0, ReaderSettings.decode(settings.map[ReaderSettings.KEY]).lineHeight)
+        c.updateSettings { it.copy(lineHeight = 9.0) } // clamped to 2.0: no change, nothing sent
+        assertEquals(5, reader.sent.filterIsInstance<ToWeb.SetSettings>().size)
+    }
+
+    @Test fun auto_flow_follows_the_orientation() = runTest(dispatcher) {
+        val c = controller()
+        c.updateSettings { it.copy(flow = Flow.AUTO) }; reader.sent.clear()
+        c.setLandscape(true)
+        assertEquals("scrolled", (reader.sent.single() as ToWeb.SetSettings).settings.flow)
+        c.updateSettings { it.copy(flow = Flow.PAGED) }; reader.sent.clear()
+        c.setLandscape(false); c.setLandscape(true)
+        assertTrue(reader.sent.isEmpty()) // paged stays paged in landscape
     }
 
     @Test fun reopen_sends_saved_position() = runTest(dispatcher) {

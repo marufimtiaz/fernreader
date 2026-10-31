@@ -14,7 +14,7 @@ const tick = () => new Promise(r => setTimeout(r, 0)) // foliate moves asynchron
 
 class FakeView extends HTMLElement {
   static all: FakeView[] = []
-  renderer = document.createElement('div')
+  renderer: any = Object.assign(document.createElement('div'), { setStyles: vi.fn(), getContents: () => [] })
   lastLocation: any = null
   open = vi.fn(async () => {})
   static initHook: ((v: FakeView, lastLocation: string | null | undefined) => Promise<void>) | null = null
@@ -69,7 +69,7 @@ afterEach(() => vi.restoreAllMocks())
 
 describe('Reader open', () => {
   it('first open sends opened, relocate, painted', async () => {
-    open('s1', 'cfi-a'); await settle()
+    open('s1', 'cfi-a'); await settle(); await settle()
     expect(types()).toEqual(['opened', 'relocate', 'painted'])
     expect(sent[1]).toMatchObject({ sessionId: 's1', cfi: 'cfi-a', fraction: 0.25, sectionIndex: 1, tocHref: 'c1.xhtml' })
     expect(FakeView.all).toHaveLength(1)

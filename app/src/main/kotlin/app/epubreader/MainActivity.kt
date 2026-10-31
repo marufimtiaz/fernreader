@@ -79,6 +79,7 @@ class MainActivity : ComponentActivity() {
         reader = ReaderEngine(this, graph.server)
         controller = ReaderController(
             reader, graph.opener, graph.library, graph.positions, lifecycleScope, WebTexts(Copy.missingPart), probe,
+            settingsStore = graph.settings,
             closeScope = graph.appScope, // onDestroy's close-out must not run on the already-cancelled lifecycleScope
         )
         val library = LibraryState(graph.library.libraryLive(graph.scans.state.map { it.found }), graph.library.failures(), graph.scans.state, graph.settings, graph.library::removeBook, lifecycleScope,

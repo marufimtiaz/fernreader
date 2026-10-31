@@ -2,15 +2,24 @@ import { TO_WEB_TYPES, type FromWeb, type ToWeb } from './protocol'
 
 const isStr = (x: unknown) => typeof x === 'string'
 
+const isNum = (x: unknown) => typeof x === 'number' && Number.isFinite(x)
+function validSettings(x: unknown): boolean {
+  const s = x as Record<string, unknown> | null
+  return !!s && typeof s === 'object' && isNum(s.fontScale) && isNum(s.lineHeight) && isNum(s.marginPercent) &&
+    isStr(s.fontFamily) && ['publisher', 'start', 'justify'].includes(s.align as string) &&
+    ['light', 'dark', 'black', 'warm'].includes(s.theme as string) && ['paginated', 'scrolled'].includes(s.flow as string)
+}
+
 /** Per-type shape check for messages from Kotlin; a malformed message is dropped, never dispatched. */
 function validShape(m: Record<string, unknown>): boolean {
   switch (m.type) {
     case 'open': {
       const t = m.texts as { missingPart?: unknown } | null | undefined
       return isStr(m.sessionId) && !!t && typeof t === 'object' && isStr(t.missingPart) &&
-        (m.position == null || isStr(m.position))
+        (m.position == null || isStr(m.position)) && (m.settings == null || validSettings(m.settings))
     }
     case 'goTo': return isStr(m.target) && (m.id == null || Number.isInteger(m.id))
+    case 'setSettings': return validSettings(m.settings)
     default: return true
   }
 }

@@ -3,12 +3,17 @@ package app.epubreader.reader
 import app.epubreader.core.data.LibraryRepository
 import app.epubreader.core.data.OpenedBookInfo
 import app.epubreader.core.data.PositionWriter
+import app.epubreader.core.data.Align
+import app.epubreader.core.data.Flow
+import app.epubreader.core.data.ReaderSettings
+import app.epubreader.core.data.SettingsPort
 import app.epubreader.core.data.SourceRef
 import app.epubreader.core.epub.PositionMap
 import app.epubreader.core.epub.meta.BookIdentity
 import app.epubreader.reader.bridge.FromWeb
 import app.epubreader.reader.bridge.ToWeb
 import app.epubreader.reader.bridge.TocItem
+import app.epubreader.reader.bridge.WebSettings
 import app.epubreader.reader.bridge.WebTexts
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -20,6 +25,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -68,6 +74,8 @@ class ReaderController(
     private val texts: WebTexts,
     private val probe: EventProbe = EventProbe.None,
     private val closeScope: CoroutineScope = scope,
+    /** Where [settings] are stored (F-100 persistence); null in tests that do not care. */
+    private val settingsStore: SettingsPort? = null,
 ) {
     private class Session(val id: String, val ref: SourceRef, val cdDigest: String, val size: Long, val hadPosition: Boolean) {
         var bookId: String? = null
@@ -87,6 +95,21 @@ class ReaderController(
     private var openJob: Job? = null
     private var closing: Job? = null
     private var seeks = 0
+    private val _settings = MutableStateFlow(ReaderSettings())
+    /** Display settings (F-070..F-075), one value for every book. */
+    val settings: StateFlow<ReaderSettings> = _settings
+    private var landscape = false
+    private var saveJob: Job? = null
+    /** Settings are read before the first open is sent, so a book never opens with the defaults first. */
+    private val settingsLoaded: Deferred<Unit> = scope.async {
+        try {
+            settingsStore?.get(ReaderSettings.KEY)?.let { _settings.value = ReaderSettings.decode(it) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            failed("reading settings", e, showIfOpen = false)
+        }
+    }
 
     init {
         scope.launch {
@@ -146,9 +169,10 @@ class ReaderController(
                 is OpenResult.Ok -> try {
                     val s = Session(r.sessionId, ref, r.cdDigest, r.size, hadPosition = saved != null).also { it.bookId = known }
                     reader.isReady.first { it }
+                    settingsLoaded.await()
                     session = s
                     probe.ev("open_sent", ref.key)
-                    reader.send(ToWeb.Open(sessionId = s.id, position = saved?.cfi?.let(s.map::cfiToVirtual), texts = texts))
+                    reader.send(ToWeb.Open(sessionId = s.id, position = saved?.cfi?.let(s.map::cfiToVirtual), texts = texts, settings = web()))
                 } catch (e: CancellationException) {
                     release(r.sessionId)
                     throw e
@@ -191,6 +215,39 @@ class ReaderController(
             }
         }
     }
+
+    /**
+     * Changes the display settings: clamped, applied at once on the page (live preview, F-075), stored 300 ms after the
+     * last change (a slider drag writes once).
+     */
+    fun updateSettings(change: (ReaderSettings) -> ReaderSettings) {
+        val before = _settings.value
+        val next = change(before).clamped()
+        if (next == before) return
+        _settings.value = next
+        if (web(before) != web(next)) { probe.ev("layout_change", ""); reader.send(ToWeb.SetSettings(settings = web())) }
+        saveJob?.cancel()
+        saveJob = closeScope.launch {
+            kotlinx.coroutines.delay(300)
+            try { settingsStore?.put(ReaderSettings.KEY, next.encode()) } catch (e: CancellationException) { throw e } catch (e: Exception) { failed("storing settings", e, showIfOpen = false) }
+        }
+    }
+
+    /** C-004: in AUTO flow the orientation decides between pages (portrait) and scrolling (landscape). */
+    fun setLandscape(value: Boolean) {
+        if (value == landscape) return
+        val before = web()
+        landscape = value
+        if (web() != before) { probe.ev("layout_change", "flow"); reader.send(ToWeb.SetSettings(settings = web())) }
+    }
+
+    /** The settings as the web side applies them (AUTO flow resolved by orientation). */
+    private fun web(s: ReaderSettings = _settings.value) = WebSettings(
+        fontScale = s.fontScale, fontFamily = s.fontFamily, lineHeight = s.lineHeight, marginPercent = s.marginPercent,
+        align = when (s.align) { Align.PUBLISHER -> "publisher"; Align.START -> "start"; Align.JUSTIFY -> "justify" },
+        theme = s.theme.name.lowercase(),
+        flow = when (s.flow) { Flow.PAGED -> "paginated"; Flow.SCROLLED -> "scrolled"; Flow.AUTO -> if (landscape) "scrolled" else "paginated" },
+    )
 
     /** R-008: the book's file went away or was rewritten under the reader: close it safely and say so. */
     fun fileGone() {

@@ -9,7 +9,7 @@ import kotlinx.serialization.json.Json
 /** Kotlin side of the reader bridge. Mirrors reader-web/src/bridge/protocol.ts; both are tested against bridge/fixtures. */
 @Serializable sealed interface ToWeb {
     @Serializable @SerialName("ping") data class Ping(val v: Int = 1, val id: Int) : ToWeb
-    @Serializable @SerialName("open") data class Open(val v: Int = 1, val sessionId: String, val position: String? = null, val texts: WebTexts) : ToWeb
+    @Serializable @SerialName("open") data class Open(val v: Int = 1, val sessionId: String, val position: String? = null, val texts: WebTexts, val settings: WebSettings = WebSettings()) : ToWeb
     @Serializable @SerialName("close") data class Close(val v: Int = 1) : ToWeb
     @Serializable @SerialName("next") data class Next(val v: Int = 1) : ToWeb
     @Serializable @SerialName("prev") data class Prev(val v: Int = 1) : ToWeb
@@ -18,7 +18,16 @@ import kotlinx.serialization.json.Json
     @Serializable @SerialName("goTo") data class GoTo(
         val v: Int = 1, val target: String, @EncodeDefault(EncodeDefault.Mode.NEVER) val id: Int? = null,
     ) : ToWeb
+    /** Display settings, applied live (F-070..F-074, F-031); the flow is already resolved (AUTO → by orientation). */
+    @Serializable @SerialName("setSettings") data class SetSettings(val v: Int = 1, val settings: WebSettings) : ToWeb
 }
+
+@Serializable data class WebSettings(
+    val fontScale: Double = 1.0, val fontFamily: String = "publisher", val lineHeight: Double = 1.5, val marginPercent: Int = 5,
+    /** "publisher" | "start" | "justify" */ val align: String = "publisher",
+    /** "light" | "dark" | "black" | "warm" */ val theme: String = "light",
+    /** "paginated" | "scrolled" */ val flow: String = "paginated",
+)
 
 @Serializable data class WebTexts(val missingPart: String)
 @Serializable data class TocItem(val label: String, val href: String, val depth: Int, val missing: Boolean = false)
@@ -33,6 +42,8 @@ import kotlinx.serialization.json.Json
     ) : FromWeb
     @Serializable @SerialName("relocate") data class Relocate(
         val v: Int = 1, val sessionId: String, val cfi: String, val fraction: Double, val sectionIndex: Int, val tocHref: String? = null,
+        /** Paged: 1-based text page within the section and the section's text pages; 0 and 0 in scrolled mode. */
+        val page: Int = 0, val pages: Int = 0, val sectionFraction: Double = 0.0,
     ) : FromWeb
     @Serializable @SerialName("painted") data class Painted(val v: Int = 1, val sessionId: String) : FromWeb
     /** Sent after the `relocate` of a [ToWeb.GoTo] that carried an id. */
