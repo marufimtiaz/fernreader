@@ -13,6 +13,9 @@ regression rule, no jank/frame-time groups.
 - Device tool: `device_open` then `export AD=...` (groups that tap/type need it; `start` does not).
 - Benchmark APK installed: `./gradlew :app:installPlayBenchmark`.
 - Corpus pushed: `bench/push_corpus.sh`.
+- Run with Gradle daemons stopped (`./gradlew --stop`) and, for groups that do not need agent-device (`start`, `mem`),
+  with the T3 device-panel screen stream closed: its ffmpeg capture made P-002 read 248-346 ms instead of 108-175 ms
+  with it closed (same build).
 
 ## Rules
 - A failing group is re-run once before acting (about +-20 % emulator noise).
@@ -33,6 +36,12 @@ regression rule, no jank/frame-time groups.
 `bench/check_resume.sh` is a functional check (F-037/R-009), not a gate group.
 
 Planned: `scan` (M3), `pagetotal` (M4), `search` (M5).
+
+## Method deviations
+- **P-030** uses the event delta `cmd` -> first `painted` (logcat, tag EPR), not the spec's screen-recording method. A TOC jump
+  between mostly white pages changes the screen by less than the recording analyzer's threshold, so the video reports NA or a tiny
+  value. The events omit compositor/display latency (about 1-3 frames) after the web-side paint. The recording is still kept in
+  `bench/results/video/` and its value is written in the note.
 
 ## Not in the harness
 Checked once in M9, on a real device or by eye: P-025, P-027, the scroll clause of P-031, and P-063.

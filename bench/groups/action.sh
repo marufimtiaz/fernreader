@@ -15,7 +15,7 @@ for RUN in 1 2 3; do
   $AD record stop >/dev/null 2>&1
   # The recording is kept, but headings on a white page change < 2 mean-abs-diff, so video_ms often reports NA/0 here;
   # the value is the event delta command -> first painted (web-side paint, a slight under-measure).
-  emit P-030 "$(ev_delta cmd painted)" "events cmd->painted; video=$(video_ms "$v")"
+  emit P-030 "$(ev_delta cmd painted)" "events cmd->painted; video=$(video_ms "$v" | head -1)"
   bench_cmd back; sleep 2
 done
 bench_cmd openPath "$B/generated/stress-2000-chapters.epub"; sleep 6

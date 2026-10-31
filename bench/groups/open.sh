@@ -40,7 +40,7 @@ for RUN in 1 2 3; do
   emit P-016 "$(awk -v r="$RUN" '
     function num(x) { return (x ~ /^[0-9]+(\.[0-9]+)?$/) ? x + 0 : -1 }
     $1 == r { f = num($3); a = num($4)
-              if (f <= 0 || a < 0) q = 999999
+              if (f <= 0 || a <= 0) q = 999999
               else { q = (a / f) / 0.5; s = a / 400; if (s < q) q = s }
               if (q > m) m = q; seen = 1 }
     END { if (seen) printf "%.3f", m; else print "NA" }' "$OUT/p016.txt")"
