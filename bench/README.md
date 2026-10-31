@@ -31,17 +31,22 @@ regression rule, no jank/frame-time groups.
 |-------|----------|-------|
 | `start` | P-001, P-002, P-003 (M3) | M1 |
 | `open` | P-010..P-013, P-015, P-016 (P-014 with `--release`) | M2 |
-| `action` | P-030, P-031 | M2 |
+| `action` | P-030, P-031; P-020, P-022, P-026 (+ blank frames) (M4) | M2 |
 | `mem` | P-060 | M2 |
 | `scan` | P-050 (+ first book visible), P-051, P-052 | M3 |
+| `pagetotal` | P-021 (W&P, layout change -> exact total), estimate error | M4 |
 
 `bench/check_resume.sh` is a functional check (F-037/R-009), not a gate group.
 
-Planned: `pagetotal` (M4), `search` (M5).
+Planned: `search` (M5).
 
 `scan` clears the app's data (`pm clear`) before each run: it measures a first scan of the pushed corpus + folder set.
 
 ## Method deviations
+- **P-021** is the event delta `cmd` (text size step) -> `page_total_exact` (the app's own event when the counted total
+  becomes exact); the estimate error compares `page_total_estimate` with it.
+- **P-022** rotates with an app-requested orientation (bench command `orient`), a real configuration change; the
+  recording starts at the command marker, so it includes the system's rotation.
 - **P-030** uses the event delta `cmd` -> first `painted` (logcat, tag EPR), not the spec's screen-recording method. A TOC jump
   between mostly white pages changes the screen by less than the recording analyzer's threshold, so the video reports NA or a tiny
   value. The events omit compositor/display latency (about 1-3 frames) after the web-side paint. The recording is still kept in

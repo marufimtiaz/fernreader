@@ -123,6 +123,20 @@ class MainActivity : ComponentActivity() {
             BenchCommands.register("next") { reader.send(ToWeb.Next()) }
             BenchCommands.register("prev") { reader.send(ToWeb.Prev()) }
             BenchCommands.register("toc") { controller.showToc() }
+            // M4: display settings, rotation, chapter ends (bench/groups/action.sh, pagetotal.sh)
+            BenchCommands.register("fontStep") { d -> controller.updateSettings { it.stepFont(d.trim().toIntOrNull() ?: 1) } }
+            BenchCommands.register("fontScale") { v -> v.trim().toDoubleOrNull()?.let { f -> controller.updateSettings { it.copy(fontScale = f) } } }
+            BenchCommands.register("resetSettings") { controller.updateSettings { app.epubreader.core.data.ReaderSettings() } }
+            BenchCommands.register("display") { controller.showDisplay() }
+            BenchCommands.register("hideDisplay") { controller.hideDisplay() }
+            BenchCommands.register("lastPage") { reader.webView.evaluateJavascript("window.__readerTest.lastPage()", null) }
+            BenchCommands.register("orient") { o ->
+                requestedOrientation = when (o.trim()) {
+                    "land" -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                    "port" -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                    else -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                }
+            }
             BenchCommands.register("tocJump") { label ->
                 controller.state.value.toc.firstOrNull { it.label.contains(label, ignoreCase = true) }?.let(controller::onTocSelected)
             }
