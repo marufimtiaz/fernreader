@@ -35,6 +35,9 @@ import kotlinx.serialization.json.Json
     /** "publisher" | "start" | "justify" */ val align: String = "publisher",
     /** "light" | "dark" | "black" | "warm" */ val theme: String = "light",
     /** "paginated" | "scrolled" */ val flow: String = "paginated",
+    /** F-032: "auto" (the book's page-progression-direction) | "ltr" | "rtl": which horizontal swipe is "next". */
+    val swipeDirection: String = "auto",
+    /** F-032: "slide" | "none". */ val pageAnimation: String = "slide",
 )
 
 @Serializable data class WebTexts(val missingPart: String)

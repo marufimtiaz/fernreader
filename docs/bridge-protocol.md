@@ -30,7 +30,7 @@ current session.
 |---|---|---|
 | app to web | `ping` | `id` |
 | app to web | `open` | `sessionId`, `position` (virtual CFI or null), `texts.missingPart`, `settings` (as `setSettings`; optional) |
-| app to web | `setSettings` | `settings {fontScale, fontFamily, lineHeight, marginPercent, align: publisher\|start\|justify, theme: light\|dark\|black\|warm, flow: paginated\|scrolled}` (M4; AUTO flow already resolved by the app) |
+| app to web | `setSettings` | `settings {fontScale, fontFamily, lineHeight, marginPercent, align: publisher\|start\|justify, theme: light\|dark\|black\|warm, flow: paginated\|scrolled, swipeDirection: auto\|ltr\|rtl, pageAnimation: slide\|none}` (M4; AUTO flow already resolved by the app; `swipeDirection`/`pageAnimation` M6, optional, default auto/slide; `auto` = the book's page-progression-direction, resolved on the web side so `open` already uses it) |
 | app to web | `close`, `next`, `prev` | none |
 | app to web | `goTo` | `target` (CFI or href), `id` (optional integer: ask for `seeked`) |
 | app to web | `goToText` | `sectionIndex`, `offset`, `length` (UTF-16, in the section's extracted text), `needle` (the hit text) (M5, F-050) |
@@ -77,6 +77,17 @@ whose target is absent carry `missing: true` (R-001). Book scripts never run (CS
 
 Every new message gets a fixture in `bridge/fixtures/` and a test on both sides
 (`reader-web/test/bridge.test.ts`, `ui/src/jvmTest/.../ProtocolFixtureTest.kt`).
+
+### Page-turn input (M6, F-032)
+
+Every page turn goes through the web side's turn queue (`next`/`prev`, at most 3 pending, issued after the previous
+turn finished and after the open settled), whatever its source: bridge messages (tap zones and volume keys, decided in
+Kotlin from `tap` x and the key events, mirrored for an rtl book like swipes) and swipes. Swipes are recognised on the
+web side: with the `host-swipe` attribute the patched paginator does not drag the page; it reports each finished
+one-finger gesture in paginated flow as a `swipe` DOM event (`dx`, `dy`, `dt`), and `swipe.ts` turns it into at most
+one turn (ltr: finger moving left = next; rtl: finger moving right = next; vertical writing also: up = next). A
+swipe while text is selected turns nothing. Scrolled flow keeps native scrolling. `pageAnimation: none` removes
+foliate's `animated` attribute (instant turns).
 
 ### Display settings (M4)
 

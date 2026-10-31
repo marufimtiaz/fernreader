@@ -7,7 +7,9 @@ function validSettings(x: unknown): boolean {
   const s = x as Record<string, unknown> | null
   return !!s && typeof s === 'object' && isNum(s.fontScale) && isNum(s.lineHeight) && isNum(s.marginPercent) &&
     isStr(s.fontFamily) && ['publisher', 'start', 'justify'].includes(s.align as string) &&
-    ['light', 'dark', 'black', 'warm'].includes(s.theme as string) && ['paginated', 'scrolled'].includes(s.flow as string)
+    ['light', 'dark', 'black', 'warm'].includes(s.theme as string) && ['paginated', 'scrolled'].includes(s.flow as string) &&
+    (s.swipeDirection == null || ['auto', 'ltr', 'rtl'].includes(s.swipeDirection as string)) &&
+    (s.pageAnimation == null || ['slide', 'none'].includes(s.pageAnimation as string))
 }
 
 /** Per-type shape check for messages from Kotlin; a malformed message is dropped, never dispatched. */

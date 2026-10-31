@@ -11,10 +11,15 @@ export type WebSettings = {
   align: 'publisher' | 'start' | 'justify'
   theme: 'light' | 'dark' | 'black' | 'warm'
   flow: 'paginated' | 'scrolled'
+  /** F-032: which horizontal swipe is "next"; 'auto' = the book's page-progression-direction. Optional (older apps). */
+  swipeDirection?: 'auto' | 'ltr' | 'rtl'
+  /** F-032: 'slide' = foliate's animated turn, 'none' = instant. Optional (older apps). */
+  pageAnimation?: 'slide' | 'none'
 }
 
 export const DEFAULT_SETTINGS: WebSettings = {
   fontScale: 1, fontFamily: 'publisher', lineHeight: 1.5, marginPercent: 5, align: 'publisher', theme: 'light', flow: 'paginated',
+  swipeDirection: 'auto', pageAnimation: 'slide',
 }
 
 /** Reading themes (our own palette; mirrored in ui/.../reader/display/ReadingTheme.kt). */

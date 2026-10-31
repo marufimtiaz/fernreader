@@ -39,7 +39,7 @@ class ProtocolFixtureTest {
             "goToText" to ToWeb.GoToText(sectionIndex = 4, offset = 1234, length = 8, needle = "Borodinó"),
             "clearSearchHighlight" to ToWeb.ClearSearchHighlight(),
             "goToFraction" to ToWeb.GoToFraction(fraction = 0.25),
-            "setSettings" to ToWeb.SetSettings(settings = WebSettings(1.4, "literata", 1.8, 3, "justify", "warm", "scrolled")),
+            "setSettings" to ToWeb.SetSettings(settings = WebSettings(1.4, "literata", 1.8, 3, "justify", "warm", "scrolled", "rtl", "none")),
         )
         for ((n, m) in msgs) assertEquals(tree(fixture(n)), tree(encodeToWeb(m)), n)
     }

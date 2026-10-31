@@ -404,3 +404,103 @@ describe('goToText (F-050)', () => {
     expect(v.deleteAnnotation).toHaveBeenCalledWith({ value: 'cfi-hit:Borodinó' })
   })
 })
+
+describe('swipes (F-032, C-026)', () => {
+  const swipe = (v: FakeView, dx: number, dy = 0, dt = 150) => v.renderer.dispatchEvent(new CustomEvent('swipe', { detail: { dx, dy, dt } }))
+  const DEFAULTS = { fontScale: 1, fontFamily: 'publisher', lineHeight: 1.5, marginPercent: 5, align: 'publisher', theme: 'light', flow: 'paginated' } as const
+
+  it('the paginator hands its swipes to the host (no native drag turn)', async () => {
+    open('s1', null); await settle()
+    expect(FakeView.all[0].renderer.hasAttribute('host-swipe')).toBe(true)
+  })
+
+  it('one swipe toward the left is one next', async () => {
+    open('s1', null); await settle()
+    const v = FakeView.all[0]
+    swipe(v, -200); await settle()
+    expect(v.turnsMade).toEqual(['next'])
+    swipe(v, 200); await settle()
+    expect(v.turnsMade).toEqual(['next', 'prev'])
+  })
+
+  it('a second and third swipe during a running turn are queued, not lost', async () => {
+    open('s1', null); await settle()
+    const v = FakeView.all[0]
+    swipe(v, -200); swipe(v, -200); swipe(v, -200); await settle()
+    expect(v.turnsMade).toEqual(['next', 'next', 'next'])
+  })
+
+  it('swipes share the bridge turns cap', async () => {
+    open('s1', null); await settle()
+    const v = FakeView.all[0]
+    for (let i = 0; i < 6; i++) swipe(v, -200)
+    await settle()
+    expect(v.turnsMade).toHaveLength(3)
+  })
+
+  it('a swipe before the first layout settled waits for it', async () => {
+    let releaseInit!: () => void
+    FakeView.initHook = (v, loc) => new Promise<void>(r => { releaseInit = () => { v.relocateTo(loc ?? 'cfi-start'); r() } })
+    open('s1', null); await settle()
+    const v = FakeView.all[0]
+    swipe(v, -200); await settle()
+    expect(v.turnsMade).toEqual([])
+    releaseInit(); await settle()
+    expect(v.turnsMade).toEqual(['next'])
+  })
+
+  it('a tap-sized movement or a vertical swipe turns nothing', async () => {
+    open('s1', null); await settle()
+    const v = FakeView.all[0]
+    swipe(v, -5, 2); swipe(v, 0, -200); await settle()
+    expect(v.turnsMade).toEqual([])
+  })
+
+  it('auto follows an rtl book: finger moving right is next', async () => {
+    h.epubInit.mockImplementation(async () => ({ ...book(), dir: 'rtl' }))
+    open('s1', null); await settle()
+    const v = FakeView.all[0]
+    swipe(v, 200); await settle()
+    expect(v.turnsMade).toEqual(['next'])
+  })
+
+  it('a forced direction applies from open and changes live', async () => {
+    h.epubInit.mockImplementation(async () => ({ ...book(), dir: 'rtl' }))
+    send({ v: 1, type: 'open', sessionId: 's1', position: null, texts: { missingPart: 'm' }, settings: { ...DEFAULTS, swipeDirection: 'ltr', pageAnimation: 'slide' } })
+    await settle()
+    const v = FakeView.all[0]
+    swipe(v, -200); await settle()
+    expect(v.turnsMade).toEqual(['next'])
+    send({ v: 1, type: 'setSettings', settings: { ...DEFAULTS, swipeDirection: 'rtl', pageAnimation: 'slide' } })
+    swipe(v, -200); await settle()
+    expect(v.turnsMade).toEqual(['next', 'prev'])
+  })
+
+  it('swipes of a closed book are dropped', async () => {
+    open('s1', null); await settle()
+    const v = FakeView.all[0]
+    send({ v: 1, type: 'close' })
+    swipe(v, -200); await settle()
+    expect(v.turnsMade).toEqual([])
+  })
+})
+
+describe('page animation (F-032)', () => {
+  const DEFAULTS = { fontScale: 1, fontFamily: 'publisher', lineHeight: 1.5, marginPercent: 5, align: 'publisher', theme: 'light', flow: 'paginated' } as const
+
+  it('slide by default, none from open, switched live', async () => {
+    open('s1', null); await settle()
+    const r = FakeView.all[0].renderer
+    expect(r.hasAttribute('animated')).toBe(true)
+    send({ v: 1, type: 'setSettings', settings: { ...DEFAULTS, pageAnimation: 'none' } }); await settle()
+    expect(r.hasAttribute('animated')).toBe(false)
+    send({ v: 1, type: 'setSettings', settings: { ...DEFAULTS, pageAnimation: 'slide' } }); await settle()
+    expect(r.hasAttribute('animated')).toBe(true)
+  })
+
+  it('none from the open message', async () => {
+    send({ v: 1, type: 'open', sessionId: 's1', position: null, texts: { missingPart: 'm' }, settings: { ...DEFAULTS, pageAnimation: 'none' } })
+    await settle()
+    expect(FakeView.all[0].renderer.hasAttribute('animated')).toBe(false)
+  })
+})

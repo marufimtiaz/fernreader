@@ -8,6 +8,7 @@ import { resolveSaved } from './position'
 import { PageCounter } from './counter'
 import { shareSections } from './sections'
 import { resolveTextRange } from './textpos'
+import { effectiveDir, swipeToTurn } from './swipe'
 import { applySettings as applyStyles, DEFAULT_SETTINGS, readerCss, THEMES, type WebSettings } from './styles'
 
 /* foliate-js is untyped JS; keep `any` at this boundary only. */
@@ -163,7 +164,9 @@ export class Reader {
       if (stale()) return
       const r = view.renderer
       this.layoutAttributes(r)
-      r.setAttribute('animated', '')
+      // Swipes come to the host as `swipe` events and turn pages through the queue (F-032, C-026), not foliate's drag.
+      r.setAttribute('host-swipe', '')
+      r.addEventListener('swipe', (e: CustomEvent) => this.onSwipe(view, e.detail))
       r.setAttribute('max-column-count', '1')
       r.setStyles(this.css)
       r.setAttribute('preload', '') // neighbour sections laid out in advance: boundary turns swap instantly (P-026)
@@ -293,6 +296,8 @@ export class Reader {
     set('margin', '32px')
     set('gap', `${2 * s.marginPercent}%`)
     set('flow', s.flow)
+    if (s.pageAnimation === 'none') r.removeAttribute('animated') // F-032: no slide
+    else set('animated', '')
     document.body.style.background = THEMES[s.theme]?.bg ?? ''
   }
 
@@ -315,7 +320,9 @@ export class Reader {
     this.settings = s
     const layout = (x: WebSettings) => [x.fontScale, x.fontFamily, x.lineHeight, x.marginPercent, x.align].join('|')
     if (layout(old) !== layout(s) && this.counter) this.scheduleCount()
-    if (this.view) this.applyToView(this.view)
+    const look = (x: WebSettings) => [layout(x), x.theme, x.flow].join('|')
+    if (this.view && look(old) === look(s)) this.layoutAttributes(this.view.renderer) // input settings only: nothing to restyle
+    else if (this.view) this.applyToView(this.view)
     else document.body.style.background = THEMES[s.theme]?.bg ?? ''
   }
 
@@ -385,7 +392,22 @@ export class Reader {
     }))
   }
 
-  /** Center-tap detection for the chrome (F-033). Swipes are handled by foliate's paginator itself. */
+  /**
+   * A finished one-finger gesture in paginated flow, reported by the paginator (`host-swipe`, PATCHES.md): one recognised
+   * swipe = one queued turn, so a swipe during a running turn or before the first layout settled is not lost (C-026).
+   * Ignored while text is selected (the gesture was a selection drag).
+   */
+  private onSwipe(view: any, d: { dx: number; dy: number; dt: number } | null) {
+    if (this.view !== view || !this.sessionId || !d) return
+    const contents: any[] = view.renderer?.getContents?.() ?? []
+    if (contents.some(c => { const sel = c.doc?.getSelection?.(); return sel && !sel.isCollapsed })) return
+    const doc = contents[0]?.doc
+    const vertical = !!doc?.defaultView?.getComputedStyle(doc.documentElement).writingMode?.startsWith('vertical')
+    const t = swipeToTurn(d.dx, d.dy, d.dt, effectiveDir(this.settings.swipeDirection, this.book?.dir), vertical)
+    if (t) this.turn(t)
+  }
+
+  /** Center-tap detection for the chrome (F-033); edge taps are page turns when tap zones are on (decided in Kotlin). */
   private onLoad(sessionId: string, doc: Document) {
     doc.addEventListener('click', (e: MouseEvent) => {
       if (this.sessionId !== sessionId) return

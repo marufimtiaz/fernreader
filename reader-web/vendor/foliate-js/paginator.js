@@ -1050,18 +1050,24 @@ export class Paginator extends HTMLElement {
             x: touch?.screenX, y: touch?.screenY,
             t: e.timeStamp,
             vx: 0, xy: 0,
+            // local patch (host-swipe): where and when the gesture started, and whether a second finger joined
+            x0: touch?.screenX, y0: touch?.screenY, t0: e.timeStamp, multi: e.touches.length > 1,
         }
     }
     #onTouchMove(e) {
         const state = this.#touchState
+        if (!state) return // local patch: a move without a start (began outside) is ignored
         if (state.pinched) return
         state.pinched = globalThis.visualViewport.scale > 1
         if (this.scrolled || state.pinched) return
         if (e.touches.length > 1) {
+            state.multi = true
             if (this.#touchScrolled) e.preventDefault()
             return
         }
         e.preventDefault()
+        // local patch (host-swipe): the page does not follow the finger; the host turns it when the finger lifts
+        if (this.hasAttribute('host-swipe')) return
         const touch = e.changedTouches[0]
         const x = touch.screenX, y = touch.screenY
         const dx = state.x - x, dy = state.y - y
@@ -1074,9 +1080,22 @@ export class Paginator extends HTMLElement {
         this.#touchScrolled = true
         this.scrollBy(dx, dy)
     }
-    #onTouchEnd() {
+    #onTouchEnd(e) {
         this.#touchScrolled = false
         if (this.scrolled) return
+        // local patch (host-swipe): report the finished one-finger gesture as a `swipe` event (finger displacement in
+        // CSS px, positive = right/down, and its duration in ms) instead of scrollBy/snap, so every swipe can go through
+        // the host's turn queue (a swipe during a turn animation or before the first layout is not lost)
+        if (this.hasAttribute('host-swipe')) {
+            const state = this.#touchState
+            const touch = e?.changedTouches?.[0]
+            if (!state || !touch || state.multi || state.pinched || e.touches?.length
+                || globalThis.visualViewport?.scale > 1) return
+            this.dispatchEvent(new CustomEvent('swipe', { detail: {
+                dx: touch.screenX - state.x0, dy: touch.screenY - state.y0, dt: e.timeStamp - state.t0,
+            } }))
+            return
+        }
 
         // XXX: Firefox seems to report scale as 1... sometimes...?
         // at this point I'm basically throwing `requestAnimationFrame` at
