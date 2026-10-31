@@ -1,5 +1,6 @@
 package app.epubreader.reader
 
+import android.util.Log
 import app.epubreader.core.data.SourceRef
 import app.epubreader.core.data.newId
 import app.epubreader.core.epub.zip.ZipError
@@ -19,9 +20,10 @@ import java.io.IOException
  * the same session id (P-016, C-014). Opening any other book closes the warm session.
  */
 class BookOpener(
-    private val sources: BookSources,
+    private val sources: Sources,
     private val server: BookContentServer,
     private val io: CoroutineDispatcher = Dispatchers.IO,
+    private val warn: (String) -> Unit = { Log.w("EPR", it) },
 ) : BookOpenerPort {
     private val lock = Mutex()
     private var current: BookSession? = null
@@ -33,31 +35,34 @@ class BookOpener(
             current = null
             warm?.let { w ->
                 warm = null
-                if (w.ref == ref && w.stamp == sources.stamp(ref)) {
+                if (w.ref == ref && w.stamp == runCatching { sources.stamp(ref) }.getOrNull()) {
                     current = w
                     return@withContext OpenResult.Ok(w.id, w.cdDigest, w.size)
                 }
                 server.unregister(w.id); w.close()
             }
+            // Any failure becomes a reason (R-002): providers may throw IllegalArgumentException,
+            // IllegalStateException, UnsupportedOperationException or their own RuntimeExceptions.
             val opened = try {
                 sources.open(ref)
-            } catch (e: FileNotFoundException) {
-                return@withContext OpenResult.Failed(OpenFailure.NO_ACCESS)
-            } catch (e: SecurityException) {
-                return@withContext OpenResult.Failed(OpenFailure.NO_ACCESS)
-            } catch (e: IOException) {
+            } catch (e: Exception) {
+                logFailure(ref, e, warn)
                 return@withContext OpenResult.Failed(OpenFailure.NO_ACCESS)
             }
-            val zip = try {
-                ZipReader.open(opened.source)
-            } catch (e: ZipFormatException) {
-                opened.source.close()
-                return@withContext OpenResult.Failed(if (e.error == ZipError.NOT_A_ZIP) OpenFailure.NOT_A_ZIP else OpenFailure.DAMAGED)
-            } catch (e: IOException) {
-                opened.source.close()
-                return@withContext OpenResult.Failed(OpenFailure.NO_ACCESS)
+            val s = try {
+                BookSession(newId(), ref, ZipReader.open(opened.source), opened.size, sources.stamp(ref))
+            } catch (e: Exception) {
+                runCatching { opened.source.close() }
+                if (e !is ZipFormatException) logFailure(ref, e, warn)
+                return@withContext OpenResult.Failed(
+                    when {
+                        e is ZipFormatException && e.error == ZipError.NOT_A_ZIP -> OpenFailure.NOT_A_ZIP
+                        e is ZipFormatException -> OpenFailure.DAMAGED
+                        e is IOException -> OpenFailure.NO_ACCESS // the file went away or a read failed
+                        else -> OpenFailure.DAMAGED // anything unexpected from the zip reader
+                    },
+                )
             }
-            val s = BookSession(newId(), ref, zip, opened.size, sources.stamp(ref))
             server.register(s)
             current = s
             OpenResult.Ok(s.id, s.cdDigest, s.size)
@@ -75,4 +80,8 @@ class BookOpener(
         warm?.let { server.unregister(it.id); it.close() }
         warm = s
     }
+}
+
+private fun logFailure(ref: SourceRef, e: Exception, warn: (String) -> Unit) {
+    if (e !is FileNotFoundException && e !is SecurityException) warn("open failed: ${ref.key}: $e")
 }
