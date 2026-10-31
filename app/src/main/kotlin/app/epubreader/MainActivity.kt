@@ -17,7 +17,9 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import app.epubreader.reader.ReaderWindowState
+import app.epubreader.reader.ReaderWindowInputs
+import app.epubreader.reader.WindowApplier
+import app.epubreader.reader.WindowLook
 import app.epubreader.reader.readerWindowState
 import android.view.WindowManager
 import app.epubreader.reader.display.ReadingTheme
@@ -34,6 +36,7 @@ import app.epubreader.library.releaseCoverMemory
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.android.awaitFrame
 import app.epubreader.library.FileWatch
@@ -221,9 +224,12 @@ class MainActivity : ComponentActivity() {
             androidx.compose.runtime.LaunchedEffect(mode) { withContext(Dispatchers.IO) { app.epubreader.settings.AppThemeCache.write(this@MainActivity, mode) } }
             val dateFormat = androidx.compose.runtime.remember { java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT) } // bookmark dates (F-041)
             val inReader = nav.top == Route.Reader
-            val ui by controller.state.collectAsState()
-            val win = readerWindowState(inReader, ui.open, ui.chromeVisible, rs)
-            SideEffect { applyReaderWindow(inReader, rs.brightness, lightBars = if (inReader) theme.isLight else !dark, win) }
+            // Only what the window depends on: a page turn (new location) neither recomposes here nor touches the window (P-026).
+            val winInputs by androidx.compose.runtime.remember { controller.state.map(ReaderWindowInputs::of).distinctUntilChanged() }
+                .collectAsState(ReaderWindowInputs.of(controller.state.value))
+            val win = readerWindowState(inReader, winInputs, rs)
+            val brightness = if (inReader) rs.brightness?.toFloat() ?: WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+            SideEffect { windowLook.update(WindowLook(brightness, lightBars = if (inReader) theme.isLight else !dark, win)) }
             Box {
                 App(
                     dark = dark, webViewTooOld = webViewTooOld, nav = nav, library = library, reader = controller, probe = probe,
@@ -322,13 +328,20 @@ class MainActivity : ComponentActivity() {
      * and bar icons that stay readable on the reading theme's strips.
      */
     private var appliedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+    /** Applies the window look only when it changed (I2: each call costs a window relayout on the main thread). */
+    private val windowLook = WindowApplier(::applyReaderWindow)
 
-    private fun applyReaderWindow(inReader: Boolean, brightness: Double?, lightBars: Boolean, win: ReaderWindowState) {
-        val want = if (inReader && brightness != null) brightness.toFloat() else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
-        if (window.attributes.screenBrightness != want) window.attributes = window.attributes.apply { screenBrightness = want }
+    /** How often the window was changed (instrumented tests: a page turn must not change it, I2). */
+    var windowApplies = 0
+        private set
+
+    private fun applyReaderWindow(look: WindowLook) {
+        windowApplies++
+        val win = look.win
+        if (window.attributes.screenBrightness != look.brightness) window.attributes = window.attributes.apply { screenBrightness = look.brightness }
         WindowCompat.getInsetsController(window, window.decorView).apply {
-            isAppearanceLightStatusBars = lightBars
-            isAppearanceLightNavigationBars = lightBars
+            isAppearanceLightStatusBars = look.lightBars
+            isAppearanceLightNavigationBars = look.lightBars
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             if (win.barsHidden) hide(WindowInsetsCompat.Type.systemBars()) else show(WindowInsetsCompat.Type.systemBars())
         }
@@ -452,6 +465,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        windowLook.reapply() // back from another app: the bars and flags as the reader wants them
         onAccessMaybeGranted()
         // F-012: back to the library → incremental rescan (debounced). The first resume is the app start.
         if (resumedOnce && nav.top == Route.Library) (application as EpubReaderApp).graph.scans.onLibraryResumed()

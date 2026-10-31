@@ -73,8 +73,36 @@ class ScreenBehaviourTest {
     }
 
     @Test fun orientation_lock_applies_in_the_reader_and_is_released_on_leaving() = withReader(ReaderSettings(orientation = OrientationLock.PORTRAIT)) { sc, _ ->
-        eventually("portrait in the reader", ActivityInfo.SCREEN_ORIENTATION_PORTRAIT) { sc.read { it.requestedOrientation } }
+        // M7 (review): either way up (the sensor decides within portrait)
+        eventually("portrait in the reader", ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT) { sc.read { it.requestedOrientation } }
         sc.onActivity { it.goBack() }
         eventually("unspecified in the library", ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) { sc.read { it.requestedOrientation } }
+    }
+
+    /** I2 (review): page turns do not touch the window (no flags, insets or attributes set, so no relayout per turn). */
+    @Test fun page_turns_do_not_reapply_the_window() = withReader(null) { sc, h ->
+        eventually("flag set in the reader", true) { sc.keepOn() }
+        Thread.sleep(500)
+        val before = sc.read { it.windowApplies }
+        var here = h.settle()
+        repeat(4) { val from = here; h.send(app.epubreader.reader.bridge.ToWeb.Next()); here = h.relocate { it.cfi != from.cfi } }
+        h.settle()
+        Thread.sleep(300)
+        assertEquals("window applies during 4 turns", before, sc.read { it.windowApplies })
+        sc.onActivity { it.controller.toggleChrome() } // the controls do change it (bars shown)
+        eventually("applied for the controls", before + 1) { sc.read { it.windowApplies } }
+        sc.onActivity { it.controller.toggleChrome() }
+    }
+
+    /** M6 (review): an error screen lets the screen time out and shows the bars. */
+    @Test fun an_open_failure_screen_shows_the_bars_and_does_not_keep_the_screen_on(): Unit = runBlocking {
+        ActivityScenario.launch(MainActivity::class.java).use { sc ->
+            sc.onActivity { it.openBook(app.epubreader.core.data.SourceRef.File("/sdcard/Books/does-not-exist-${System.nanoTime()}.epub")) }
+            eventually("error shown", true) { sc.read { it.controller.state.value.error != null } }
+            eventually("reader route", Route.Reader) { sc.read { it.nav.top } }
+            eventually("no keep-screen-on on the error screen", false) { sc.keepOn() }
+            eventually("bars shown on the error screen", true) { sc.statusBar() }
+            sc.onActivity { it.goBack() }
+        }
     }
 }
