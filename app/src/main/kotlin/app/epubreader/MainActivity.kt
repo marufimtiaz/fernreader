@@ -213,6 +213,11 @@ class MainActivity : ComponentActivity() {
         Route.Library, Route.Onboarding -> false
     }
 
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        Probe.ev("config_changed", "orientation=${newConfig.orientation}") // P-022 starts here
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
