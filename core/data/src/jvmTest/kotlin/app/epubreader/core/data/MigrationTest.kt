@@ -40,6 +40,23 @@ class MigrationTest {
         migrated.close()
     }
 
+    @Test fun v3_to_v4_keeps_everything_and_adds_book_cache() {
+        val dbPath = Files.createTempDirectory("mig").resolve("m.db")
+        val helper = MigrationTestHelper(
+            schemaDirectoryPath = Path.of("schemas"), databasePath = dbPath,
+            driver = BundledSQLiteDriver(), databaseClass = AppDatabase::class,
+        )
+        helper.createDatabase(3).also {
+            insertM2Book(it)
+            it.execSQL("INSERT INTO setting (id, key, json, updatedAt, deleted) VALUES ('s1', 'library.sort', '\"TITLE\"', 10, 0)")
+        }.close()
+        val migrated = helper.runMigrationsAndValidate(4)
+        migrated.prepare("SELECT cfi FROM reading_position WHERE bookId = 'b1'").use { assertEquals(true, it.step()); assertEquals("epubcfi(/6/4!/4/2/1:0)", it.getText(0)) }
+        migrated.prepare("SELECT json FROM setting WHERE key = 'library.sort'").use { assertEquals(true, it.step()) }
+        migrated.execSQL("INSERT INTO book_cache (bookId, kind, digest, json) VALUES ('b1', 'section-stats.v1', 'd', '[]')")
+        migrated.close()
+    }
+
     companion object {
         /** A book as M2 recorded it after a picker open: identity from foliate, a content:// file row, a position. */
         fun insertM2Book(c: androidx.sqlite.SQLiteConnection, identityKey: String = "k", uri: String = "content://com.android.providers.downloads.documents/document/42") {

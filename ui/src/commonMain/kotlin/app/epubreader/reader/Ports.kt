@@ -24,7 +24,13 @@ sealed interface OpenResult {
 interface BookOpenerPort {
     suspend fun open(ref: SourceRef): OpenResult
     suspend fun close(sessionId: String)
+    /** Text size of every spine item, in spine order (page estimates, F-034); null if the package can't be read. */
+    suspend fun sectionStats(sessionId: String): List<SectionStat>? = null
 }
+
+/** [chars]: canonical text length with whitespace runs as one; [images]: img/image/svg elements. */
+@kotlinx.serialization.Serializable
+data class SectionStat(val chars: Int, val images: Int)
 
 /** Benchmark events (app's Probe); a no-op in normal builds. */
 fun interface EventProbe {

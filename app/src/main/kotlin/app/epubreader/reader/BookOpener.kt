@@ -75,6 +75,11 @@ class BookOpener(
         }
     }
 
+    override suspend fun sectionStats(sessionId: String): List<SectionStat>? = withContext(io) {
+        val s = lock.withLock { current?.takeIf { it.id == sessionId } } ?: return@withContext null
+        try { sectionStats(s.zip) } catch (e: Exception) { null } // closed under us (Back) or unreadable
+    }
+
     /** Current session becomes the warm one; the previous warm session is closed for good. */
     private fun retire(s: BookSession) {
         warm?.let { server.unregister(it.id); it.close() }

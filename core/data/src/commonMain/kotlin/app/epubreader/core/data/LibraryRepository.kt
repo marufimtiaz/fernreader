@@ -23,6 +23,10 @@ class LibraryRepository(private val db: AppDatabase, private val clock: HybridCl
     }
 
 
+    /** Derived per-book data for this file version ([digest]), or null (missing or computed for another version). */
+    suspend fun cached(bookId: String, kind: String, digest: String): String? = db.bookCacheDao().get(bookId, kind, digest)
+    suspend fun storeCache(bookId: String, kind: String, digest: String, json: String) = db.bookCacheDao().put(BookCacheEntity(bookId, kind, digest, json))
+
     suspend fun forget(ref: SourceRef) = db.libraryDao().forgetOpened(ref.key)
 
     fun library(): Flow<List<LibraryBook>> = db.libraryDao().library().map { rows -> rows.map(::toBook) }

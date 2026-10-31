@@ -54,6 +54,9 @@ class ReaderControllerTest {
         fun finishOpen(r: OpenResult) { pending.complete(r) }
         override suspend fun open(ref: SourceRef) = if (suspendOpen) pending.await() else next
         override suspend fun close(sessionId: String) { closed += sessionId }
+        var statsCalls = 0
+        var stats: List<SectionStat>? = listOf(SectionStat(1000, 0), SectionStat(0, 1), SectionStat(500, 0))
+        override suspend fun sectionStats(sessionId: String): List<SectionStat>? { statsCalls++; return stats }
     }
 
     // R15: Room runs its queries on the test scheduler, so advanceUntilIdle() also waits for the database.
@@ -131,6 +134,20 @@ class ReaderControllerTest {
         c.updateSettings { it.copy(flow = Flow.PAGED) }; reader.sent.clear()
         c.setLandscape(false); c.setLandscape(true)
         assertTrue(reader.sent.isEmpty()) // paged stays paged in landscape
+    }
+
+    @Test fun section_stats_load_after_the_first_paint_and_are_cached_per_file() = runTest(dispatcher) {
+        val c = controller()
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
+        assertEquals(0, opener.statsCalls) // never before the first page is on screen
+        reader.events.emit(FromWeb.Painted(sessionId = "s-1")); advanceUntilIdle()
+        assertEquals(1, opener.statsCalls)
+        assertEquals(opener.stats, c.sectionStats)
+        c.close(); advanceUntilIdle()
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
+        reader.events.emit(FromWeb.Painted(sessionId = "s-1")); advanceUntilIdle()
+        assertEquals(1, opener.statsCalls) // from book_cache (same central-directory digest)
+        assertEquals(opener.stats, c.sectionStats)
     }
 
     @Test fun reopen_sends_saved_position() = runTest(dispatcher) {

@@ -10,6 +10,7 @@ import app.epubreader.core.data.SettingsPort
 import app.epubreader.core.data.SourceRef
 import app.epubreader.core.epub.PositionMap
 import app.epubreader.core.epub.meta.BookIdentity
+import app.epubreader.reader.bridge.BridgeJson
 import app.epubreader.reader.bridge.FromWeb
 import app.epubreader.reader.bridge.ToWeb
 import app.epubreader.reader.bridge.TocItem
@@ -82,6 +83,7 @@ class ReaderController(
         var bookId: String? = null
         var last: PositionWriter.Update? = null
         var painted = false
+        var stats: List<SectionStat>? = null
         /**
          * Id of the resume jump sent after `opened` (same book, new source) until the web side answers `seeked`.
          * Relocates before that are where the book opened (its start), not where the reader is: not stored (R-009).
@@ -96,6 +98,8 @@ class ReaderController(
     private var openJob: Job? = null
     private var closing: Job? = null
     private var seeks = 0
+    /** Text sizes of the open book's spine items (page estimates); null until loaded or if unreadable. */
+    val sectionStats: List<SectionStat>? get() = session?.stats
     private val _settings = MutableStateFlow(ReaderSettings())
     /** Display settings (F-070..F-075), one value for every book. */
     val settings: StateFlow<ReaderSettings> = _settings
@@ -181,6 +185,31 @@ class ReaderController(
             }
         }
     }
+
+    /**
+     * Per-section text sizes for the page estimate, after the first page is on screen (never delays it): from the
+     * book cache for this file version, else extracted on the opener's I/O thread and cached.
+     */
+    private fun loadStats(s: Session) {
+        scope.launch {
+            val id = s.bookId ?: return@launch
+            try {
+                val stats = library.cached(id, STATS_KIND, s.cdDigest)?.let { runCatching { BridgeJson.decodeFromString(STATS, it) }.getOrNull() }
+                    ?: opener.sectionStats(s.id)?.also { library.storeCache(id, STATS_KIND, s.cdDigest, BridgeJson.encodeToString(STATS, it)) }
+                if (session !== s) return@launch
+                s.stats = stats
+                probe.ev("stats_ready", "${stats?.size}")
+                onStats(s)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                failed("loading section stats", e, showIfOpen = false)
+            }
+        }
+    }
+
+    /** Hook for the page totals (Task 8). */
+    private fun onStats(@Suppress("UNUSED_PARAMETER") s: Session) = Unit
 
     /** Releases a session that never became [session] (the open was cancelled); never throws. */
     private suspend fun release(sessionId: String) = withContext(NonCancellable) {
@@ -307,7 +336,7 @@ class ReaderController(
             is FromWeb.Seeked -> if (m.sessionId == s.id && m.id == s.seek) { s.seek = null; probe.ev("seeked", "") }
             is FromWeb.Painted -> if (m.sessionId == s.id) {
                 probe.ev("painted", "")
-                if (!s.painted) { s.painted = true; probe.ev("painted_first", ""); _state.update { it.copy(loading = false) } }
+                if (!s.painted) { s.painted = true; probe.ev("painted_first", ""); _state.update { it.copy(loading = false) }; loadStats(s) }
             }
             is FromWeb.Tap -> if (m.sessionId == s.id) when {
                 _state.value.displayVisible -> hideDisplay() // a tap on the page closes the panel
@@ -322,3 +351,5 @@ class ReaderController(
 }
 
 private const val STORAGE = "storage"
+private const val STATS_KIND = "section-stats.v1"
+private val STATS = kotlinx.serialization.builtins.ListSerializer(SectionStat.serializer())
