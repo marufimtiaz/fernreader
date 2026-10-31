@@ -6,7 +6,8 @@ import { flattenToc } from './toc'
 
 /* foliate-js is untyped JS; keep `any` at this boundary only. */
 type Book = any
-type Warm = { sessionId: string; book: Book; has: (n: string) => boolean }
+/** The last closed book: parsed, and its view kept laid out but hidden, for a same-session reopen (P-016). */
+type Warm = { sessionId: string; book: Book; has: (n: string) => boolean; view: any }
 
 /** foliate metadata values may be strings, language maps or contributor objects. */
 const text = (x: unknown): string =>
@@ -39,8 +40,15 @@ export class Reader {
     const token = ++this.token
     const stale = () => this.token !== token
     try {
-      if (this.warm?.sessionId === sessionId) {
-        this.book = this.warm.book; this.has = this.warm.has
+      const warm = this.warm
+      this.warm = null
+      if (warm?.sessionId === sessionId && warm.view?.lastLocation) {
+        await this.reopen(warm, sessionId, position, stale)
+        return
+      }
+      if (warm?.view) destroyView(warm.view) // only one warm book (P-060)
+      if (warm?.sessionId === sessionId) {
+        this.book = warm.book; this.has = warm.has
       } else {
         const loader = await makeLoader(`/book/${encodeURIComponent(sessionId)}`, missingPart)
         const book = await new EPUB(loader as any).init()
@@ -48,7 +56,6 @@ export class Reader {
         this.book = book
         this.has = loader.has
       }
-      this.warm = null
       if (stale()) return
       const book = this.book
       if (!book.sections?.length) {
@@ -56,16 +63,7 @@ export class Reader {
         this.bridge.send({ v: 1, type: 'error', sessionId, kind: 'nothing_readable', message: 'The book has no readable sections.' })
         return
       }
-      this.bridge.send({
-        v: 1, type: 'opened', sessionId,
-        identifier: book.metadata?.identifier || null,
-        title: text(book.metadata?.title),
-        authors: [book.metadata?.author ?? []].flat().map(text).filter(Boolean),
-        dir: book.dir === 'rtl' ? 'rtl' : 'ltr',
-        fixedLayout: book.rendition?.layout === 'pre-paginated',
-        sections: book.sections.length,
-        toc: flattenToc(book, this.has!),
-      })
+      this.sendOpened(sessionId)
       const view = document.createElement('foliate-view') as any
       this.view = view
       document.body.append(view)
@@ -85,10 +83,40 @@ export class Reader {
     } catch (e) {
       if (!stale()) {
         this.book = null; this.has = null
-        if (this.view) { try { this.view.close?.() } catch { /* already broken */ } this.view.remove(); this.view = null }
+        if (this.view) { destroyView(this.view); this.view = null }
         this.bridge.send({ v: 1, type: 'error', sessionId, kind: 'open_failed', message: String((e as Error)?.message ?? e) })
       }
     }
+  }
+
+  /**
+   * Warm reopen: the kept view is shown again where it was; it moves only if the requested position differs.
+   * Sends the same opened → relocate → painted sequence as a full open.
+   */
+  private async reopen(warm: Warm, sessionId: string, position: string | null, stale: () => boolean) {
+    this.book = warm.book; this.has = warm.has; this.view = warm.view
+    this.sendOpened(sessionId)
+    warm.view.style.visibility = ''
+    if (position && position !== warm.view.lastLocation?.cfi) {
+      // A position that no longer resolves stays where the view is (foliate's goTo logs and resolves undefined).
+      if (await warm.view.goTo(position)) return // its relocate event reports the new location
+      if (stale()) return
+    }
+    this.onRelocate(sessionId, warm.view.lastLocation)
+  }
+
+  private sendOpened(sessionId: string) {
+    const book = this.book
+    this.bridge.send({
+      v: 1, type: 'opened', sessionId,
+      identifier: book.metadata?.identifier || null,
+      title: text(book.metadata?.title),
+      authors: [book.metadata?.author ?? []].flat().map(text).filter(Boolean),
+      dir: book.dir === 'rtl' ? 'rtl' : 'ltr',
+      fixedLayout: book.rendition?.layout === 'pre-paginated',
+      sections: book.sections.length,
+      toc: flattenToc(book, this.has!),
+    })
   }
 
   private onRelocate(sessionId: string, d: any) {
@@ -119,11 +147,24 @@ export class Reader {
     })
   }
 
-  /** Releases the view (section frames) but keeps the parsed book for a same-session reopen (P-016). */
+  /**
+   * Keeps the parsed book and its laid-out view, hidden (visibility keeps the layout), for a same-session reopen
+   * (P-016). Its events are dropped while closed (sessionId is null). A view that never reached a location is released.
+   */
   private close() {
     this.token++ // invalidates any open still in flight
-    if (this.view) { this.view.close?.(); this.view.remove() }
-    if (this.book && this.sessionId && this.has) this.warm = { sessionId: this.sessionId, book: this.book, has: this.has }
+    const view = this.view
+    if (view && !view.lastLocation) { destroyView(view) }
+    if (this.book && this.sessionId && this.has) {
+      const kept = view?.lastLocation ? view : null
+      if (kept) kept.style.visibility = 'hidden'
+      this.warm = { sessionId: this.sessionId, book: this.book, has: this.has, view: kept }
+    } else if (view?.lastLocation) destroyView(view)
     this.view = null; this.book = null; this.has = null; this.sessionId = null
   }
+}
+
+function destroyView(view: any) {
+  try { view.close?.() } catch { /* already broken */ }
+  view.remove()
 }

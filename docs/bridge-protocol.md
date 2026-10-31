@@ -41,7 +41,8 @@ current session.
 
 Ordering: `opened` is sent after the package is parsed and before the first page is displayed, so the app records
 the book before the first `relocate` arrives. Reopening with the same `sessionId` as the last closed book reuses the
-parsed book (warm reopen, P-016). Missing content documents are shown as a placeholder page (F-084); TOC entries
+parsed book and its laid-out view, kept hidden since `close` (warm reopen, P-016): the view moves only if `position`
+differs from where it is, and `opened`, `relocate`, `painted` follow as for any open. Opening another book releases it. Missing content documents are shown as a placeholder page (F-084); TOC entries
 whose target is absent carry `missing: true` (R-001). Book scripts never run (CSP `script-src 'self'`, R-007).
 
 ## Rule for new messages
