@@ -10,6 +10,8 @@ import app.epubreader.core.library.ScanController
 import app.epubreader.core.library.ScanScope
 import app.epubreader.core.library.Scanner
 import app.epubreader.bench.Probe
+import app.epubreader.library.CoverExtractor
+import app.epubreader.library.CoverQueue
 import app.epubreader.library.StorageAccess
 import android.os.Environment
 import app.epubreader.core.data.androidDatabaseBuilder
@@ -43,5 +45,7 @@ class AppGraph(app: Application) {
         scan = scanner::scan, scope = io, access = { StorageAccess.hasAccess(app) },
         scopeSetting = { settings.get(SettingsStore.LIBRARY_SCOPE)?.takeIf { it != "everywhere" }?.let { ScanScope.Folder(it) } ?: ScanScope.Everywhere },
         probe = { n, x -> Probe.ev(n, x) },
+        onComplete = { covers.fillMissing() },
     )
+    val covers: CoverQueue by lazy { CoverQueue(library, CoverExtractor(java.io.File(app.filesDir, "thumbs")), io) }
 }

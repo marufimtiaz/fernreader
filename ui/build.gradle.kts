@@ -25,6 +25,7 @@ kotlin {
             implementation(compose.components.resources)
             implementation(libs.coroutines.core)
             implementation(libs.serialization.json)
+            implementation(libs.coil.compose)
         }
         commonTest.dependencies {
             implementation(kotlin("test"))

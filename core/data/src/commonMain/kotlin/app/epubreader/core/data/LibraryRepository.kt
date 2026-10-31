@@ -37,5 +37,5 @@ class LibraryRepository(private val db: AppDatabase, private val clock: HybridCl
     fun failures(): Flow<List<ScanFailureEntity>> = db.libraryDao().failures()
     suspend fun removeBook(bookId: String) = db.libraryDao().removeBook(bookId, clock.now())
     suspend fun setCover(bookId: String, thumbPath: String?) = db.libraryDao().setCover(bookId, thumbPath)
-    suspend fun booksWithoutCover(): List<String> = db.libraryDao().booksWithoutCover()
+    suspend fun coverJobs(): List<CoverJob> = db.libraryDao().coverJobs()
 }

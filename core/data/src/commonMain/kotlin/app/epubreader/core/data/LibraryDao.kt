@@ -131,8 +131,12 @@ abstract class LibraryDao {
     abstract fun library(): Flow<List<LibraryRow>>
 
     @Query("SELECT * FROM scan_failure ORDER BY folder, name") abstract fun failures(): Flow<List<ScanFailureEntity>>
-    @Query("SELECT id FROM book WHERE deleted = 0 AND coverThumb IS NULL AND EXISTS (SELECT 1 FROM book_file f WHERE f.bookId = book.id)")
-    abstract suspend fun booksWithoutCover(): List<String>
+    /** Books whose cover was never looked for, with a local file to read it from (`coverThumb` "" = none found). */
+    @Query(
+        "SELECT b.id AS bookId, (SELECT f.path FROM book_file f WHERE f.bookId = b.id AND substr(f.path, 1, 1) = '/' ORDER BY f.source = 'scan' DESC LIMIT 1) AS path " +
+            "FROM book b WHERE b.deleted = 0 AND b.coverThumb IS NULL AND path IS NOT NULL",
+    )
+    abstract suspend fun coverJobs(): List<CoverJob>
     @Query("UPDATE book SET coverThumb = :thumb WHERE id = :id") abstract suspend fun setCover(id: String, thumb: String?)
     @Query("UPDATE book SET deleted = 1, updatedAt = :now WHERE id = :id") protected abstract suspend fun tombstone(id: String, now: Long)
     @Query("DELETE FROM book_file WHERE bookId = :id") protected abstract suspend fun deleteFiles(id: String)
@@ -146,3 +150,5 @@ data class LibraryRow(
     val id: String, val title: String, val authors: String, val titleDirection: String, val coverThumb: String?,
     val addedAt: Long, val lastOpenedAt: Long?, val sortTitle: String, val sortAuthor: String, val path: String, val paths: String,
 )
+
+data class CoverJob(val bookId: String, val path: String)
