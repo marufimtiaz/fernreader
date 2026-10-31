@@ -6,9 +6,10 @@ import { makeLoader } from './loader'
 import { flattenToc } from './toc'
 import { resolveSaved } from './position'
 import { PageCounter } from './counter'
+import { polyfillMfenced } from './mathml'
 import { shareSections } from './sections'
 import { resolveTextRange } from './textpos'
-import { effectiveDir, swipeToTurn } from './swipe'
+import { effectiveDir, reportSwipes, swipeToTurn } from './swipe'
 import { externalHref, isNoteTarget, noteElement, noteRef, sanitizeNote } from './links'
 import { FootnotePopup } from './footnote'
 import { visibleBookmarks } from './bookmarks'
@@ -272,7 +273,10 @@ export class Reader {
       this.view = view
       document.body.append(view)
       view.addEventListener('relocate', (e: CustomEvent) => this.onRelocate(view, sessionId, e.detail))
-      view.addEventListener('load', (e: CustomEvent) => { applySettings(e.detail.doc, this.settings); this.onLoad(sessionId, e.detail.doc) })
+      view.addEventListener('load', (e: CustomEvent) => {
+        polyfillMfenced(e.detail.doc); applySettings(e.detail.doc, this.settings); this.onLoad(sessionId, e.detail.doc)
+        if (isFixedLayout(view.renderer)) reportSwipes(e.detail.doc, view.renderer) // F-032 on FXL pages
+      })
       view.addEventListener('draw-annotation', (e: CustomEvent) => {
         const value = e.detail.annotation?.value
         if (value === this.search?.cfi) { e.detail.draw(Overlayer.outline, { color: SEARCH_COLOR, width: 2, radius: 3 }); return }
@@ -297,10 +301,11 @@ export class Reader {
       // Swipes come to the host as `swipe` events and turn pages through the queue (F-032, C-026), not foliate's drag.
       r.setAttribute('host-swipe', '')
       r.addEventListener('swipe', (e: CustomEvent) => this.onSwipe(view, e.detail))
+      if (isFixedLayout(r)) reportSwipes(r, r) // foliate-fxl has no touch handling: the host recognises its swipes
       // F-081: vertical-rl sections are paged right-to-left (horizontal pages), where the engine supports it.
       r.setAttribute('vertical-pages', '')
       r.setAttribute('max-column-count', '1')
-      r.setStyles(this.css)
+      r.setStyles?.(this.css) // the fixed-layout renderer (F-082) has none: pre-paginated pages keep their own styles
       r.setAttribute('preload', '') // neighbour sections laid out in advance: boundary turns swap instantly (P-026)
       if (!position) { await view.init({}); return }
       // A position that no longer resolves exactly (the file changed in place) lands on the nearest valid place in its
@@ -784,3 +789,6 @@ function destroyView(view: any) {
   try { view.close?.() } catch { /* already broken */ }
   view.remove()
 }
+
+/** foliate's fixed-layout renderer (pre-paginated books, F-082): no setStyles, no swipes of its own. */
+function isFixedLayout(r: any): boolean { return r?.localName === 'foliate-fxl' }

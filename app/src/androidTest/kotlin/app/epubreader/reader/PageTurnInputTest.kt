@@ -159,4 +159,20 @@ class PageTurnInputTest {
         swipeLeft(); hr.quiet()
         assertEquals(start, sc.pos())
     }
+
+    /** F-032 + F-082: fixed-layout pages turn by swipe too (foliate-fxl has no touch handling; the host recognises them). */
+    @Test fun fixed_layout_swipes_turn_pages(): Unit = run { hr, _ ->
+        for ((name, rtl) in listOf("page-blanche" to false, "haruko-html-jpeg" to true)) {
+            val f = File("/sdcard/Books/epub3-samples/$name.epub")
+            hr.open(f)
+            repeat(2) { hr.send(ToWeb.Next()); hr.quiet() }
+            val start = hr.at!!.sectionIndex
+            if (rtl) swipeRight() else swipeLeft()
+            hr.quiet()
+            assertTrue("$name: a swipe toward the ${if (rtl) "right" else "left"} is next: $start -> ${hr.at!!.sectionIndex}", hr.at!!.sectionIndex > start)
+            if (rtl) swipeLeft() else swipeRight()
+            hr.quiet()
+            assertEquals("$name: the opposite swipe goes back", start, hr.at!!.sectionIndex)
+        }
+    }
 }

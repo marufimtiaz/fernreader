@@ -52,3 +52,38 @@ describe('effectiveDir (F-032, F-081)', () => {
     expect(effectiveDir('rtl', 'ltr')).toBe('rtl')
   })
 })
+
+describe('reportSwipes (fixed layout: foliate-fxl reports no swipes; F-032 for FXL books)', () => {
+  const touch = (target: EventTarget, type: string, x: number, y: number, t: number, fingers = 1) => {
+    const e = new Event(type) as any
+    Object.defineProperty(e, 'changedTouches', { value: [{ screenX: x, screenY: y }] })
+    Object.defineProperty(e, 'touches', { value: type === 'touchend' ? [] : Array(fingers).fill({ screenX: x, screenY: y }) })
+    Object.defineProperty(e, 'timeStamp', { value: t })
+    target.dispatchEvent(e)
+  }
+  it('a finished one-finger gesture in the page becomes one swipe event on the renderer', async () => {
+    const { reportSwipes } = await import('../src/reader/swipe')
+    const doc = document.implementation.createHTMLDocument('p')
+    const renderer = document.createElement('div')
+    const got: any[] = []
+    renderer.addEventListener('swipe', (e: Event) => got.push((e as CustomEvent).detail))
+    reportSwipes(doc, renderer)
+    touch(doc, 'touchstart', 300, 400, 1000)
+    touch(doc, 'touchmove', 200, 402, 1050)
+    touch(doc, 'touchend', 100, 405, 1120)
+    expect(got).toEqual([{ dx: -200, dy: 5, dt: 120 }])
+  })
+  it('two fingers, or an end without a start, report nothing', async () => {
+    const { reportSwipes } = await import('../src/reader/swipe')
+    const doc = document.implementation.createHTMLDocument('p')
+    const renderer = document.createElement('div')
+    const got: any[] = []
+    renderer.addEventListener('swipe', (e: Event) => got.push(e))
+    reportSwipes(doc, renderer)
+    touch(doc, 'touchend', 100, 400, 900)
+    touch(doc, 'touchstart', 300, 400, 1000)
+    touch(doc, 'touchmove', 200, 400, 1050, 2)
+    touch(doc, 'touchend', 100, 400, 1100)
+    expect(got).toEqual([])
+  })
+})

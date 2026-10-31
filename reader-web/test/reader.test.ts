@@ -39,8 +39,11 @@ class FakeView extends HTMLElement {
     await tick(); this.page += d; this.turnsMade.push(d > 0 ? 'next' : 'prev'); this.relocateTo(`p${this.page}`)
     await tick(); this.locked = false
   }
+  /** The fixed-layout renderer (foliate-fxl) has no setStyles (F-082). */
+  static fxl = false
   constructor() {
     super(); FakeView.all.push(this)
+    if (FakeView.fxl) this.renderer = Object.assign(document.createElement('foliate-fxl'), { getContents: () => [] })
     this.renderer.goTo = vi.fn(async ({ index }: { index: number }) => { await tick(); this.relocateTo(`start-of-${index}`) })
   }
   relocateTo(cfi: string) {
@@ -65,7 +68,7 @@ beforeAll(() => {
   globalThis.requestAnimationFrame = (cb: FrameRequestCallback) => setTimeout(() => cb(0), 0) as unknown as number
 })
 beforeEach(() => {
-  FakeView.all = []; FakeView.initHook = null; document.body.innerHTML = ''
+  FakeView.all = []; FakeView.initHook = null; FakeView.fxl = false; document.body.innerHTML = ''
   h.makeLoader.mockReset().mockResolvedValue({ has: () => true })
   h.epubInit.mockReset().mockImplementation(async () => book())
   sent = []
@@ -76,6 +79,13 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks())
 
 describe('Reader open', () => {
+  it('a fixed-layout book (renderer without setStyles) opens: opened, relocate, painted, no error (F-082)', async () => {
+    FakeView.fxl = true
+    open('s1', null); await settle(); await settle()
+    expect(types()).not.toContain('error')
+    expect(types()).toEqual(expect.arrayContaining(['opened', 'relocate', 'painted']))
+  })
+
   it('first open sends opened, relocate, painted', async () => {
     open('s1', 'cfi-a'); await settle(); await settle()
     expect(types()).toEqual(['opened', 'relocate', 'painted'])
@@ -413,6 +423,21 @@ describe('swipes (F-032, C-026)', () => {
   it('the paginator hands its swipes to the host (no native drag turn)', async () => {
     open('s1', null); await settle()
     expect(FakeView.all[0].renderer.hasAttribute('host-swipe')).toBe(true)
+  })
+
+  it('a fixed-layout book turns pages by swipe too (foliate-fxl reports none; the host recognises them)', async () => {
+    FakeView.fxl = true
+    open('s1', null); await settle()
+    const v = FakeView.all[0]
+    const touch = (type: string, x: number, t: number) => {
+      const e = new Event(type) as any
+      Object.defineProperty(e, 'changedTouches', { value: [{ screenX: x, screenY: 300 }] })
+      Object.defineProperty(e, 'touches', { value: type === 'touchend' ? [] : [{ screenX: x, screenY: 300 }] })
+      Object.defineProperty(e, 'timeStamp', { value: t })
+      v.renderer.dispatchEvent(e)
+    }
+    touch('touchstart', 300, 1000); touch('touchend', 100, 1150); await settle()
+    expect(v.turnsMade).toEqual(['next'])
   })
 
   it('vertical-rl sections are paged right-to-left: the paginator gets vertical-pages (F-081)', async () => {
