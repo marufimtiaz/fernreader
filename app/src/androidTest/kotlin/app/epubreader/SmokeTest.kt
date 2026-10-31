@@ -50,11 +50,15 @@ class SmokeTest {
             while (true) { val e = events.tryReceive().getOrNull() ?: break; if (e is FromWeb.Relocate) at = e }
             val from = at!!
             sc.onActivity { it.reader.send(ToWeb.Next()) }
+            // A turn: a relocate after the command at a new location (CFI) that lies ahead (later section, or further in the same
+            // one). foliate can still refine the opening page's fraction under the same CFI; that is not a turn.
+            fun advances(r: FromWeb.Relocate) = r.cfi != from.cfi &&
+                (r.sectionIndex > from.sectionIndex || (r.sectionIndex == from.sectionIndex && r.fraction > from.fraction))
             val moved = withTimeout(5_000) {
-                while (true) { val e = events.receive(); if (e is FromWeb.Relocate && (e.cfi != from.cfi || e.fraction != from.fraction)) return@withTimeout e }
+                while (true) { val e = events.receive(); if (e is FromWeb.Relocate && advances(e)) return@withTimeout e }
                 error("unreachable")
             }
-            assertNotEquals(from.cfi to from.fraction, moved.cfi to moved.fraction)
+            assertNotEquals(from.cfi, moved.cfi)
             job.cancel()
             sc.onActivity { assertTrue(it.goBack()); assertEquals(Route.Home, it.nav.top) }
         }

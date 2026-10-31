@@ -25,6 +25,8 @@ import org.junit.runner.RunWith
 /**
  * P-002: stopped under the home screen, the WebView is INVISIBLE (still attached and laid out full size), so the first
  * frame of a hot start does not redraw it; it is VISIBLE again after that frame. On the reader route it never hides.
+ * Not covered: the picker return (stopped under Home, book opened on the way back). The reveal one frame after the first frame
+ * makes the WebView VISIBLE there too, so a test cannot tell whether the reader route's immediate VISIBLE did it.
  */
 @RunWith(AndroidJUnit4::class)
 class ReaderSurfaceVisibilityTest {
@@ -59,14 +61,6 @@ class ReaderSurfaceVisibilityTest {
             sc.onActivity { it.goBack(); assertEquals(Route.Home, it.nav.top) }
             assertEquals(View.VISIBLE, visibility())
 
-            // System picker: the app stops under the home screen and opens the picked book on its way back.
-            sc.moveToState(Lifecycle.State.CREATED)
-            assertEquals(View.INVISIBLE, visibility())
-            val painted = async(start = CoroutineStart.UNDISPATCHED) { a.reader.events.filterIsInstance<FromWeb.Painted>().first() }
-            sc.onActivity { it.openBook(SourceRef.File(f.path)) }
-            sc.moveToState(Lifecycle.State.RESUMED)
-            awaitVisibility(View.VISIBLE)
-            withTimeout(10_000) { painted.await() }
         }
     }
 }
