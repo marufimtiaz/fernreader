@@ -15,7 +15,8 @@ regression rule, no jank/frame-time groups.
 - Corpus pushed: `bench/push_corpus.sh`.
 - Run with Gradle daemons stopped (`./gradlew --stop`) and, for groups that do not need agent-device (`start`, `mem`),
   with the T3 device-panel screen stream closed: its ffmpeg capture made P-002 read 248-346 ms instead of 108-175 ms
-  with it closed (same build).
+  with it closed (same build). The stream process can outlive the device session (M3): check `pgrep -a ffmpeg` before
+  `start`; with it running, P-002/P-003 read 319/355 ms, without it 137/231 ms.
 
 ## Rules
 - A failing group is re-run once before acting (about +-20 % emulator noise).
