@@ -11,7 +11,7 @@ dependencies are not shipped; JUnit (EPL-1.0) is one of them. Versions are those
 | androidx.room:room-runtime / room-compiler / room-testing | 2.8.4 | Apache-2.0 | core:data |
 | androidx.sqlite:sqlite-bundled | 2.6.2 | Apache-2.0 (bundles SQLite, public domain) | core:data, core:search |
 | org.jetbrains.kotlinx:kotlinx-coroutines-core / -android / -test | 1.10.2 | Apache-2.0 | all modules |
-| org.jetbrains.kotlinx:kotlinx-serialization-json | 1.9.0 | Apache-2.0 | core:data, ui, app |
+| org.jetbrains.kotlinx:kotlinx-serialization-json | 1.9.0 | Apache-2.0 | core:epub, core:data, ui, app |
 | org.jetbrains.compose (runtime, foundation, material3, components.resources) | 1.10.0 | Apache-2.0 | ui |
 | io.coil-kt.coil3:coil-compose (with coil-core, okio: Apache-2.0) | 3.3.0 | Apache-2.0 | ui (library covers from the thumbnail cache) |
 | androidx.work:work-runtime-ktx | 2.11.0 | Apache-2.0 | declared in catalog, not yet used |
