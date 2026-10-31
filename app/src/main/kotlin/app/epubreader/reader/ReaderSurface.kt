@@ -29,7 +29,8 @@ import kotlin.coroutines.resume
  * turns INVISIBLE, so the first frame after the return does not redraw it (the window's surface is new then, and a
  * WebView's first draw costs 100-180 ms on the emulator). It turns VISIBLE again one frame after that first frame,
  * like the pre-warm after the first frame of a cold start. INVISIBLE keeps the layout, so foliate keeps its viewport.
- * While the app is in the foreground it stays VISIBLE: hidden, it would not run animation frames (page turns, `painted`).
+ * While the app is in the foreground it stays VISIBLE: hidden, it would not run animation frames (page turns, `painted`);
+ * on the reader route it is made VISIBLE at once.
  */
 @Composable
 fun ReaderSurface(engine: ReaderEngine, covered: Boolean) {
@@ -57,6 +58,9 @@ fun ReaderSurface(engine: ReaderEngine, covered: Boolean) {
                 it.layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
             }
         },
+        // Into the reader (e.g. back from the system picker, still hidden): visible at once, so the book never lays out
+        // hidden (no animation frames there). Costs the reader's first frame the WebView's re-show only on that path.
+        update = { if (!covered) it.visibility = View.VISIBLE },
         // Book content stays clear of the status and gesture bars (edge-to-edge); chrome is drawn over it, so toggling it never reflows.
         modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars),
     )

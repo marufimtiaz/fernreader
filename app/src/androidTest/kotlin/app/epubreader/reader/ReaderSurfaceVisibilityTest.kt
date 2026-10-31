@@ -58,6 +58,15 @@ class ReaderSurfaceVisibilityTest {
             sc.moveToState(Lifecycle.State.RESUMED)
             sc.onActivity { it.goBack(); assertEquals(Route.Home, it.nav.top) }
             assertEquals(View.VISIBLE, visibility())
+
+            // System picker: the app stops under the home screen and opens the picked book on its way back.
+            sc.moveToState(Lifecycle.State.CREATED)
+            assertEquals(View.INVISIBLE, visibility())
+            val painted = async(start = CoroutineStart.UNDISPATCHED) { a.reader.events.filterIsInstance<FromWeb.Painted>().first() }
+            sc.onActivity { it.openBook(SourceRef.File(f.path)) }
+            sc.moveToState(Lifecycle.State.RESUMED)
+            awaitVisibility(View.VISIBLE)
+            withTimeout(10_000) { painted.await() }
         }
     }
 }
