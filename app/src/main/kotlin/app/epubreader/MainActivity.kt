@@ -19,6 +19,7 @@ import app.epubreader.bench.BenchMarker
 import app.epubreader.bench.Probe
 import app.epubreader.core.data.SourceRef
 import app.epubreader.home.HomeState
+import app.epubreader.library.StorageAccess
 import app.epubreader.reader.EventProbe
 import app.epubreader.reader.ReaderController
 import app.epubreader.reader.ReaderEngine
@@ -35,7 +36,11 @@ class MainActivity : ComponentActivity() {
         private set
     lateinit var controller: ReaderController
         private set
-    val nav = Navigator()
+    lateinit var nav: Navigator
+        private set
+    private val access = StorageAccess(this) { onAccessMaybeGranted() }
+    /** Task 3.6 hooks the first full scan here. */
+    var onAccessGranted: () -> Unit = {}
     private val probe = EventProbe { n, x -> Probe.ev(n, x) }
     private var webViewTooOld by mutableStateOf(false)
 
@@ -50,6 +55,8 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge() // status/navigation bar icons follow the system light/dark setting, like the app theme
         super.onCreate(savedInstanceState)
         val graph = (application as EpubReaderApp).graph
+        // Decided before the first frame, so neither screen flashes (F-001).
+        nav = Navigator(if (access.granted()) Route.Library else Route.Onboarding)
         reader = ReaderEngine(this, graph.server)
         controller = ReaderController(
             reader, graph.opener, graph.library, graph.positions, lifecycleScope, WebTexts(Copy.missingPart), probe,
@@ -67,6 +74,7 @@ class MainActivity : ComponentActivity() {
                     dark = isSystemInDarkTheme(), webViewTooOld = webViewTooOld, nav = nav, home = home, reader = controller, probe = probe,
                     readerSurface = { ReaderSurface(reader, covered = nav.top != Route.Reader) },
                     onOpenPicker = { pick.launch(arrayOf("application/epub+zip", "application/octet-stream")) },
+                    onGrantAccess = access::request, onLeave = ::finish,
                     onOpen = ::openBook, onBack = { goBack() },
                 )
                 if (Probe.enabled) BenchMarker.Draw()
@@ -102,7 +110,19 @@ class MainActivity : ComponentActivity() {
     /** Returns false when Back should leave the app. Leaving the reader never waits for the engine (R-005). */
     fun goBack(): Boolean = when (nav.top) {
         Route.Reader -> { if (!controller.backInside()) { controller.close(); nav.pop(); Probe.ev("home_shown") }; true }
-        Route.Home -> false
+        Route.Library, Route.Onboarding -> false
+    }
+
+    override fun onResume() {
+        super.onResume()
+        onAccessMaybeGranted()
+    }
+
+    /** Back from the system permission screen (or the API 26–29 dialog): with access, the library opens at once. */
+    private fun onAccessMaybeGranted() {
+        if (nav.top != Route.Onboarding || !access.granted()) return
+        nav.replaceRoot(Route.Library)
+        onAccessGranted()
     }
 
     override fun onDestroy() {

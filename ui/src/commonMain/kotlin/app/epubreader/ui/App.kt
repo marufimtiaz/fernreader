@@ -13,6 +13,7 @@ import androidx.compose.ui.unit.dp
 import app.epubreader.core.data.SourceRef
 import app.epubreader.home.HomeScreen
 import app.epubreader.home.HomeState
+import app.epubreader.onboarding.OnboardingScreen
 import app.epubreader.reader.EventProbe
 import app.epubreader.reader.ReaderController
 import app.epubreader.reader.ReaderScreen
@@ -32,6 +33,8 @@ fun App(
     probe: EventProbe,
     readerSurface: @Composable () -> Unit,
     onOpenPicker: () -> Unit,
+    onGrantAccess: () -> Unit,
+    onLeave: () -> Unit,
     onOpen: (SourceRef) -> Unit,
     onBack: () -> Unit,
 ) = AppTheme(dark) {
@@ -44,7 +47,8 @@ fun App(
     Box(Modifier.fillMaxSize()) {
         readerSurface()
         when (nav.top) {
-            Route.Home -> HomeScreen(home, onOpenPicker = onOpenPicker, onOpen = onOpen, probe = probe)
+            Route.Onboarding -> OnboardingScreen(onGrant = onGrantAccess, onOpenPicker = onOpenPicker, onLeave = onLeave)
+            Route.Library -> HomeScreen(home, onOpenPicker = onOpenPicker, onOpen = onOpen, probe = probe)
             Route.Reader -> ReaderScreen(reader, onBack = onBack, onForget = home::forget, probe = probe)
         }
     }

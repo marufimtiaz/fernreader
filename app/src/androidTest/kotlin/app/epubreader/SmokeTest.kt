@@ -60,7 +60,7 @@ class SmokeTest {
             }
             assertNotEquals(from.cfi, moved.cfi)
             job.cancel()
-            sc.onActivity { assertTrue(it.goBack()); assertEquals(Route.Home, it.nav.top) }
+            sc.onActivity { assertTrue(it.goBack()); assertNotEquals(Route.Reader, it.nav.top) }
         }
     }
 }

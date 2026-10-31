@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -58,7 +59,7 @@ class ReaderSurfaceVisibilityTest {
             sc.moveToState(Lifecycle.State.CREATED)
             assertEquals(View.VISIBLE, visibility()) // the reader page is what the user returns to
             sc.moveToState(Lifecycle.State.RESUMED)
-            sc.onActivity { it.goBack(); assertEquals(Route.Home, it.nav.top) }
+            sc.onActivity { it.goBack(); assertNotEquals(Route.Reader, it.nav.top) }
             assertEquals(View.VISIBLE, visibility())
 
         }
