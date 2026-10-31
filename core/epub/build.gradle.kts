@@ -22,3 +22,23 @@ kotlin {
         commonTest.dependencies { implementation(kotlin("test")) }
     }
 }
+
+val testCorpusDir = layout.buildDirectory.dir("test-corpus")
+val generateTestCorpus by tasks.registering(Exec::class) {
+    val tools = rootProject.layout.projectDirectory.dir("tools/spec-tools").asFile
+    inputs.dir(tools)
+    outputs.dir(testCorpusDir)
+    doFirst { testCorpusDir.get().asFile.mkdirs() }
+    commandLine("bash", "-c", """
+        set -e
+        python3 -I '$tools/gen_stress.py' '${testCorpusDir.get().asFile}/generated'
+        python3 -I '$tools/gen_folder_books.py' '${testCorpusDir.get().asFile}/folders' download documents dup upper renamed moved
+        printf 'not an epub at all\n' > '${testCorpusDir.get().asFile}/folders/fake.epub'
+    """.trimIndent())
+}
+tasks.withType<Test>().configureEach {
+    dependsOn(generateTestCorpus)
+    systemProperty("corpus.dir", testCorpusDir.get().asFile.absolutePath)
+    // Optional: the full downloaded corpus for tests that need Gutenberg/IDPF books (skipped when absent).
+    systemProperty("fullcorpus.dir", rootProject.layout.projectDirectory.dir("corpus").asFile.absolutePath)
+}

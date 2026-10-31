@@ -12,3 +12,4 @@ results/raw/
 .cxx/
 reader-web/dist/
 reader-web/node_modules/
+__pycache__/
