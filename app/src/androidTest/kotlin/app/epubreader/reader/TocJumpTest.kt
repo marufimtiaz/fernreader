@@ -63,7 +63,9 @@ class TocJumpTest {
             assertTrue(a.controller.state.value.tocVisible) // stays in the panel
             delay(1_000) // a jump would have relocated by now
             watch.cancel()
-            assertEquals(emptyList<FromWeb.Relocate>(), moves) // the reader did not move
+            // The reader did not move. foliate may report the same page again (its snap after the tap that opened
+            // the panel), so compare locations, not the number of events.
+            assertEquals("jumped to $at", emptyList<String>(), moves.map { it.cfi }.filter { it != at.cfi })
             assertEquals(at.tocHref, a.controller.state.value.currentTocHref)
             val library = (a.application as EpubReaderApp).graph.library
             assertEquals(at.cfi, library.position(library.knownBookId(SourceRef.File(f.path))!!)?.cfi) // nor the stored position
