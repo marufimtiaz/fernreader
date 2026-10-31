@@ -72,9 +72,8 @@ class ReaderEngine(private val context: Context, private val server: BookContent
         w.webViewClient = object : WebViewClient() {
             override fun shouldInterceptRequest(v: WebView, r: WebResourceRequest): WebResourceResponse? =
                 assets.shouldInterceptRequest(r.url)
-            // Book sections render in blob: subframes (foliate); everything else must stay on our origin.
             override fun shouldOverrideUrlLoading(v: WebView, r: WebResourceRequest) =
-                !(r.url.host == ORIGIN_HOST || (!r.isForMainFrame && r.url.scheme == "blob"))
+                !allowNavigation(r.url.scheme, r.url.host, r.isForMainFrame)
         }
         WebViewCompat.addWebMessageListener(w, "ReaderBridge", setOf("https://$ORIGIN_HOST")) { _, msg, _, _, _ ->
             val text = msg.data ?: return@addWebMessageListener
@@ -117,7 +116,25 @@ private class BookPathHandler(private val server: BookContentServer) : WebViewAs
     }
 
     private fun response(status: Int, reason: String, mime: String, body: InputStream) =
-        WebResourceResponse(mime, null, status, reason, mapOf("Cache-Control" to "no-store"), body)
+        WebResourceResponse(mime, null, status, reason, BOOK_RESPONSE_HEADERS, body)
+}
+
+/**
+ * Headers of every /book/ response. Sections are shown from blob: documents under the host page's CSP; this CSP
+ * also covers a book file loaded directly (defense in depth, R-007): its scripts and plugins never run.
+ */
+internal val BOOK_RESPONSE_HEADERS = mapOf(
+    "Cache-Control" to "no-store",
+    "Content-Security-Policy" to "script-src 'none'; object-src 'none'",
+)
+
+/**
+ * Book sections render in blob: subframes (foliate); everything else must stay on our https origin. The main frame
+ * may only ever show our host page (https + our host); a book link never replaces it.
+ */
+internal fun allowNavigation(scheme: String?, host: String?, isMainFrame: Boolean): Boolean {
+    val ours = scheme == "https" && host == ReaderEngine.ORIGIN_HOST
+    return ours || (!isMainFrame && scheme == "blob")
 }
 
 /** Reads happen later, inside WebView; only IOException is handled there, so every failure is reported as one. */
