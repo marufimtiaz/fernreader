@@ -246,6 +246,23 @@ object Copy {
         "purple" -> "Purple"
         else -> id
     }
+    // F-061 highlight sheet, F-062 Highlights tab
+    /** Accessibility label of the sheet opened by tapping a highlight. */
+    const val highlightSheet = "Highlight"
+    const val styleHighlight = "Highlight"
+    const val styleUnderline = "Underline"
+    const val note = "Note"
+    const val notePlaceholder = "Add a note"
+    const val done = "Done"
+    const val removeHighlight = "Remove"
+    /** The list row's remove button (accessibility label). */
+    const val removeHighlightFromList = "Remove highlight"
+    const val highlightRemoved = "Highlight removed"
+    const val undo = "Undo"
+    const val viewFullNote = "View full note"
+    const val hideFullNote = "Show less"
+    /** Describes the list's colour mark: e.g. "Yellow highlight", "Blue underline". */
+    fun annotationMark(color: String, underline: Boolean) = "${highlightColorName(color)} ${if (underline) "underline" else "highlight"}"
     const val readerSettings = "Reader settings"
     const val settingsPageTurning = "Page turning"
     const val settingsScreen = "Screen"

@@ -51,6 +51,8 @@ import app.epubreader.reader.controls.ReaderBottomBar
 import app.epubreader.reader.controls.ReaderTopBar
 import app.epubreader.reader.settings.ReaderSettingsSheet
 import app.epubreader.reader.selection.HighlightColorRow
+import app.epubreader.reader.annotations.AnnotationSheetPanel
+import app.epubreader.reader.contents.HighlightsList
 
 /**
  * Reader chrome drawn over the WebView (which lies underneath, full size). Nothing here reflows the page.
@@ -125,6 +127,7 @@ fun ReaderScreen(
         if (s.tocVisible) ContentsPanel(
             s.contentsTab, c::selectContentsTab, s.toc, s.currentTocHref, c::onTocSelected,
             s.bookmarks, page, formatDate, c::onBookmarkSelected, c::removeBookmark, c::hideToc, probe,
+            highlights = { HighlightsList(s.annotations, c::onAnnotationSelected) { a -> c.removeAnnotation(a.id) } },
         )
         if (s.searchVisible && s.error == null) SearchPanel(c.searcher, onDismiss = c::hideSearch)
         // F-060: after Highlight/Underline, one more tap gives the new annotation another of the six colours.
@@ -132,11 +135,22 @@ fun ReaderScreen(
             LaunchedEffect(p) { kotlinx.coroutines.delay(8_000); c.dismissHighlightPicker() } // it goes away on its own too
             if (s.error == null) HighlightColorRow(p.color, c::recolorHighlight, Modifier.align(Alignment.BottomCenter))
         }
+        // F-061: the sheet of a tapped highlight (over the page, like the display panel).
+        s.annotationSheet?.let { sh ->
+            if (s.error == null) AnnotationSheetPanel(
+                sh, onColor = c::setAnnotationColor, onStyle = c::setAnnotationStyle, onNote = c::editNote,
+                onRemove = { c.removeAnnotation(sh.id) }, onDone = c::closeAnnotationSheet, modifier = Modifier.align(Alignment.BottomCenter),
+            )
+        }
         s.notice?.let {
-            LaunchedEffect(it) { kotlinx.coroutines.delay(3_000); c.dismissNotice() }
-            Snackbar(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(16.dp)) {
+            val undo = it == Notice.HighlightRemoved
+            LaunchedEffect(it) { kotlinx.coroutines.delay(if (undo) 5_000 else 3_000); c.dismissNotice() }
+            Snackbar(
+                Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(16.dp),
+                action = if (undo) { { TextButton(onClick = c::undoRemoveAnnotation) { Text(Copy.undo) } } } else null,
+            ) {
                 Text(when (it) { Notice.HitNotFound -> Copy.hitNotFound; Notice.NoAppForLink -> Copy.noAppForLink; Notice.MissingTarget -> Copy.missingTarget
-                    Notice.BookmarkAdded -> Copy.bookmarkAdded; Notice.BookmarkRemoved -> Copy.bookmarkRemoved })
+                    Notice.BookmarkAdded -> Copy.bookmarkAdded; Notice.BookmarkRemoved -> Copy.bookmarkRemoved; Notice.HighlightRemoved -> Copy.highlightRemoved })
             }
         }
         // F-044: confirmation naming the link's host; Back or a tap outside cancels.

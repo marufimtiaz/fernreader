@@ -28,6 +28,7 @@ import app.epubreader.reader.bridge.ToWeb
 import app.epubreader.reader.bridge.TocItem
 import app.epubreader.reader.bridge.WebTexts
 import app.epubreader.reader.bridge.WebSettings
+import app.epubreader.reader.bridge.WebAnnotation
 import androidx.room.execSQL
 import androidx.room.useWriterConnection
 import kotlinx.coroutines.CompletableDeferred
@@ -135,15 +136,21 @@ class ReaderControllerTest {
     private class FakeAnnotations : AnnotationPort {
         val all = MutableStateFlow<List<Annotation>>(emptyList())
         val updates = mutableListOf<Triple<String, String?, String?>>()
+        /** Note arguments of update() calls (id to note; "" clears). */
+        val notes = mutableListOf<Pair<String, String>>()
+        val removed = mutableListOf<String>()
         private var n = 0
         override fun annotations(bookId: String) = kotlinx.coroutines.flow.flow { all.collect { l -> emit(l.filter { it.bookId == bookId }) } }
         override suspend fun add(bookId: String, cfi: String, spineIndex: Int, text: String, chapter: String, color: String, style: String) =
             Annotation("a${++n}", bookId, cfi, spineIndex, text, chapter, color, style, null, 1L, 1L).also { all.value = all.value + it }
         override suspend fun update(id: String, color: String?, style: String?, note: String?) {
-            updates += Triple(id, color, style)
-            all.value = all.value.map { if (it.id == id) it.copy(color = color ?: it.color, style = style ?: it.style) else it }
+            if (color != null || style != null) updates += Triple(id, color, style)
+            if (note != null) notes += id to note
+            all.value = all.value.map {
+                if (it.id == id) it.copy(color = color ?: it.color, style = style ?: it.style, note = if (note != null) note.takeIf { n -> n.isNotBlank() } else it.note) else it
+            }
         }
-        override suspend fun remove(id: String) { all.value = all.value.filter { it.id != id } }
+        override suspend fun remove(id: String) { removed += id; all.value = all.value.filter { it.id != id } }
     }
     private val annotationPort = FakeAnnotations()
     private class FakeTextActions : TextActions {
@@ -985,5 +992,161 @@ class ReaderControllerTest {
         c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
         c.copySelection(); advanceUntilIdle()
         assertEquals(emptyList(), textActions.copied)
+    }
+
+    // ---- Highlights, notes and the Highlights tab (F-061, F-062) ----
+    private suspend fun stored(cfi: String, spine: Int, color: String = "yellow", style: String = "highlight", note: String? = null, text: String = "word"): Annotation {
+        val id = library.knownBookId(ref)!!
+        return annotationPort.add(id, cfi, spine, text, "One", color, style).let { a ->
+            if (note != null) { annotationPort.update(a.id, note = note); annotationPort.notes.clear() }
+            annotationPort.all.value.first { it.id == a.id }
+        }
+    }
+    private val cfiA = "epubcfi(/6/4!/4/2,/1:0,/1:4)"
+    private val cfiB = "epubcfi(/6/8!/4/6,/1:2,/1:9)"
+    private suspend fun kotlinx.coroutines.test.TestScope.painted(c: ReaderController) {
+        reader.events.emit(FromWeb.Painted(sessionId = "s-1")); advanceUntilIdle()
+    }
+    private fun web(a: Annotation, v: String = "") = WebAnnotation(id = a.id, cfi = v + a.cfi, color = a.color, style = a.style)
+
+    @Test fun the_books_annotations_go_to_the_page_once_after_the_first_paint_as_virtual_cfis() = runTest(dispatcher) {
+        val c = controller(map = markedMap)
+        openedAt(c, cfi = "v:$rangeCfi")
+        val a = stored(cfiA, 1); val b = stored(cfiB, 3, color = "blue", style = "underline")
+        assertTrue(reader.sent.none { it is ToWeb.SetAnnotations }) // nothing before the first page is on screen
+        reader.sent.clear()
+        painted(c)
+        assertEquals(listOf<ToWeb>(ToWeb.SetAnnotations(sessionId = "s-1", items = listOf(web(a, "v:"), web(b, "v:")))), reader.sent.filter { it is ToWeb.SetAnnotations })
+        assertEquals(listOf(a, b), c.state.value.annotations) // the Highlights tab, in book order
+        painted(c) // later paints (every turn) send nothing again
+        assertEquals(1, reader.sent.count { it is ToWeb.SetAnnotations })
+        c.close(); advanceUntilIdle(); reader.sent.clear()
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle(); painted(c)
+        assertEquals(1, reader.sent.count { it is ToWeb.SetAnnotations }) // once per open
+    }
+
+    @Test fun later_list_changes_go_as_deltas_not_as_the_whole_list() = runTest(dispatcher) {
+        val c = controller()
+        openedAt(c)
+        val a = stored(cfiA, 1); val b = stored(cfiB, 3)
+        painted(c); reader.sent.clear()
+        annotationPort.update(a.id, color = "green") // e.g. another device (sync) or another screen
+        annotationPort.remove(b.id); advanceUntilIdle()
+        val n = stored("epubcfi(/6/10!/4/2,/1:0,/1:3)", 4); advanceUntilIdle()
+        assertEquals(listOf(
+            ToWeb.AddAnnotation(sessionId = "s-1", id = a.id, cfi = cfiA, color = "green", style = "highlight"),
+            ToWeb.RemoveAnnotation(sessionId = "s-1", id = b.id),
+            ToWeb.AddAnnotation(sessionId = "s-1", id = n.id, cfi = n.cfi, color = "yellow", style = "highlight"),
+        ), reader.sent)
+    }
+
+    @Test fun a_highlight_made_from_the_menu_is_drawn_once() = runTest(dispatcher) {
+        val c = controller(); openedAt(c); painted(c)
+        reader.events.emit(selection()); advanceUntilIdle(); reader.sent.clear()
+        c.highlightSelection(); advanceUntilIdle()
+        assertEquals(1, reader.sent.count { it is ToWeb.AddAnnotation })
+        assertEquals(1, c.state.value.annotations.size)
+    }
+
+    @Test fun tapping_a_highlight_opens_its_sheet_without_toggling_the_controls() = runTest(dispatcher) {
+        val c = controller(); openedAt(c)
+        val a = stored(cfiA, 1, color = "pink", note = "my note", text = "quick brown")
+        painted(c)
+        reader.events.emit(FromWeb.AnnotationTapped(sessionId = "other", id = a.id))
+        reader.events.emit(FromWeb.AnnotationTapped(sessionId = "s-1", id = "nope")); advanceUntilIdle()
+        assertNull(c.state.value.annotationSheet)
+        reader.events.emit(FromWeb.AnnotationTapped(sessionId = "s-1", id = a.id)); advanceUntilIdle()
+        assertEquals(AnnotationSheet(a.id, "quick brown", "pink", "highlight", "my note"), c.state.value.annotationSheet)
+        assertFalse(c.state.value.chromeVisible)
+        assertFalse(c.onVolumeKey(volumeDown = true, press = true)) // typing a note: the volume keys are the system's
+    }
+
+    @Test fun the_sheet_recolours_and_restyles_at_once_and_persists() = runTest(dispatcher) {
+        val c = controller(map = markedMap); openedAt(c, cfi = "v:$rangeCfi")
+        val a = stored(cfiA, 1)
+        painted(c)
+        reader.events.emit(FromWeb.AnnotationTapped(sessionId = "s-1", id = a.id)); advanceUntilIdle(); reader.sent.clear()
+        c.setAnnotationColor("blue")
+        assertEquals("blue", c.state.value.annotationSheet?.color) // at once
+        advanceUntilIdle()
+        c.setAnnotationStyle("underline"); advanceUntilIdle()
+        c.setAnnotationColor("nonsense"); c.setAnnotationStyle("strike"); advanceUntilIdle()
+        assertEquals(listOf(Triple<String, String?, String?>(a.id, "blue", null), Triple<String, String?, String?>(a.id, null, "underline")), annotationPort.updates)
+        assertEquals(listOf<ToWeb>(
+            ToWeb.AddAnnotation(sessionId = "s-1", id = a.id, cfi = "v:$cfiA", color = "blue", style = "highlight"),
+            ToWeb.AddAnnotation(sessionId = "s-1", id = a.id, cfi = "v:$cfiA", color = "blue", style = "underline"),
+        ), reader.sent) // drawn once each (the database echo is not sent again)
+        assertEquals("yellow", c.settings.value.highlightColor) // editing an existing one does not change the default
+    }
+
+    @Test fun the_note_is_saved_trimmed_when_the_sheet_closes_and_a_blank_one_clears_it() = runTest(dispatcher) {
+        val c = controller(); openedAt(c)
+        val a = stored(cfiA, 1)
+        painted(c)
+        reader.events.emit(FromWeb.AnnotationTapped(sessionId = "s-1", id = a.id)); advanceUntilIdle()
+        c.editNote("  first line\nsecond  \n")
+        assertEquals("  first line\nsecond  \n", c.state.value.annotationSheet?.note) // the draft as typed
+        c.closeAnnotationSheet(); advanceUntilIdle()
+        assertNull(c.state.value.annotationSheet)
+        assertEquals(listOf(a.id to "first line\nsecond"), annotationPort.notes)
+        assertEquals("first line\nsecond", c.state.value.annotations.single().note)
+        // Unchanged: nothing written. Blank: cleared (no note).
+        reader.events.emit(FromWeb.AnnotationTapped(sessionId = "s-1", id = a.id)); advanceUntilIdle()
+        c.closeAnnotationSheet(); advanceUntilIdle()
+        assertEquals(1, annotationPort.notes.size)
+        reader.events.emit(FromWeb.AnnotationTapped(sessionId = "s-1", id = a.id)); advanceUntilIdle()
+        c.editNote("   \n ")
+        assertTrue(c.backInside()) // Back closes the sheet first, saving like Done
+        advanceUntilIdle()
+        assertEquals(a.id to "", annotationPort.notes.last())
+        assertNull(c.state.value.annotations.single().note)
+        assertNull(c.state.value.annotationSheet)
+    }
+
+    @Test fun a_tap_on_the_page_or_on_another_highlight_closes_the_sheet_saving_its_note() = runTest(dispatcher) {
+        val c = controller(); openedAt(c)
+        val a = stored(cfiA, 1); val b = stored(cfiB, 3)
+        painted(c)
+        reader.events.emit(FromWeb.AnnotationTapped(sessionId = "s-1", id = a.id)); advanceUntilIdle()
+        c.editNote("on a")
+        reader.events.emit(FromWeb.AnnotationTapped(sessionId = "s-1", id = b.id)); advanceUntilIdle()
+        assertEquals(b.id, c.state.value.annotationSheet?.id)
+        assertEquals(listOf(a.id to "on a"), annotationPort.notes)
+        reader.events.emit(FromWeb.Tap(sessionId = "s-1", x = 0.5, y = 0.5)); advanceUntilIdle()
+        assertNull(c.state.value.annotationSheet)
+        assertFalse(c.state.value.chromeVisible) // that tap only closed the sheet
+    }
+
+    @Test fun remove_erases_it_at_once_and_undo_brings_it_back_with_its_note() = runTest(dispatcher) {
+        val c = controller(map = markedMap); openedAt(c, cfi = "v:$rangeCfi")
+        val a = stored(cfiA, 1, color = "green", style = "underline", note = "keep me", text = "quick")
+        painted(c)
+        reader.events.emit(FromWeb.AnnotationTapped(sessionId = "s-1", id = a.id)); advanceUntilIdle(); reader.sent.clear()
+        c.removeAnnotation(a.id); advanceUntilIdle()
+        assertEquals(listOf(a.id), annotationPort.removed)
+        assertEquals(listOf<ToWeb>(ToWeb.RemoveAnnotation(sessionId = "s-1", id = a.id)), reader.sent)
+        assertNull(c.state.value.annotationSheet)
+        assertEquals(emptyList(), c.state.value.annotations)
+        assertEquals(Notice.HighlightRemoved, c.state.value.notice)
+        reader.sent.clear()
+        c.undoRemoveAnnotation(); advanceUntilIdle()
+        val back = annotationPort.all.value.single()
+        assertEquals(listOf(a.cfi, a.spineIndex, a.text, a.chapter, a.color, a.style, a.note), listOf(back.cfi, back.spineIndex, back.text, back.chapter, back.color, back.style, back.note))
+        assertEquals(listOf<ToWeb>(ToWeb.AddAnnotation(sessionId = "s-1", id = back.id, cfi = "v:$cfiA", color = "green", style = "underline")), reader.sent)
+        assertNull(c.state.value.notice)
+        c.undoRemoveAnnotation(); advanceUntilIdle()
+        assertEquals(1, annotationPort.all.value.size) // undo works once
+    }
+
+    @Test fun a_row_of_the_highlights_tab_jumps_to_its_virtual_cfi_and_closes_the_panel() = runTest(dispatcher) {
+        val c = controller(map = markedMap); openedAt(c, cfi = "v:$rangeCfi")
+        val a = stored(cfiA, 1)
+        painted(c)
+        c.showToc(); c.selectContentsTab(ContentsTab.Highlights); reader.sent.clear()
+        c.onAnnotationSelected(a)
+        assertEquals(listOf<ToWeb>(ToWeb.GoTo(target = "v:$cfiA")), reader.sent)
+        assertFalse(c.state.value.tocVisible)
+        c.removeAnnotation(a.id); advanceUntilIdle() // the list's remove button
+        assertEquals(emptyList(), c.state.value.annotations)
     }
 }

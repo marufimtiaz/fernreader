@@ -40,6 +40,8 @@ current session.
 | app to web | `setBookmarks` | `sessionId`, `cfis[]` (M6, F-041: the book's bookmarks as virtual CFIs; sent after `opened` and whenever the list changes) |
 | app to web | `addAnnotation` | `sessionId`, `id`, `cfi` (virtual range CFI), `color` (`yellow`\|`green`\|`blue`\|`pink`\|`orange`\|`purple`), `style` (`highlight`\|`underline`) (M6, F-060: draw a user annotation; the same `id` again redraws it) |
 | app to web | `clearSelection` | none (M6, F-060: remove the text selection after a selection menu action) |
+| app to web | `setAnnotations` | `sessionId`, `items[] {id, cfi, color, style}` (M6, F-061: the book's annotations as virtual range CFIs, book order, replacing the session's set; sent once per open, after the first `painted`) |
+| app to web | `removeAnnotation` | `sessionId`, `id` (M6, F-061: the annotation was removed; its drawing is erased at once) |
 | web to app | `ready`, `pong` | `engine` / `id` |
 | web to app | `opened` | `sessionId`, `identifier` (unique-identifier text or null), `title`, `authors[]`, `dir`, `fixedLayout`, `sections`, `toc[] {label, href, depth, missing, index}` (`index`: spine section of the target, -1 if none; M5) |
 | web to app | `relocate` | `sessionId`, `cfi`, `fraction`, `sectionIndex`, `tocHref`, `page`/`pages` (paged: 1-based text page in the section and its text pages; 0/0 scrolled), `sectionFraction` (M4), `bookmarks[]` (M6, optional: the `setBookmarks` entries on the visible page, same strings; omitted when none) |
@@ -51,6 +53,7 @@ current session.
 | web to app | `pageBookmarks` | `sessionId`, `cfis[]` (M6, F-041: answer to `setBookmarks`, the entries on the page showing now; empty while a seek is running) |
 | web to app | `externalLink` | `sessionId`, `href` (M6, F-044: a tapped http, https or mailto link, normalised; other schemes are never sent) |
 | web to app | `selection` | `sessionId`, `text`, `cfi` (virtual range CFI, or null), `sectionIndex` (M6, F-060: the selection settled; cleared = `text` "", `cfi` null, `sectionIndex` -1) |
+| web to app | `annotationTapped` | `sessionId`, `id` (M6, F-061: a tap landed on a drawn user annotation, not on a link inside it; no `tap` is sent for it) |
 | web to app | `error` | `sessionId` (or null), `kind` (`open_failed`, `nothing_readable`, or `hit_not_found`: not fatal, see below), `message` |
 
 Ordering: `opened` is sent after the package is parsed and before the first page is displayed, so the app records
@@ -152,6 +155,28 @@ foliate's `animated` attribute (instant turns).
   annotations by CFI and draws them through foliate's overlayer (`Overlayer.highlight`, 0.3 opacity; or
   `Overlayer.underline`, 2 px), again whenever their section gets a new overlayer. A colour row then lets one more tap
   recolour it (same `id`, new `addAnnotation`); the chosen colour becomes the default (`ReaderSettings.highlightColor`).
+
+### Highlights and notes (M6, F-061, F-062)
+
+- The app owns the annotations (database, original CFIs, notes). After the first `painted` of an open it sends the
+  book's whole set once (`setAnnotations`, virtual CFIs); every later change of the list goes as a delta:
+  `addAnnotation` (new, or same `id` with another colour, style or range) and `removeAnnotation`. Changes the reader
+  makes (sheet, list, selection menu) are sent at once and not again when the database echoes them. Notes never go to
+  the web side.
+- The web side keeps the set per section (`reader-web/src/reader/annotations.ts` `AnnotationStore`; the section from
+  `book.resolveCFI`, no document is loaded). A change draws only in sections that are loaded now; any other section's
+  annotations are drawn when it gets its overlayer (`create-overlay`, also for preloaded neighbours). Erased keys are
+  deleted from foliate before anything is drawn, so no stale drawing stays. foliate's overlayer keeps each drawn
+  Range and redraws it on every re-layout (text size, font, margins, rotation, flow switch), so it stays on the same
+  words. Two annotations on the identical range share foliate's key: the later one is drawn; removing it draws the
+  other again. Each drawing carries `data-er-id` (test probes).
+- Colours: the six `HighlightColors` ids map to fills (`Overlayer.highlight`, opacity 0.3 on light/warm, 0.4 on
+  dark/black) or 2 px underlines. The search hit (F-050) is an orange outline, never a fill, so it cannot be mistaken
+  for the user's orange.
+- Tap: in a section document's `click`, after the dismissing-a-selection and link checks (a link inside a highlight
+  stays a link), the point is hit-tested against the section's drawn annotation ranges (latest on top). A hit sends
+  `annotationTapped {id}` instead of `tap`, so it neither toggles the controls nor turns a page. The app opens the
+  annotation's sheet (colour, style, note, remove).
 
 ### Display settings (M4)
 

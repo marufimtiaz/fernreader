@@ -31,6 +31,7 @@ class ProtocolFixtureTest {
             decodeFromWeb(fixture("relocate")))
         assertEquals(FromWeb.Selection(sessionId = "s-1", text = "quick ", cfi = "epubcfi(/6/4!/4/2,/1:4,/1:10)", sectionIndex = 1), decodeFromWeb(fixture("selection")))
         assertEquals(FromWeb.Selection(sessionId = "s-1", text = "", cfi = null, sectionIndex = -1), decodeFromWeb(fixture("selectionCleared")))
+        assertEquals(FromWeb.AnnotationTapped(sessionId = "s-1", id = "a-1"), decodeFromWeb(fixture("annotationTapped")))
         assertEquals(FromWeb.PageBookmarks(sessionId = "s-1", cfis = listOf("epubcfi(/6/4!/4/2/1:10)")), decodeFromWeb(fixture("pageBookmarks")))
         assertEquals(FromWeb.PageCounts(sessionId = "s-1", gen = 2, linear = listOf(0, 1, 2), counts = listOf(listOf(1, 4), listOf(2, 9)), sample = true),
             decodeFromWeb(fixture("pageCounts")))
@@ -51,6 +52,11 @@ class ProtocolFixtureTest {
             "goToFraction" to ToWeb.GoToFraction(fraction = 0.25),
             "addAnnotation" to ToWeb.AddAnnotation(sessionId = "s-1", id = "a-1", cfi = "epubcfi(/6/4!/4/2,/1:4,/1:9)", color = "yellow", style = "highlight"),
             "clearSelection" to ToWeb.ClearSelection(),
+            "setAnnotations" to ToWeb.SetAnnotations(sessionId = "s-1", items = listOf(
+                WebAnnotation(id = "a-1", cfi = "epubcfi(/6/4!/4/2,/1:4,/1:9)", color = "yellow", style = "highlight"),
+                WebAnnotation(id = "a-2", cfi = "epubcfi(/6/8!/4/6,/1:0,/1:12)", color = "blue", style = "underline"),
+            )),
+            "removeAnnotation" to ToWeb.RemoveAnnotation(sessionId = "s-1", id = "a-1"),
             "setSettings" to ToWeb.SetSettings(settings = WebSettings(1.4, "literata", 1.8, 3, "justify", "warm", "scrolled", "rtl", "none")),
         )
         for ((n, m) in msgs) assertEquals(tree(fixture(n)), tree(encodeToWeb(m)), n)

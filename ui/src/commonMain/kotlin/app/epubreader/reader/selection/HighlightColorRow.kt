@@ -29,7 +29,7 @@ import app.epubreader.ui.Copy
 
 /**
  * The six highlight colours (F-060) by HighlightColors id. Same values as reader-web/src/reader/annotations.ts
- * HIGHLIGHT_COLORS (the page draws them at 0.3 opacity; the swatches show them solid).
+ * HIGHLIGHT_COLORS (the page draws them at 0.3 opacity, 0.4 on the dark themes; the swatches show them solid).
  */
 object HighlightPalette {
     val colors: Map<String, Color> = mapOf(
@@ -54,21 +54,27 @@ fun HighlightColorRow(current: String, onPick: (String) -> Unit, modifier: Modif
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         shadowElevation = 6.dp,
     ) {
-        Row(Modifier.padding(horizontal = 8.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-            for (id in HighlightColors.ALL) {
-                val selected = id == current
+        ColorSwatches(current, onPick, Modifier.padding(horizontal = 8.dp, vertical = 6.dp))
+    }
+}
+
+/** The six colour swatches in a row (48 dp targets); [current] is marked (ring, smaller dot, "selected"). */
+@Composable
+fun ColorSwatches(current: String, onPick: (String) -> Unit, modifier: Modifier = Modifier) {
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+        for (id in HighlightColors.ALL) {
+            val selected = id == current
+            Box(
+                Modifier.size(48.dp).clip(CircleShape).clickable(role = Role.RadioButton) { onPick(id) }
+                    .semantics { this.selected = selected; contentDescription = Copy.highlightColorName(id) },
+                contentAlignment = Alignment.Center,
+            ) {
                 Box(
-                    Modifier.size(48.dp).clip(CircleShape).clickable(role = Role.RadioButton) { onPick(id) }
-                        .semantics { this.selected = selected; contentDescription = Copy.highlightColorName(id) },
+                    Modifier.size(34.dp).clip(CircleShape)
+                        .border(BorderStroke(if (selected) 3.dp else 1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline), CircleShape),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Box(
-                        Modifier.size(34.dp).clip(CircleShape)
-                            .border(BorderStroke(if (selected) 3.dp else 1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline), CircleShape),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Surface(Modifier.size(if (selected) 26.dp else 32.dp), shape = CircleShape, color = HighlightPalette.colors.getValue(id)) {}
-                    }
+                    Surface(Modifier.size(if (selected) 26.dp else 32.dp), shape = CircleShape, color = HighlightPalette.colors.getValue(id)) {}
                 }
             }
         }

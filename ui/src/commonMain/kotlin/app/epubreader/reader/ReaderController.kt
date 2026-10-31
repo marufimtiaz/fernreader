@@ -25,6 +25,7 @@ import app.epubreader.reader.bridge.FromWeb
 import app.epubreader.reader.bridge.ToWeb
 import app.epubreader.reader.bridge.TocItem
 import app.epubreader.reader.bridge.WebSettings
+import app.epubreader.reader.bridge.WebAnnotation
 import app.epubreader.reader.bridge.WebTexts
 import app.epubreader.reader.search.ReaderSearch
 import app.epubreader.reader.search.SearchBookRef
@@ -49,7 +50,7 @@ sealed interface ReaderError {
     data object FileChanged : ReaderError
 }
 
-enum class Notice { MissingTarget, HitNotFound, NoAppForLink, BookmarkAdded, BookmarkRemoved }
+enum class Notice { MissingTarget, HitNotFound, NoAppForLink, BookmarkAdded, BookmarkRemoved, HighlightRemoved }
 
 data class ReaderUiState(
     val open: Boolean = false,
@@ -76,6 +77,10 @@ data class ReaderUiState(
     val externalLink: ExternalLink? = null,
     /** F-060: the colour row for the annotation just made from the selection menu; Back or a tap on the page closes it. */
     val highlightPicker: HighlightPicker? = null,
+    /** F-062: the open book's highlights and underlines, in book order (live; read once the first page is painted). */
+    val annotations: List<Annotation> = emptyList(),
+    /** F-061: the sheet of a tapped highlight (colour, style, note, remove); Back or a tap on the page closes it. */
+    val annotationSheet: AnnotationSheet? = null,
     val notice: Notice? = null,
     val error: ReaderError? = null,
     val source: SourceRef? = null,
@@ -157,6 +162,16 @@ class ReaderController(
         var selection: FromWeb.Selection? = null
         /** F-060: the annotation the colour row recolours (the one just made from the selection menu). */
         var picked: Annotation? = null
+        /** F-062: the book's annotations as last read (book order), watched from the first `painted` until the session ends. */
+        var annotationList: List<Annotation> = emptyList()
+        var annotationJob: Job? = null
+        /**
+         * F-061: what the web side draws, by id (virtual CFIs), so each change is sent once: null until the first
+         * `setAnnotations`; then every list change goes as a delta, and changes made here are not sent twice.
+         */
+        var drawn: MutableMap<String, WebAnnotation>? = null
+        /** The annotation removed last, for Undo. */
+        var removed: Annotation? = null
     }
 
     private val _state = MutableStateFlow(ReaderUiState())
@@ -323,6 +338,8 @@ class ReaderController(
         val s = session
         session = null
         s?.bookmarkJob?.cancel()
+        s?.annotationJob?.cancel()
+        s?.let(::saveNote) // a sheet open when the book closes keeps its note
         searcher.reset()
         _state.value = ReaderUiState()
         if (s == null) return
@@ -394,7 +411,7 @@ class ReaderController(
     fun onVolumeKey(volumeDown: Boolean, press: Boolean): Boolean {
         val st = _state.value
         if (session == null || st.error != null || st.tocVisible || st.searchVisible || st.displayVisible || st.settingsVisible ||
-            st.footnoteOpen || st.externalLink != null) return false
+            st.footnoteOpen || st.externalLink != null || st.annotationSheet != null) return false
         val t = volumeTurn(volumeDown, _settings.value.volumeKeys) ?: return false
         if (press) { probe.ev("volume_turn", t.name); turn(t) }
         return true
@@ -418,6 +435,7 @@ class ReaderController(
         return when {
             st.externalLink != null -> { cancelExternalLink(); true }
             st.highlightPicker != null -> { dismissHighlightPicker(); true }
+            st.annotationSheet != null -> { closeAnnotationSheet(); true }
             st.footnoteOpen -> { _state.update { it.copy(footnoteOpen = false) }; reader.send(ToWeb.CloseFootnote()); true }
             st.searchVisible -> { hideSearch(); true }
             st.settingsVisible -> { hideSettings(); true }
@@ -626,8 +644,166 @@ class ReaderController(
         }
     }
 
-    private fun drawAnnotation(s: Session, a: Annotation) =
-        reader.send(ToWeb.AddAnnotation(sessionId = s.id, id = a.id, cfi = s.map.cfiToVirtual(a.cfi), color = a.color, style = a.style))
+    private fun webAnnotation(s: Session, a: Annotation) = WebAnnotation(id = a.id, cfi = s.map.cfiToVirtual(a.cfi), color = a.color, style = a.style)
+
+    /** Draws (or redraws) [a] on the page, unless the web side already draws exactly that. */
+    private fun drawAnnotation(s: Session, a: Annotation) {
+        val w = webAnnotation(s, a)
+        if (s.drawn?.get(a.id) == w) return
+        s.drawn?.set(a.id, w)
+        reader.send(ToWeb.AddAnnotation(sessionId = s.id, id = w.id, cfi = w.cfi, color = w.color, style = w.style))
+    }
+
+    private fun eraseAnnotation(s: Session, id: String) {
+        val drawn = s.drawn
+        if (drawn != null && id !in drawn) return
+        drawn?.remove(id)
+        reader.send(ToWeb.RemoveAnnotation(sessionId = s.id, id = id))
+    }
+
+    /**
+     * F-061/F-062: follows the book's annotations once its first page is on screen (never on the open path, P-010):
+     * the first list goes to the web side whole (`setAnnotations`), every later one as the differences. The state's
+     * list feeds the Highlights tab; an open sheet follows its annotation (and closes if it went away).
+     */
+    private fun watchAnnotations(s: Session) {
+        val port = annotations ?: return
+        val bookId = s.bookId ?: return
+        if (!s.painted || s.annotationJob != null) return
+        s.annotationJob = scope.launch {
+            try {
+                port.annotations(bookId).collect { list ->
+                    if (session !== s) return@collect
+                    s.annotationList = list
+                    val web = LinkedHashMap<String, WebAnnotation>().apply { for (a in list) put(a.id, webAnnotation(s, a)) }
+                    val drawn = s.drawn
+                    if (drawn == null) {
+                        s.drawn = web
+                        reader.send(ToWeb.SetAnnotations(sessionId = s.id, items = web.values.toList()))
+                    } else {
+                        for ((id, w) in web) if (drawn[id] != w) { drawn[id] = w; reader.send(ToWeb.AddAnnotation(sessionId = s.id, id = id, cfi = w.cfi, color = w.color, style = w.style)) }
+                        for (id in drawn.keys - web.keys) { drawn.remove(id); reader.send(ToWeb.RemoveAnnotation(sessionId = s.id, id = id)) }
+                    }
+                    _state.update { st ->
+                        val sheet = st.annotationSheet?.let { sh -> list.firstOrNull { it.id == sh.id }?.let { a -> sh.copy(color = a.color, style = a.style) } }
+                        st.copy(annotations = list, annotationSheet = sheet)
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                failed("reading highlights", e, showIfOpen = false)
+            }
+        }
+    }
+
+    /** F-061: a tap on a highlight on the page opens its sheet (another sheet open closes first, saving its note). */
+    private fun openAnnotation(s: Session, id: String) {
+        val a = s.annotationList.firstOrNull { it.id == id } ?: return
+        saveNote(s)
+        if (_state.value.highlightPicker != null) dismissHighlightPicker()
+        probe.ev("annotation_sheet", a.style)
+        _state.update { it.copy(annotationSheet = AnnotationSheet(a.id, a.text, a.color, a.style, a.note ?: ""), chromeVisible = false) }
+    }
+
+    /** The sheet's colour swatches: recoloured at once on the page and stored (the default colour stays as it is). */
+    fun setAnnotationColor(color: String) {
+        if (color !in HighlightColors.ALL) return
+        changeSheet { it.copy(color = color) }
+    }
+
+    /** The sheet's Highlight | Underline toggle. */
+    fun setAnnotationStyle(style: String) {
+        if (style != AnnotationStyle.HIGHLIGHT && style != AnnotationStyle.UNDERLINE) return
+        changeSheet { it.copy(style = style) }
+    }
+
+    private fun changeSheet(change: (AnnotationSheet) -> AnnotationSheet) {
+        val s = session ?: return
+        val port = annotations ?: return
+        val sh = _state.value.annotationSheet ?: return
+        val next = change(sh)
+        if (next == sh) return
+        val a = s.annotationList.firstOrNull { it.id == sh.id } ?: return
+        _state.update { it.copy(annotationSheet = next) }
+        val changed = a.copy(color = next.color, style = next.style)
+        s.annotationList = s.annotationList.map { if (it.id == a.id) changed else it }
+        drawAnnotation(s, changed)
+        scope.launch {
+            try {
+                port.update(a.id, color = next.color.takeIf { it != sh.color }, style = next.style.takeIf { it != sh.style })
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                failed("changing a highlight", e, showIfOpen = false)
+            }
+        }
+    }
+
+    /** The note field: the draft as typed (saved when the sheet closes). */
+    fun editNote(text: String) = _state.update { st -> st.copy(annotationSheet = st.annotationSheet?.copy(note = text)) }
+
+    /** Done, Back, a tap on the page: the sheet closes and its note is saved (trimmed; blank = no note). */
+    fun closeAnnotationSheet() {
+        session?.let(::saveNote)
+        _state.update { it.copy(annotationSheet = null) }
+    }
+
+    /** Stores the open sheet's note if it changed; never throws. */
+    private fun saveNote(s: Session) {
+        val sh = _state.value.annotationSheet ?: return
+        val port = annotations ?: return
+        val a = s.annotationList.firstOrNull { it.id == sh.id } ?: return
+        val note = noteToStore(sh.note)
+        if (note == a.note) return
+        s.annotationList = s.annotationList.map { if (it.id == a.id) it.copy(note = note) else it }
+        closeScope.launch { // also when the reader closes meanwhile
+            try { port.update(a.id, note = note ?: "") } catch (e: CancellationException) { throw e } catch (e: Exception) { failed("saving a note", e, showIfOpen = false) }
+        }
+    }
+
+    /** The sheet's Remove, or the Highlights tab's remove button: erased at once, with Undo in the confirmation. */
+    fun removeAnnotation(id: String) {
+        val s = session ?: return
+        val port = annotations ?: return
+        val a = s.annotationList.firstOrNull { it.id == id } ?: return
+        val sh = _state.value.annotationSheet
+        s.annotationList = s.annotationList - a
+        s.removed = if (sh?.id == id) a.copy(note = noteToStore(sh.note)) else a
+        eraseAnnotation(s, id)
+        _state.update { st -> st.copy(annotationSheet = st.annotationSheet?.takeIf { it.id != id }, annotations = st.annotations.filter { it.id != id }, notice = Notice.HighlightRemoved) }
+        scope.launch {
+            try { port.remove(id) } catch (e: CancellationException) { throw e } catch (e: Exception) { failed("removing a highlight", e, showIfOpen = false) }
+        }
+    }
+
+    /** Undo in the removal confirmation: the highlight comes back (a new row: same range, text, colour, style, note). */
+    fun undoRemoveAnnotation() {
+        val s = session ?: return
+        val port = annotations ?: return
+        val a = s.removed ?: return
+        s.removed = null
+        _state.update { it.copy(notice = null) }
+        scope.launch {
+            try {
+                val back = port.add(a.bookId, a.cfi, a.spineIndex, a.text, a.chapter, a.color, a.style)
+                a.note?.let { port.update(back.id, note = it) }
+                if (session !== s) return@launch
+                drawAnnotation(s, back)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                failed("restoring a highlight", e, showIfOpen = false)
+            }
+        }
+    }
+
+    /** A row of the Highlights tab (F-062): jump to the page holding its start and close the panel. */
+    fun onAnnotationSelected(a: Annotation) {
+        val s = session ?: return
+        _state.update { it.copy(tocVisible = false) }
+        reader.send(ToWeb.GoTo(target = s.map.cfiToVirtual(a.cfi)))
+    }
 
     /** The colour row: the new annotation takes [color], which becomes the default for the next one. */
     fun recolorHighlight(color: String) {
@@ -691,6 +867,7 @@ class ReaderController(
                 s.dir = m.dir
                 _state.update { it.copy(title = m.title, toc = m.toc) }
                 watchBookmarks(s, rec.bookId)
+                watchAnnotations(s) // only if the first page was already painted
             }
             is FromWeb.Relocate -> if (m.sessionId == s.id) {
                 probe.ev("relocate", m.cfi)
@@ -712,13 +889,14 @@ class ReaderController(
             is FromWeb.Seeked -> if (m.sessionId == s.id && m.id == s.seek) { s.seek = null; probe.ev("seeked", "") }
             is FromWeb.Painted -> if (m.sessionId == s.id) {
                 probe.ev("painted", "")
-                if (!s.painted) { s.painted = true; probe.ev("painted_first", ""); _state.update { it.copy(loading = false) }; loadStats(s) }
+                if (!s.painted) { s.painted = true; probe.ev("painted_first", ""); _state.update { it.copy(loading = false) }; loadStats(s); watchAnnotations(s) }
             }
             is FromWeb.Tap -> if (m.sessionId == s.id) {
                 val set = _settings.value
                 val action = tapAction(m.x, set.tapZones, effectiveRtl(set.swipeDirection, s.dir))
                 when {
                     _state.value.highlightPicker != null -> dismissHighlightPicker() // a tap on the page closes the colour row
+                    _state.value.annotationSheet != null -> closeAnnotationSheet()
                     _state.value.settingsVisible -> hideSettings() // a tap on the page closes the sheet or panel
                     _state.value.displayVisible -> hideDisplay()
                     action == TapAction.Controls -> toggleChrome()
@@ -740,6 +918,7 @@ class ReaderController(
                 s.selection = m.takeIf { it.cfi != null }
                 if (s.selection != null && _state.value.highlightPicker != null) dismissHighlightPicker()
             }
+            is FromWeb.AnnotationTapped -> if (m.sessionId == s.id) openAnnotation(s, m.id)
             is FromWeb.ExternalLink -> if (m.sessionId == s.id) {
                 val l = externalLinkTarget(m.href) ?: return
                 if (_settings.value.confirmExternalLinks) _state.update { it.copy(externalLink = l) } else openExternal(l)

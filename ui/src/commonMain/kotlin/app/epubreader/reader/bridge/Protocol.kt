@@ -46,7 +46,17 @@ import kotlinx.serialization.json.Json
     ) : ToWeb
     /** F-060: remove the text selection (after a selection menu action). */
     @Serializable @SerialName("clearSelection") data class ClearSelection(val v: Int = 1) : ToWeb
+    /**
+     * F-061: the book's annotations (virtual CFIs, book order), replacing the web side's set for the session. Sent once
+     * per open after the first `painted`; later changes go as [AddAnnotation] / [RemoveAnnotation].
+     */
+    @Serializable @SerialName("setAnnotations") data class SetAnnotations(val v: Int = 1, val sessionId: String, val items: List<WebAnnotation>) : ToWeb
+    /** F-061: the annotation [id] is gone: its drawing is erased at once. */
+    @Serializable @SerialName("removeAnnotation") data class RemoveAnnotation(val v: Int = 1, val sessionId: String, val id: String) : ToWeb
 }
+
+/** One annotation as the page draws it (F-061): [cfi] virtual range CFI, [color] a HighlightColors id, [style] "highlight" | "underline". */
+@Serializable data class WebAnnotation(val id: String, val cfi: String, val color: String, val style: String)
 
 @Serializable data class WebSettings(
     val fontScale: Double = 1.0, val fontFamily: String = "publisher", val lineHeight: Double = 1.5, val marginPercent: Int = 5,
@@ -99,6 +109,8 @@ import kotlinx.serialization.json.Json
     @Serializable @SerialName("footnote") data class Footnote(val v: Int = 1, val sessionId: String, val open: Boolean) : FromWeb
     /** F-044: an http(s) or mailto link was tapped (the web side drops every other scheme). */
     @Serializable @SerialName("externalLink") data class ExternalLink(val v: Int = 1, val sessionId: String, val href: String) : FromWeb
+    /** F-061: a tap landed on the user annotation [id] (a link inside it stays a link); it is not a [Tap]. */
+    @Serializable @SerialName("annotationTapped") data class AnnotationTapped(val v: Int = 1, val sessionId: String, val id: String) : FromWeb
     /**
      * F-060: the text selection settled: [text] exactly the document's Selection.toString(), [cfi] its virtual range CFI,
      * [sectionIndex] its (virtual) section. Cleared: [cfi] null, [text] empty, [sectionIndex] -1.
