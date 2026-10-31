@@ -26,10 +26,37 @@ class PositionWriterTest {
         scope.cancel()
     }
 
+    @Test fun failed_write_does_not_stop_later_positions() = runBlocking {
+        val db = testDb()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val w = PositionWriter(db, HybridClock(System::currentTimeMillis), scope)
+        var first = true
+        w.beforeWrite = { if (first) { first = false; error("disk full") } }
+        w.submit(PositionWriter.Update("b3", "cfi-a", 0.1, 0))
+        withTimeout(5_000) { while (first) delay(5) }
+        w.submit(PositionWriter.Update("b3", "cfi-b", 0.2, 0))
+        withTimeout(5_000) { while (db.positionDao().get("b3")?.cfi != "cfi-b") delay(10) }
+        scope.cancel()
+    }
+
+    @Test fun stored_timestamp_ahead_of_wall_clock_does_not_block_writes() = runBlocking {
+        val db = testDb()
+        db.positionDao().put("b4", "old", 0.0, 0, at = 9_000_000L)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val w = PositionWriter(db, HybridClock { 1_000L }, scope)
+        w.submit(PositionWriter.Update("b4", "new", 0.5, 1))
+        withTimeout(5_000) { while (db.positionDao().get("b4")?.cfi != "new") delay(10) }
+        w.writeNow(PositionWriter.Update("b4", "newer", 0.6, 1))
+        assertEquals("newer", db.positionDao().get("b4")!!.cfi)
+        scope.cancel()
+    }
+
     @Test fun write_now_is_visible_immediately() = runBlocking {
         val db = testDb()
-        val w = PositionWriter(db, HybridClock(System::currentTimeMillis), CoroutineScope(Dispatchers.IO))
+        val scope = CoroutineScope(Dispatchers.IO)
+        val w = PositionWriter(db, HybridClock(System::currentTimeMillis), scope)
         w.writeNow(PositionWriter.Update("b2", "epubcfi(/6/4!/4/2)", 0.1, 1))
         assertEquals("epubcfi(/6/4!/4/2)", db.positionDao().get("b2")!!.cfi)
+        scope.cancel()
     }
 }

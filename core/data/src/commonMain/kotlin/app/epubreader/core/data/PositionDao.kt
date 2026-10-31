@@ -13,6 +13,9 @@ abstract class PositionDao {
     @Query("SELECT * FROM reading_position WHERE bookId = :bookId")
     abstract suspend fun anyRow(bookId: String): ReadingPositionEntity?
 
+    @Query("SELECT MAX(updatedAt) FROM reading_position")
+    abstract suspend fun maxUpdatedAt(): Long?
+
     @Upsert abstract suspend fun upsert(row: ReadingPositionEntity)
 
     /** One transaction (R-009). Never replaces a row with a newer or equal `updatedAt`; returns false then. */

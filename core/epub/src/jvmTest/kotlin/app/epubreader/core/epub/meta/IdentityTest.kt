@@ -13,6 +13,9 @@ class IdentityTest {
         assertNotEquals(BookIdentity.of("x", d1), BookIdentity.of("y", d1))
         assertNotEquals(BookIdentity.of("x", d1), BookIdentity.of("x", d2))
     }
+    @Test fun whitespace_is_collapsed_and_trimmed() =
+        assertEquals(BookIdentity.of("a b", d1), BookIdentity.of("  a \n b ", d1))
+
     /** foliate reports a missing identifier as "" or null; both must give the same identity. */
     @Test fun null_and_empty_identifier_are_equal() = assertEquals(BookIdentity.of(null, d1), BookIdentity.of("", d1))
 }

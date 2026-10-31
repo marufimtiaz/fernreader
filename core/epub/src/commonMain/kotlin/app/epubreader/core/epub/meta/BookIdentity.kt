@@ -9,5 +9,8 @@ import app.epubreader.core.epub.sha256Hex
  */
 object BookIdentity {
     fun of(uniqueId: String?, centralDirectoryDigest: String): String =
-        sha256Hex((uniqueId ?: "").encodeToByteArray()).take(16) + "-" + centralDirectoryDigest.take(32)
+        sha256Hex(normalize(uniqueId).encodeToByteArray()).take(16) + "-" + centralDirectoryDigest.take(32)
+
+    private val whitespace = Regex("\\s+")
+    private fun normalize(id: String?): String = (id ?: "").replace(whitespace, " ").trim()
 }
