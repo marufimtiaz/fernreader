@@ -57,6 +57,8 @@ class ReflowTest {
                 repeat(100) { if (h.str("String(window.__readerTest.loaded().includes($next))") == "true") return@repeat; kotlinx.coroutines.delay(50) }
                 h.change { it.copy(fontScale = 1.3) }
                 h.settle()
+                // the visible page reflows first; the hidden neighbour right after that paint
+                repeat(20) { if (h.str("window.__readerTest.htmlVar($next, '--er-font-scale')") == "1.3") return@repeat; kotlinx.coroutines.delay(50) }
                 assertEquals("1.3", h.str("window.__readerTest.htmlVar($next, '--er-font-scale')"))
                 h.lastPage() // larger text: the chapter has more pages now
                 h.send(ToWeb.Next())

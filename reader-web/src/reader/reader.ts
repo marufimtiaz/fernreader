@@ -7,7 +7,7 @@ import { flattenToc } from './toc'
 import { resolveSaved } from './position'
 import { PageCounter } from './counter'
 import { shareSections } from './sections'
-import { applySettings, DEFAULT_SETTINGS, readerCss, THEMES, type WebSettings } from './styles'
+import { applySettings as applyStyles, DEFAULT_SETTINGS, readerCss, THEMES, type WebSettings } from './styles'
 
 /* foliate-js is untyped JS; keep `any` at this boundary only. */
 type Book = any
@@ -323,6 +323,9 @@ export class Reader {
   /** Only the open view's events count; `painted` is dropped if another open (or a close) came in between. */
   private onRelocate(view: any, sessionId: string, d: any) {
     if (this.view !== view || this.sessionId !== sessionId || this.seeking) return
+    // A neighbour swapped in before its deferred restyle ran gets the current settings now.
+    const shown = view.renderer?.getContents?.()[0]?.doc
+    if (shown && applied.get(shown) !== this.settings) applySettings(shown, this.settings)
     const token = this.token
     this.bridge.send({
       // foliate reports NaN while a section has no layout yet; JSON turns NaN into null, which Kotlin rejects.
@@ -376,6 +379,10 @@ export class Reader {
 const MAX_TURNS = 3
 
 type Cmd = { kind: 'turn'; dir: 'next' | 'prev' } | { kind: 'goTo'; target: string; id?: number } | { kind: 'fraction'; fraction: number }
+
+/** Which settings each section document has (so a stale one can be caught up). */
+const applied = new WeakMap<Document, WebSettings>()
+function applySettings(doc: Document, s: WebSettings) { applyStyles(doc, s); applied.set(doc, s) }
 
 /** Position inside the visible section as the paginator sees it (bridge relocate fields). */
 function pageOf(r: any): { page: number; pages: number; sectionFraction: number } {
