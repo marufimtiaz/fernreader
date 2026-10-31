@@ -69,11 +69,29 @@ export function clampToRange(doc: Document, steps: Step[]): Range {
   return edgeRange(doc, node, false)
 }
 
+const hasBoxes = (x: { getClientRects(): ArrayLike<{ width: number; height: number }> }) =>
+  Array.from(x.getClientRects()).some(r => r.width > 0 || r.height > 0)
+
+/**
+ * An anchor foliate can scroll to. foliate scrolls to the first box of a range; a range with no boxes (only an image or
+ * an empty element, e.g. a position saved on a cover page) makes it do nothing at all, and the open would never
+ * report a location. Such a range becomes its nearest element with boxes, else the section start (0).
+ */
+export function laidOut(r: Range): Range | Element | number {
+  if (hasBoxes(r)) return r
+  const start = r.startContainer
+  for (let el: Element | null = start.nodeType === 1 ? (start as Element) : start.parentElement; el; el = el.parentElement) {
+    if (el === el.ownerDocument.body || el === el.ownerDocument.documentElement) break
+    if (hasBoxes(el)) return el
+  }
+  return 0
+}
+
 /**
  * foliate target for a saved position: the section of its spine step, anchored at the exact place if it still
  * resolves, otherwise at the nearest valid place in the same section (C-009). Null if the spine step itself is gone.
  */
-export function resolveSaved(book: any, cfi: string): { index: number; anchor: (doc: Document) => Range } | null {
+export function resolveSaved(book: any, cfi: string): { index: number; anchor: (doc: Document) => Range | Element | number } | null {
   let resolved: { index: number; anchor: (doc: Document) => Range } | null = null
   try { resolved = book.resolveCFI(cfi) } catch { return null }
   if (!resolved || !(resolved.index >= 0) || resolved.index >= (book.sections?.length ?? 0)) return null
@@ -84,9 +102,9 @@ export function resolveSaved(book: any, cfi: string): { index: number; anchor: (
     anchor: (doc: Document) => {
       try {
         const r = exact(doc)
-        if (r && r.startContainer?.isConnected && doc.contains(r.startContainer)) return r
+        if (r && r.startContainer?.isConnected && doc.contains(r.startContainer)) return laidOut(r)
       } catch { /* falls back below */ }
-      return steps ? clampToRange(doc, steps) : edgeRange(doc, doc.body ?? doc.documentElement, false)
+      return laidOut(steps ? clampToRange(doc, steps) : edgeRange(doc, doc.body ?? doc.documentElement, false))
     },
   }
 }

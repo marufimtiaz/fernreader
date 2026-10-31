@@ -67,4 +67,35 @@ class PositionFallbackTest {
             assertEquals("landed on $at", at.getInt("textPages"), at.getInt("page"))
         }
     }
+
+    /** A position foliate itself saved on an image-only page (War and Peace's cover) has no text to scroll to. */
+    @Test fun position_on_an_image_only_page_opens(): Unit = runBlocking {
+        val wp = warAndPeace()
+        val ref = SourceRef.File(wp.path)
+        ActivityScenario.launch(MainActivity::class.java).use { sc ->
+            lateinit var a: MainActivity
+            sc.onActivity { a = it }
+            withTimeout(15_000) { a.reader.isReady.first { it } }
+            val relocates = a.reader.events.filterIsInstance<FromWeb.Relocate>()
+            var next = async(start = CoroutineStart.UNDISPATCHED) { relocates.first() }
+            sc.onActivity { it.openBook(ref) }
+            withTimeout(15_000) { next.await() }
+            val graph = (a.application as EpubReaderApp).graph
+            val bookId = graph.library.knownBookId(ref)!!
+            sc.onActivity { it.goBack() }
+            delay(500)
+            val saved = graph.library.position(bookId)!!
+            graph.db.positionDao().put(bookId, "epubcfi(/6/2!/4/2,,/2/2)", 0.0, 0, saved.updatedAt + 1)
+            val other = TestBooks.write(ctx, "cover-other.epub", TestBooks.epub(id = "urn:uuid:cover-other-${System.nanoTime()}"))
+            next = async(start = CoroutineStart.UNDISPATCHED) { relocates.first() }
+            sc.onActivity { it.openBook(SourceRef.File(other.path)) } // so the next open is a cold one
+            withTimeout(10_000) { next.await() }
+            sc.onActivity { it.goBack() }
+
+            next = async(start = CoroutineStart.UNDISPATCHED) { relocates.first() }
+            sc.onActivity { it.openBook(ref) }
+            assertEquals(0, withTimeout(10_000) { next.await() }.sectionIndex)
+            withTimeout(5_000) { a.controller.state.first { !it.loading } }
+        }
+    }
 }
