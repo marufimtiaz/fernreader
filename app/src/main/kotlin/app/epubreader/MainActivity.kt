@@ -349,6 +349,22 @@ class MainActivity : ComponentActivity() {
         else -> nav.pop() // settings, about, hidden books, licences, details
     }
 
+    /**
+     * F-032/C-005 volume keys: on the reader route the controller decides (book open, no panel or sheet, setting not
+     * OFF); its keys are consumed here, before the window's default handling, so the media volume does not change and
+     * no volume UI shows. Down, up and auto-repeats are all consumed; only the first down turns a page.
+     */
+    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+        val code = event.keyCode
+        if ((code == android.view.KeyEvent.KEYCODE_VOLUME_DOWN || code == android.view.KeyEvent.KEYCODE_VOLUME_UP) && nav.top == Route.Reader &&
+            controller.onVolumeKey(
+                volumeDown = code == android.view.KeyEvent.KEYCODE_VOLUME_DOWN,
+                press = event.action == android.view.KeyEvent.ACTION_DOWN && event.repeatCount == 0,
+            )
+        ) return true
+        return super.dispatchKeyEvent(event)
+    }
+
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
         super.onConfigurationChanged(newConfig)
         Probe.ev("config_changed", "orientation=${newConfig.orientation}") // P-022 starts here

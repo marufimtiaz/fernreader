@@ -7,6 +7,9 @@ import app.epubreader.core.data.PositionWriter
 import app.epubreader.core.data.Flow
 import app.epubreader.core.data.ReaderSettings
 import app.epubreader.core.data.ReadingThemeId
+import app.epubreader.core.data.SwipeDirection
+import app.epubreader.core.data.VolumeKeys
+import app.epubreader.core.data.PageAnimation
 import app.epubreader.core.data.SearchHistoryStore
 import app.epubreader.core.data.SettingsPort
 import app.epubreader.core.search.SearchHit
@@ -247,6 +250,111 @@ class ReaderControllerTest {
         assertFalse(c.state.value.chromeVisible)
         reader.events.emit(FromWeb.Tap(sessionId = "s-1", x = 0.5, y = 0.5)); advanceUntilIdle()
         assertTrue(c.state.value.chromeVisible)
+    }
+
+    // F-032: tap zones (outer 25 %) mirror like swipes; Kotlin decides from the tap's x.
+    private suspend fun kotlinx.coroutines.test.TestScope.openWith(dir: String = "ltr", change: (ReaderSettings) -> ReaderSettings = { it }): ReaderController {
+        val c = controller()
+        c.updateSettings(change)
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened().copy(dir = dir)); advanceUntilIdle()
+        reader.sent.clear()
+        return c
+    }
+    private suspend fun kotlinx.coroutines.test.TestScope.tap(x: Double) { reader.events.emit(FromWeb.Tap(sessionId = "s-1", x = x, y = 0.5)); advanceUntilIdle() }
+    private fun turns() = reader.sent.filter { it is ToWeb.Next || it is ToWeb.Prev }.map { if (it is ToWeb.Next) "next" else "prev" }
+
+    @Test fun tap_zones_off_edges_do_nothing() = runTest(dispatcher) {
+        val c = openWith()
+        tap(0.05); tap(0.95)
+        assertEquals(emptyList(), turns())
+        assertFalse(c.state.value.chromeVisible)
+    }
+
+    @Test fun tap_zones_on_ltr_right_edge_next_left_edge_previous_centre_controls() = runTest(dispatcher) {
+        val c = openWith { it.copy(tapZones = true) }
+        tap(0.9); tap(0.1); tap(0.3)
+        assertEquals(listOf("next", "prev"), turns())
+        assertFalse(c.state.value.chromeVisible)
+        tap(0.5)
+        assertTrue(c.state.value.chromeVisible)
+    }
+
+    @Test fun tap_zones_on_rtl_book_mirror() = runTest(dispatcher) {
+        openWith("rtl") { it.copy(tapZones = true) }
+        tap(0.1); tap(0.9)
+        assertEquals(listOf("next", "prev"), turns())
+    }
+
+    @Test fun tap_zones_follow_a_forced_direction() = runTest(dispatcher) {
+        val c = openWith("rtl") { it.copy(tapZones = true, swipeDirection = SwipeDirection.LTR) }
+        tap(0.9)
+        c.updateSettings { it.copy(swipeDirection = SwipeDirection.RTL) }
+        tap(0.9)
+        assertEquals(listOf("next", "prev"), turns())
+    }
+
+    @Test fun tap_zone_tap_with_a_sheet_or_the_controls_open_closes_them_instead() = runTest(dispatcher) {
+        val c = openWith { it.copy(tapZones = true) }
+        c.showSettings(); tap(0.9)
+        assertFalse(c.state.value.settingsVisible)
+        c.toggleChrome(); tap(0.9)
+        assertFalse(c.state.value.chromeVisible)
+        assertEquals(emptyList(), turns())
+    }
+
+    // C-005: ON = volume-down next, volume-up previous; REVERSED swaps; OFF and open panels leave the keys alone.
+    @Test fun volume_keys_off_are_not_handled() = runTest(dispatcher) {
+        val c = openWith()
+        assertFalse(c.onVolumeKey(volumeDown = true, press = true))
+        assertEquals(emptyList(), turns())
+    }
+
+    @Test fun volume_keys_on_and_reversed() = runTest(dispatcher) {
+        val c = openWith { it.copy(volumeKeys = VolumeKeys.ON) }
+        assertTrue(c.onVolumeKey(volumeDown = true, press = true))
+        assertTrue(c.onVolumeKey(volumeDown = false, press = true))
+        c.updateSettings { it.copy(volumeKeys = VolumeKeys.REVERSED) }
+        assertTrue(c.onVolumeKey(volumeDown = true, press = true))
+        assertEquals(listOf("next", "prev", "prev"), turns())
+    }
+
+    @Test fun volume_key_release_and_repeats_are_consumed_without_a_turn() = runTest(dispatcher) {
+        val c = openWith { it.copy(volumeKeys = VolumeKeys.ON) }
+        assertTrue(c.onVolumeKey(volumeDown = true, press = false))
+        assertEquals(emptyList(), turns())
+    }
+
+    @Test fun volume_keys_with_a_panel_open_or_no_book_are_not_handled() = runTest(dispatcher) {
+        val c = openWith { it.copy(volumeKeys = VolumeKeys.ON) }
+        for (show in listOf(c::showToc, c::showSearch, c::showDisplay, c::showSettings)) {
+            show()
+            assertFalse(c.onVolumeKey(volumeDown = true, press = true))
+            c.backInside()
+        }
+        assertEquals(emptyList(), turns())
+        c.close()
+        assertFalse(c.onVolumeKey(volumeDown = true, press = true))
+    }
+
+    @Test fun pure_mappings() {
+        assertEquals(TapAction.Next, tapAction(0.8, tapZones = true, rtl = false))
+        assertEquals(TapAction.Prev, tapAction(0.8, tapZones = true, rtl = true))
+        assertEquals(TapAction.None, tapAction(0.8, tapZones = false, rtl = false))
+        assertEquals(TapAction.Controls, tapAction(0.4, tapZones = true, rtl = false))
+        assertEquals(TapAction.None, tapAction(0.28, tapZones = true, rtl = false))
+        assertEquals(PageTurn.Next, volumeTurn(volumeDown = true, VolumeKeys.ON))
+        assertEquals(PageTurn.Prev, volumeTurn(volumeDown = true, VolumeKeys.REVERSED))
+        assertNull(volumeTurn(volumeDown = true, VolumeKeys.OFF))
+    }
+
+    @Test fun web_settings_carry_swipe_direction_and_animation() = runTest(dispatcher) {
+        val c = openWith()
+        c.updateSettings { it.copy(swipeDirection = SwipeDirection.RTL, pageAnimation = PageAnimation.NONE) }
+        val w = (reader.sent.last() as ToWeb.SetSettings).settings
+        assertEquals("rtl", w.swipeDirection); assertEquals("none", w.pageAnimation)
+        reader.sent.clear()
+        c.updateSettings { it.copy(tapZones = true, volumeKeys = VolumeKeys.ON) } // Kotlin-only settings: nothing to send
+        assertEquals(emptyList(), reader.sent)
     }
 
     @Test fun open_failure_is_shown() = runTest(dispatcher) {

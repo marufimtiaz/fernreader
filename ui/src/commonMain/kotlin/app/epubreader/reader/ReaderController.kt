@@ -5,6 +5,8 @@ import app.epubreader.core.data.OpenedBookInfo
 import app.epubreader.core.data.PositionWriter
 import app.epubreader.core.data.Align
 import app.epubreader.core.data.Flow
+import app.epubreader.core.data.PageAnimation
+import app.epubreader.core.data.SwipeDirection
 import app.epubreader.core.data.ReaderSettings
 import app.epubreader.core.data.SearchHistoryPort
 import app.epubreader.core.data.SettingsPort
@@ -97,6 +99,8 @@ class ReaderController(
         var painted = false
         var stats: List<SectionStat>? = null
         var sections = 0
+        /** The book's page-progression-direction from `opened` ("ltr" | "rtl"). */
+        var dir = "ltr"
         /**
          * Id of the resume jump sent after `opened` (same book, new source) until the web side answers `seeked`.
          * Relocates before that are where the book opened (its start), not where the reader is: not stored (R-009).
@@ -323,7 +327,26 @@ class ReaderController(
         align = when (s.align) { Align.PUBLISHER -> "publisher"; Align.START -> "start"; Align.JUSTIFY -> "justify" },
         theme = s.theme.name.lowercase(),
         flow = when (s.flow) { Flow.PAGED -> "paginated"; Flow.SCROLLED -> "scrolled"; Flow.AUTO -> if (landscape) "scrolled" else "paginated" },
+        swipeDirection = when (s.swipeDirection) { SwipeDirection.AUTO -> "auto"; SwipeDirection.LTR -> "ltr"; SwipeDirection.RTL -> "rtl" },
+        pageAnimation = if (s.pageAnimation == PageAnimation.NONE) "none" else "slide",
     )
+
+    /** One page turn through the web side's queue (same path as the bench's `next`/`prev`). */
+    private fun turn(t: PageTurn) = reader.send(if (t == PageTurn.Next) ToWeb.Next() else ToWeb.Prev())
+
+    /**
+     * Volume keys (F-032, C-005), called by the activity for every volume key event on the reader route. Returns true
+     * when the event is the reader's (consume it: no volume change, no volume UI): a book is open, no panel or sheet is
+     * shown and the setting is not OFF. Only a [press] (key down, not an auto-repeat) turns a page: one page per press;
+     * the release and the repeats are consumed too, so the volume never changes in between.
+     */
+    fun onVolumeKey(volumeDown: Boolean, press: Boolean): Boolean {
+        val st = _state.value
+        if (session == null || st.error != null || st.tocVisible || st.searchVisible || st.displayVisible || st.settingsVisible) return false
+        val t = volumeTurn(volumeDown, _settings.value.volumeKeys) ?: return false
+        if (press) { probe.ev("volume_turn", t.name); turn(t) }
+        return true
+    }
 
     /** R-008: the book's file went away or was rewritten under the reader: close it safely and say so. */
     fun fileGone() {
@@ -393,6 +416,7 @@ class ReaderController(
                     reader.send(ToWeb.GoTo(target = s.map.cfiToVirtual(it.cfi), id = id))
                 }
                 s.sections = m.sections
+                s.dir = m.dir
                 _state.update { it.copy(title = m.title, toc = m.toc) }
             }
             is FromWeb.Relocate -> if (m.sessionId == s.id) {
@@ -413,10 +437,18 @@ class ReaderController(
                 probe.ev("painted", "")
                 if (!s.painted) { s.painted = true; probe.ev("painted_first", ""); _state.update { it.copy(loading = false) }; loadStats(s) }
             }
-            is FromWeb.Tap -> if (m.sessionId == s.id) when {
-                _state.value.settingsVisible -> hideSettings() // a tap on the page closes the sheet or panel
-                _state.value.displayVisible -> hideDisplay()
-                m.x in 0.33..0.67 -> toggleChrome()
+            is FromWeb.Tap -> if (m.sessionId == s.id) {
+                val set = _settings.value
+                val action = tapAction(m.x, set.tapZones, effectiveRtl(set.swipeDirection, s.dir))
+                when {
+                    _state.value.settingsVisible -> hideSettings() // a tap on the page closes the sheet or panel
+                    _state.value.displayVisible -> hideDisplay()
+                    action == TapAction.Controls -> toggleChrome()
+                    // F-032 tap zones; while the controls are shown an edge tap hides them instead of turning
+                    action == TapAction.Next || action == TapAction.Prev ->
+                        if (_state.value.chromeVisible) toggleChrome() else turn(if (action == TapAction.Next) PageTurn.Next else PageTurn.Prev)
+                    else -> Unit
+                }
             }
             is FromWeb.Error -> if (m.sessionId == null || m.sessionId == s.id) {
                 if (m.kind == HIT_NOT_FOUND) _state.update { it.copy(notice = Notice.HitNotFound) }
