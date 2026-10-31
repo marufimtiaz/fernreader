@@ -41,4 +41,41 @@ class ReaderSettingsTest {
         assertEquals(ReaderSettings(fontScale = 2.6, align = Align.START),
             ReaderSettings.decode("""{"theme":"neon","fontScale":9,"extra":1,"align":"START","brightness":"dim"}"""))
     }
+
+    @Test fun m6_defaults() {
+        val d = ReaderSettings()
+        assertEquals(SwipeDirection.AUTO, d.swipeDirection)
+        assertEquals(false, d.tapZones)
+        assertEquals(VolumeKeys.OFF, d.volumeKeys)
+        assertEquals(PageAnimation.SLIDE, d.pageAnimation)
+        assertEquals(true, d.fullscreen)
+        assertEquals(true, d.keepScreenOn)
+        assertEquals(OrientationLock.SYSTEM, d.orientation)
+        assertEquals(true, d.confirmExternalLinks)
+    }
+
+    @Test fun m6_round_trip() {
+        val s = ReaderSettings(
+            swipeDirection = SwipeDirection.RTL, tapZones = true, volumeKeys = VolumeKeys.REVERSED, pageAnimation = PageAnimation.NONE,
+            fullscreen = false, keepScreenOn = false, orientation = OrientationLock.LANDSCAPE, confirmExternalLinks = false,
+        )
+        assertEquals(s, ReaderSettings.decode(s.encode()))
+    }
+
+    @Test fun m6_bad_values_fall_back_to_defaults() {
+        val bad = ReaderSettings.decode(
+            """{"swipeDirection":"UP","tapZones":"yes","volumeKeys":3,"pageAnimation":"FLIP","fullscreen":1,"keepScreenOn":"false","orientation":"SIDEWAYS","confirmExternalLinks":null}""",
+        )
+        assertEquals(ReaderSettings(), bad)
+        assertEquals(false, ReaderSettings.decode("""{"fullscreen":false,"tapZones":true}""").fullscreen)
+        assertEquals(true, ReaderSettings.decode("""{"fullscreen":false,"tapZones":true}""").tapZones)
+    }
+
+    @Test fun settings_stored_by_m5_decode_with_m6_defaults() {
+        val m5 = """{"fontScale":1.4,"fontFamily":"literata","lineHeight":1.8,"marginPercent":3,"align":"JUSTIFY","theme":"WARM","flow":"AUTO","brightness":0.4,"pageIndicatorScope":"CHAPTER"}"""
+        val s = ReaderSettings.decode(m5)
+        assertEquals(1.4, s.fontScale)
+        assertEquals(ReadingThemeId.WARM, s.theme)
+        assertEquals(ReaderSettings(1.4, ReaderSettings.LITERATA, 1.8, 3, Align.JUSTIFY, ReadingThemeId.WARM, Flow.AUTO, 0.4, IndicatorScope.CHAPTER), s)
+    }
 }

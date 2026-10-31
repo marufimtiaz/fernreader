@@ -5,6 +5,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
@@ -15,12 +16,19 @@ enum class ReadingThemeId { LIGHT, DARK, BLACK, WARM }
 /** F-031: AUTO is paged in portrait and scrolled in landscape (C-004). */
 enum class Flow { PAGED, SCROLLED, AUTO }
 enum class IndicatorScope { BOOK, CHAPTER }
+/** F-032/F-081: AUTO follows the book's page-progression-direction; LTR = swipe right-to-left is next; RTL = the reverse. */
+enum class SwipeDirection { AUTO, LTR, RTL }
+/** C-005: ON = volume-down next, volume-up previous; REVERSED swaps them. */
+enum class VolumeKeys { OFF, ON, REVERSED }
+enum class PageAnimation { SLIDE, NONE }
+enum class OrientationLock { SYSTEM, PORTRAIT, LANDSCAPE }
 
 /**
  * Reading display settings (F-070..F-075, F-031, F-034 scope), one value for all books, stored as JSON in the
  * `setting` table under [KEY]. Every value read back is [clamped]; unknown fields are ignored and a field that does not
  * decode keeps its default, so older or newer app versions (or a hand-edited backup) never break the reader.
- * M6 adds the input fields (page-turn animation, tap zones, volume keys, swipe direction).
+ * The input and screen fields (swipe direction, tap zones, volume keys, page-turn animation, fullscreen, keep-screen-on,
+ * orientation, external-link confirmation; F-032, F-035, F-044, C-005) arrived with M6.
  */
 @Serializable
 data class ReaderSettings(
@@ -34,6 +42,16 @@ data class ReaderSettings(
     /** null = follow the system brightness; otherwise the reader window's brightness, 0.05..1. */
     val brightness: Double? = null,
     val pageIndicatorScope: IndicatorScope = IndicatorScope.BOOK,
+    val swipeDirection: SwipeDirection = SwipeDirection.AUTO,
+    /** F-032: tapping the screen edges turns pages; off by default. */
+    val tapZones: Boolean = false,
+    val volumeKeys: VolumeKeys = VolumeKeys.OFF,
+    val pageAnimation: PageAnimation = PageAnimation.SLIDE,
+    val fullscreen: Boolean = true,
+    val keepScreenOn: Boolean = true,
+    val orientation: OrientationLock = OrientationLock.SYSTEM,
+    /** F-044: ask before opening a link that leaves the book. */
+    val confirmExternalLinks: Boolean = true,
 ) {
     fun clamped(): ReaderSettings = copy(
         fontScale = tenth(fontScale.coerceIn(MIN_FONT, MAX_FONT)),
@@ -68,6 +86,7 @@ data class ReaderSettings(
             fun str(k: String) = p(k)?.takeIf { it.isString }?.contentOrNull
             fun num(k: String) = p(k)?.takeIf { !it.isString }?.doubleOrNull
             fun <E : Enum<E>> enum(k: String, values: Array<E>, def: E) = str(k)?.let { s -> values.firstOrNull { it.name == s } } ?: def
+            fun bool(k: String, def: Boolean) = p(k)?.takeIf { !it.isString }?.booleanOrNull ?: def
             return ReaderSettings(
                 fontScale = num("fontScale") ?: d.fontScale,
                 fontFamily = str("fontFamily") ?: d.fontFamily,
@@ -78,6 +97,14 @@ data class ReaderSettings(
                 flow = enum("flow", Flow.entries.toTypedArray(), d.flow),
                 brightness = num("brightness"),
                 pageIndicatorScope = enum("pageIndicatorScope", IndicatorScope.entries.toTypedArray(), d.pageIndicatorScope),
+                swipeDirection = enum("swipeDirection", SwipeDirection.entries.toTypedArray(), d.swipeDirection),
+                tapZones = bool("tapZones", d.tapZones),
+                volumeKeys = enum("volumeKeys", VolumeKeys.entries.toTypedArray(), d.volumeKeys),
+                pageAnimation = enum("pageAnimation", PageAnimation.entries.toTypedArray(), d.pageAnimation),
+                fullscreen = bool("fullscreen", d.fullscreen),
+                keepScreenOn = bool("keepScreenOn", d.keepScreenOn),
+                orientation = enum("orientation", OrientationLock.entries.toTypedArray(), d.orientation),
+                confirmExternalLinks = bool("confirmExternalLinks", d.confirmExternalLinks),
             ).clamped()
         }
     }
