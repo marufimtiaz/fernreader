@@ -6,6 +6,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
+import app.epubreader.EpubReaderApp
 import app.epubreader.MainActivity
 import app.epubreader.TestBooks
 import app.epubreader.core.data.SourceRef
@@ -13,6 +14,8 @@ import app.epubreader.reader.bridge.FromWeb
 import app.epubreader.ui.Copy
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -48,13 +51,22 @@ class TocJumpTest {
             openToc()
             val jumped = async(start = CoroutineStart.UNDISPATCHED) { a.reader.events.filterIsInstance<FromWeb.Relocate>().first() }
             dev.findObject(By.text("Chapter 4")).click()
-            assertEquals(3, withTimeout(5_000) { jumped.await() }.sectionIndex)
+            val at = withTimeout(5_000) { jumped.await() }
+            assertEquals(3, at.sectionIndex)
             withTimeout(3_000) { a.controller.state.first { !it.tocVisible } }
 
             openToc()
+            val moves = mutableListOf<FromWeb.Relocate>()
+            val watch = launch(start = CoroutineStart.UNDISPATCHED) { a.reader.events.filterIsInstance<FromWeb.Relocate>().collect { moves += it } }
             dev.findObject(By.text("Missing chapter")).click()
             assertTrue(dev.wait(Until.hasObject(By.text(Copy.missingTarget)), 3_000))
-            assertTrue(a.controller.state.value.tocVisible) // stays in the panel; reader position unchanged
+            assertTrue(a.controller.state.value.tocVisible) // stays in the panel
+            delay(1_000) // a jump would have relocated by now
+            watch.cancel()
+            assertEquals(emptyList<FromWeb.Relocate>(), moves) // the reader did not move
+            assertEquals(at.tocHref, a.controller.state.value.currentTocHref)
+            val library = (a.application as EpubReaderApp).graph.library
+            assertEquals(at.cfi, library.position(library.knownBookId(SourceRef.File(f.path))!!)?.cfi) // nor the stored position
         }
     }
 }

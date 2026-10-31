@@ -1,10 +1,17 @@
 #!/usr/bin/env bash
 # Push the corpus and the folder-discovery set to the emulator (placement per spec corpus.md section 4).
-# Usage: bench/push_corpus.sh
+# Usage: bench/push_corpus.sh   (emulator only, unless ANDROID_SERIAL names the device explicitly)
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd); C=$ROOT/corpus; F=$C/folders
 A=${ADB:-$HOME/Android/Sdk/platform-tools/adb}
 command -v "$A" >/dev/null 2>&1 || A=adb
+# This script deletes folders under /sdcard (Books/, Download/ files, Documents/Books): never on a personal phone.
+# It runs only on an emulator (ro.kernel.qemu=1), or on a device the caller names explicitly with ANDROID_SERIAL.
+if [ -z "${ANDROID_SERIAL:-}" ] && [ "$($A shell getprop ro.kernel.qemu 2>/dev/null | tr -d '\r')" != 1 ]; then
+  echo "push_corpus.sh: the target is not an emulator; refusing to delete files on it." >&2
+  echo "  Set ANDROID_SERIAL=<serial> to run it on that device anyway (its /sdcard book folders are replaced)." >&2
+  exit 2
+fi
 S=/sdcard
 # Start from a clean placement so reruns and leftovers from earlier tests (Live/, renamed-NEW, moved copies) don't skew counts.
 $A shell "cd $S && rm -rf Books/gutenberg Books/epub3-samples Books/generated Books/local Books/Fiction Books/ToDelete \
