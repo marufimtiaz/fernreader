@@ -370,7 +370,19 @@ describe('goToText (F-050)', () => {
     v.dispatchEvent(new CustomEvent('draw-annotation', { detail: { draw, annotation: { value: 'cfi-hit:Borodinó' } } }))
     expect(draw).toHaveBeenCalledTimes(1)
     expect(draw.mock.calls[0][0]).toBeTypeOf('function')
-    expect(draw.mock.calls[0][1].color).toMatch(/^rgba?\(/)
+    expect(draw.mock.calls[0][1]).toEqual({ color: '#ff9800' }) // opaque: foliate applies its own 0.3 opacity
+  })
+
+  it('a hit whose CFI does not resolve is treated as not found', async () => {
+    open('s1', null); await settle()
+    const v = FakeView.all[0]; sent = []
+    v.getCFI.mockReturnValue('epubcfi(/6/2!/4/2)')
+    ;(v as any).book = { resolveCFI: () => null, sections: [{}, {}, {}] }
+    goToText('borodino', 11); await settle()
+    expect(v.renderer.goTo).toHaveBeenCalledWith({ index: 2, anchor: 0 })
+    expect(types()).toEqual(['relocate', 'error', 'painted'])
+    expect(v.addAnnotation).not.toHaveBeenCalled()
+    expect(probe()).toBeNull()
   })
 
   it('close removes the highlight', async () => {

@@ -222,8 +222,8 @@ export class Reader {
           else if (c.kind === 'text') {
             this.clearSearch(view)
             hit = await this.findHit(view, c)
-            if (hit) await goToTarget(view, hit.cfi)
-            else await view.renderer.goTo({ index: c.index, anchor: 0 })
+            if (hit && !(await goToTarget(view, hit.cfi))) hit = null // the CFI did not resolve: same as not found
+            if (!hit) await view.renderer.goTo({ index: c.index, anchor: 0 })
           } else await goToTarget(view, c.target)
         } catch (e) { console.warn('goTo failed', e) }
         if (this.token !== token || this.view !== view) break
@@ -419,8 +419,11 @@ export class Reader {
 }
 
 const MAX_TURNS = 3
-/** Search hit highlight: translucent orange, readable on all four reading themes (user highlights get other colours). */
-const SEARCH_COLOR = 'rgba(255, 140, 0, 0.45)'
+/**
+ * Search hit highlight: opaque orange; Overlayer.highlight draws it at 0.3 opacity, which reads on all four reading
+ * themes (user highlights get other colours).
+ */
+const SEARCH_COLOR = '#ff9800'
 
 type Cmd = { kind: 'turn'; dir: 'next' | 'prev' } | { kind: 'goTo'; target: string; id?: number } | { kind: 'fraction'; fraction: number }
   | { kind: 'text'; index: number; offset: number; length: number; needle: string } | { kind: 'clearSearch' }

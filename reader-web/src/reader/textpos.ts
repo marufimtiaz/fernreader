@@ -38,15 +38,18 @@ function textNodes(doc: Document): Text[] {
 export function resolveTextRange(doc: Document, offset: number, _length: number, needle: string): Range | null {
   const nodes = textNodes(doc)
   const text = nodes.map(n => n.data).join('')
-  const folded = foldText(text)
   const want = foldText(needle)
   if (!want) return null
+  // Only the window that can match is folded (the fold keeps lengths, so positions stay exact).
+  const lo = Math.max(0, offset - DRIFT)
+  const folded = foldText(text.slice(lo, offset + want.length + DRIFT))
+  const at = (i: number) => i >= lo && folded.startsWith(want, i - lo)
   let start = -1
-  if (folded.startsWith(want, offset)) start = offset
+  if (at(offset)) start = offset
   else {
     for (let d = 1; d <= DRIFT && start < 0; d++) {
-      if (offset - d >= 0 && folded.startsWith(want, offset - d)) start = offset - d
-      else if (folded.startsWith(want, offset + d)) start = offset + d
+      if (at(offset - d)) start = offset - d
+      else if (at(offset + d)) start = offset + d
     }
   }
   if (start < 0) return null
