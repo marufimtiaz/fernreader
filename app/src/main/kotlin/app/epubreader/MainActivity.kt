@@ -10,6 +10,13 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.core.view.WindowCompat
+import android.view.WindowManager
+import app.epubreader.reader.display.ReadingTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -90,10 +97,16 @@ class MainActivity : ComponentActivity() {
             }
         })
         setContent {
+            val rs by controller.settings.collectAsState()
+            val theme = ReadingTheme.of(rs.theme)
+            val dark = isSystemInDarkTheme()
+            val inReader = nav.top == Route.Reader
+            SideEffect { applyReaderWindow(inReader, rs.brightness, lightBars = if (inReader) theme.isLight else !dark) }
             Box {
                 App(
-                    dark = isSystemInDarkTheme(), webViewTooOld = webViewTooOld, nav = nav, library = library, reader = controller, probe = probe,
-                    readerSurface = { ReaderSurface(reader, covered = nav.top != Route.Reader) },
+                    dark = dark, webViewTooOld = webViewTooOld, nav = nav, library = library, reader = controller, probe = probe,
+                    readerSurface = { ReaderSurface(reader, covered = nav.top != Route.Reader, background = theme.background) },
+                    fonts = fonts,
                     onOpenPicker = { pick.launch(arrayOf("application/epub+zip", "application/octet-stream")) },
                     onGrantAccess = access::request, onLeave = ::finish,
                     onOpen = ::openBook, onBack = { goBack() }, onRescan = graph.scans::rescan,
@@ -129,6 +142,28 @@ class MainActivity : ComponentActivity() {
                 // WEBVIEW_TOO_OLD (or no WebView at all): show a full-screen message instead of crashing (R16).
                 runCatching { reader.prewarm() }.onFailure { webViewTooOld = true }
             }
+        }
+    }
+
+    /** Bundled faces for the display panel's previews (F-071), from the same asset files the reader serves. */
+    private val fonts by lazy {
+        mapOf(
+            "literata" to FontFamily(Font("reader/fonts/literata.ttf", assets)),
+            "source-sans" to FontFamily(Font("reader/fonts/source-sans-3.ttf", assets)),
+            "atkinson" to FontFamily(Font("reader/fonts/atkinson-regular.ttf", assets)),
+        )
+    }
+
+    /**
+     * Reader window state: app-controlled brightness only while reading (F-035 via F-075, "follow system" = none),
+     * and bar icons that stay readable on the reading theme's strips.
+     */
+    private fun applyReaderWindow(inReader: Boolean, brightness: Double?, lightBars: Boolean) {
+        val want = if (inReader && brightness != null) brightness.toFloat() else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+        if (window.attributes.screenBrightness != want) window.attributes = window.attributes.apply { screenBrightness = want }
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = lightBars
+            isAppearanceLightNavigationBars = lightBars
         }
     }
 

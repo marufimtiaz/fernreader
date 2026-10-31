@@ -39,6 +39,7 @@ fun App(
     onRescan: () -> Unit,
     onForget: (SourceRef) -> Unit,
     onBack: () -> Unit,
+    fonts: Map<String, androidx.compose.ui.text.font.FontFamily> = emptyMap(),
 ) = AppTheme(dark) {
     if (webViewTooOld) {
         Surface(Modifier.fillMaxSize()) {
@@ -51,7 +52,7 @@ fun App(
         when (nav.top) {
             Route.Onboarding -> OnboardingScreen(onGrant = onGrantAccess, onOpenPicker = onOpenPicker, onLeave = onLeave)
             Route.Library -> LibraryScreen(library, onOpen = { b -> library.open(b) { onOpen(SourceRef.fromKey(it)) } }, onOpenPicker = onOpenPicker, onRescan = onRescan, probe = probe)
-            Route.Reader -> ReaderScreen(reader, onBack = onBack, onForget = onForget, probe = probe)
+            Route.Reader -> ReaderScreen(reader, onBack = onBack, onForget = onForget, probe = probe, fonts = fonts)
         }
     }
 }

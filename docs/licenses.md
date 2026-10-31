@@ -39,5 +39,17 @@ code. Versions are pinned by `reader-web/package-lock.json`.
 
 ## Vendored sources
 
-foliate-js: MIT, pinned at commit 78914aef4466eb960965702401634c2cb348e9b1 (78914ae), vendored unmodified in
+foliate-js: MIT, pinned at commit 78914aef4466eb960965702401634c2cb348e9b1 (78914ae), vendored in
 `reader-web/vendor/foliate-js/` (licence text in that directory; local changes logged in its `PATCHES.md`).
+
+## Bundled fonts (M4, F-071)
+
+Shipped in the app at `assets/reader/fonts/` (source: `reader-web/src/public/fonts/`), each with its licence text
+next to it. Downloaded from the google/fonts repository (`ofl/<family>/`) on 2026-10-31. The SIL Open Font License
+1.1 allows bundling with any software; the fonts are not sold on their own and keep their names.
+
+| Font | Files | Licence | Copyright |
+|---|---|---|---|
+| Literata (variable, roman + italic) | `literata.ttf`, `literata-italic.ttf` | SIL OFL 1.1 (`OFL-Literata.txt`) | 2017 The Literata Project Authors |
+| Source Sans 3 (variable, roman + italic) | `source-sans-3.ttf`, `source-sans-3-italic.ttf` | SIL OFL 1.1 (`OFL-SourceSans3.txt`) | 2010-2020 Adobe |
+| Atkinson Hyperlegible (regular, italic, bold, bold italic) | `atkinson-*.ttf` | SIL OFL 1.1 (`OFL-AtkinsonHyperlegible.txt`) | 2020 Braille Institute of America, Inc. |

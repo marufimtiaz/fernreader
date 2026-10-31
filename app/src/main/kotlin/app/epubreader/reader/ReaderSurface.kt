@@ -14,6 +14,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -34,7 +38,7 @@ import kotlin.coroutines.resume
  * first frame shows the reader's opaque loading screen, and the WebView is revealed one frame later.
  */
 @Composable
-fun ReaderSurface(engine: ReaderEngine, covered: Boolean) {
+fun ReaderSurface(engine: ReaderEngine, covered: Boolean, background: Color) {
     val created by engine.created.collectAsState()
     if (!created) return
     val coveredNow by rememberUpdatedState(covered)
@@ -50,6 +54,8 @@ fun ReaderSurface(engine: ReaderEngine, covered: Boolean) {
             }
         }
     }
+    // The strips around the inset page (status and navigation bar areas) take the page colour (M2 note, F-074).
+    Box(Modifier.fillMaxSize().background(background)) {
     AndroidView(
         factory = {
             engine.webView.also {
@@ -61,7 +67,9 @@ fun ReaderSurface(engine: ReaderEngine, covered: Boolean) {
         },
         // Book content stays clear of the status and gesture bars (edge-to-edge); chrome is drawn over it, so toggling it never reflows.
         modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars),
+        update = { it.setBackgroundColor(background.toArgb()) },
     )
+    }
 }
 
 /** Suspends until the window draws its next frame (this view's tree). */

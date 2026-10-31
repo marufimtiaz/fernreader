@@ -26,7 +26,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.epubreader.core.data.SourceRef
+import app.epubreader.reader.display.DisplayPanel
+import app.epubreader.reader.display.ReadingTheme
 import app.epubreader.reader.toc.TocPanel
+import androidx.compose.ui.text.font.FontFamily
 import app.epubreader.ui.Copy
 
 /**
@@ -35,9 +38,12 @@ import app.epubreader.ui.Copy
  * set come with M6 Task 6.1; M2 uses text buttons.
  */
 @Composable
-fun ReaderScreen(c: ReaderController, onBack: () -> Unit, onForget: (SourceRef) -> Unit, probe: EventProbe) {
+fun ReaderScreen(c: ReaderController, onBack: () -> Unit, onForget: (SourceRef) -> Unit, probe: EventProbe, fonts: Map<String, FontFamily> = emptyMap()) {
     val s by c.state.collectAsState()
+    val settings by c.settings.collectAsState()
     LaunchedEffect(Unit) { withFrameNanos { }; probe.ev("reader_frame", "") }
+    // F-074: the reader's own surfaces (loading screen, bars, panels) follow the reading theme, not the app theme.
+    MaterialTheme(colorScheme = ReadingTheme.of(settings.theme).colorScheme()) {
     Box(Modifier.fillMaxSize()) {
         when {
             s.error != null -> Surface(Modifier.fillMaxSize()) {
@@ -62,14 +68,20 @@ fun ReaderScreen(c: ReaderController, onBack: () -> Unit, onForget: (SourceRef) 
                 Row(Modifier.statusBarsPadding().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     TextButton(onClick = onBack) { Text(Copy.back) }
                     Text(s.title, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    TextButton(onClick = c::showDisplay) { Text(Copy.display) }
                     TextButton(onClick = c::showToc, enabled = s.toc.isNotEmpty()) { Text(Copy.contents) }
                 }
             }
+        }
+        if (s.displayVisible && s.error == null) {
+            LaunchedEffect(Unit) { withFrameNanos { }; probe.ev("display_shown", "") }
+            DisplayPanel(settings, fonts, onChange = c::updateSettings, modifier = Modifier.align(Alignment.BottomCenter))
         }
         if (s.tocVisible) TocPanel(s.toc, s.currentTocHref, onSelect = c::onTocSelected, onDismiss = c::hideToc, probe = probe)
         s.notice?.let {
             LaunchedEffect(it) { kotlinx.coroutines.delay(3_000); c.dismissNotice() }
             Snackbar(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(16.dp)) { Text(Copy.missingTarget) }
         }
+    }
     }
 }

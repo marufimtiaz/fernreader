@@ -46,6 +46,7 @@ data class ReaderUiState(
     val currentTocHref: String? = null,
     val chromeVisible: Boolean = false,
     val tocVisible: Boolean = false,
+    val displayVisible: Boolean = false,
     val notice: Notice? = null,
     val error: ReaderError? = null,
     val source: SourceRef? = null,
@@ -257,11 +258,17 @@ class ReaderController(
     }
 
     /** Handles Back inside the reader (closes the TOC first). Returns false if Back should leave the reader. */
-    fun backInside(): Boolean = if (_state.value.tocVisible) { hideToc(); true } else false
+    fun backInside(): Boolean = when {
+        _state.value.displayVisible -> { hideDisplay(); true }
+        _state.value.tocVisible -> { hideToc(); true }
+        else -> false
+    }
 
     fun toggleChrome() = _state.update { it.copy(chromeVisible = !it.chromeVisible) }
     fun showToc() { probe.ev("toc_cmd", ""); _state.update { it.copy(tocVisible = true, chromeVisible = false) } }
     fun hideToc() = _state.update { it.copy(tocVisible = false) }
+    fun showDisplay() { probe.ev("display_cmd", ""); _state.update { it.copy(displayVisible = true, chromeVisible = false) } }
+    fun hideDisplay() = _state.update { it.copy(displayVisible = false) }
     fun dismissNotice() = _state.update { it.copy(notice = null) }
 
     /** R-001: a missing target shows a notice and the page stays; otherwise jump (href is the reader's own). */
@@ -302,7 +309,10 @@ class ReaderController(
                 probe.ev("painted", "")
                 if (!s.painted) { s.painted = true; probe.ev("painted_first", ""); _state.update { it.copy(loading = false) } }
             }
-            is FromWeb.Tap -> if (m.sessionId == s.id && m.x in 0.33..0.67) toggleChrome()
+            is FromWeb.Tap -> if (m.sessionId == s.id) when {
+                _state.value.displayVisible -> hideDisplay() // a tap on the page closes the panel
+                m.x in 0.33..0.67 -> toggleChrome()
+            }
             is FromWeb.Error -> if (m.sessionId == null || m.sessionId == s.id) {
                 _state.update { it.copy(loading = false, error = ReaderError.Engine(m.kind, m.message)) }
             }
