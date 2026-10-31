@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -22,6 +21,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -45,8 +45,8 @@ import androidx.compose.ui.unit.dp
 import app.epubreader.ui.Copy
 
 private sealed interface ListRow {
-    data class Header(val label: String) : ListRow
-    data class Hit(val result: SearchResult) : ListRow
+    data class Header(val label: String, val key: String) : ListRow
+    data class Hit(val result: SearchResult, val key: String) : ListRow
 }
 
 /** A chapter header row whenever the label changes; hits before the first contents entry have none. */
@@ -54,9 +54,10 @@ private fun rowsOf(results: List<SearchResult>): List<ListRow> {
     val out = ArrayList<ListRow>(results.size + 16)
     var last: String? = null
     for (r in results) {
-        if (r.chapter != last && r.chapter != null) out += ListRow.Header(r.chapter)
+        val key = "${r.hit.spineIndex}:${r.hit.offset}"
+        if (r.chapter != last && r.chapter != null) out += ListRow.Header(r.chapter, "c:$key")
         last = r.chapter
-        out += ListRow.Hit(r)
+        out += ListRow.Hit(r, "h:$key")
     }
     return out
 }
@@ -71,9 +72,11 @@ fun SearchPanel(search: ReaderSearch, onDismiss: () -> Unit) {
     val focus = remember { FocusRequester() }
     val keyboard = LocalFocusManager.current
     val rows = remember(st.results) { rowsOf(st.results) }
-    val list = rememberLazyListState()
+    remember { search.shownRun(st.runId) } // a different search than last shown drops the saved position
+    val list = rememberLazyListState(search.scrollIndex, search.scrollOffset)
+    DisposableEffect(Unit) { onDispose { search.scrollIndex = list.firstVisibleItemIndex; search.scrollOffset = list.firstVisibleItemScrollOffset } }
     LaunchedEffect(Unit) { if (st.query.isBlank()) runCatching { focus.requestFocus() } }
-    LaunchedEffect(st.runId) { list.scrollToItem(0) }
+    LaunchedEffect(st.runId) { if (search.shownRun(st.runId)) list.scrollToItem(0) }
     LaunchedEffect(st.runId, st.results.isNotEmpty()) { if (st.results.isNotEmpty()) { withFrameNanos { }; search.reportFirst(st.runId) } }
     LaunchedEffect(st.runId, st.done) { if (st.done) { withFrameNanos { }; search.reportDone(st.runId, st.total) } }
     Surface(Modifier.fillMaxSize()) {
@@ -98,8 +101,7 @@ fun SearchPanel(search: ReaderSearch, onDismiss: () -> Unit) {
             }
             if (st.submitted == null) Recent(st.history, onPick = search::submit, onClear = search::clearHistory)
             else LazyColumn(state = list, modifier = Modifier.fillMaxSize()) {
-                // Batches only append, so a row's index identifies it for the life of one search.
-                itemsIndexed(rows, key = { i, _ -> i }) { _, row ->
+                items(rows, key = { if (it is ListRow.Hit) it.key else (it as ListRow.Header).key }) { row ->
                     when (row) {
                         is ListRow.Header -> Text(
                             row.label, Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp),

@@ -58,6 +58,18 @@ class ReaderSearch(
     private var job: Job? = null
     private var firstReported = 0
     private var doneReported = 0
+    private var clears = 0
+    private var lastShownRun = 0
+    /** The result list's scroll position, kept by the panel so reopening after a jump shows the same place. */
+    var scrollIndex = 0
+    var scrollOffset = 0
+
+    /** True (and the saved scroll position is dropped) when [runId] is not the search the panel showed last. */
+    fun shownRun(runId: Int): Boolean {
+        if (runId == lastShownRun) return false
+        lastShownRun = runId; scrollIndex = 0; scrollOffset = 0
+        return true
+    }
 
     fun setQuery(text: String) {
         _state.update { it.copy(query = text) }
@@ -87,15 +99,19 @@ class ReaderSearch(
     /** Reads the book's recent queries (when the panel opens). */
     fun loadHistory() {
         val id = book()?.bookId ?: return
+        val gen = clears
         scope.launch {
             guarded("reading search history") {
                 val rows = history?.recent(id) ?: return@guarded
-                _state.update { it.copy(history = rows) }
+                if (gen != clears) return@guarded // cleared meanwhile: the read is stale
+                // Queries submitted while the read was in flight are newer than any stored row.
+                _state.update { it.copy(history = (it.history + rows.filter { r -> r !in it.history }).take(SearchHistoryStore.LIMIT)) }
             }
         }
     }
 
     fun clearHistory() {
+        clears++
         _state.update { it.copy(history = emptyList()) }
         val id = book()?.bookId ?: return
         scope.launch { guarded("clearing search history") { history?.clear(id) } }
@@ -104,7 +120,7 @@ class ReaderSearch(
     /** A different book opened (or this one closed): nothing carries over. */
     fun reset() {
         job?.cancel(); job = null
-        firstReported = 0; doneReported = 0
+        firstReported = 0; doneReported = 0; lastShownRun = 0; scrollIndex = 0; scrollOffset = 0; clears++
         _state.value = SearchState()
     }
 

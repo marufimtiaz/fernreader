@@ -210,4 +210,36 @@ class ReaderSearchTest {
         assertFalse(s.state.value.running)
         assertEquals(1, s.state.value.results.size)
     }
+
+    @Test fun a_history_read_that_lands_late_keeps_the_query_submitted_meanwhile() = runTest(dispatcher) {
+        history.rows["b1"] = mutableListOf("old1", "old2")
+        val s = search()
+        s.loadHistory()
+        s.submit("fresh") // before the read resumed, as searchFor does
+        advanceUntilIdle()
+        assertEquals(listOf("fresh", "old1", "old2"), s.state.value.history)
+    }
+
+    @Test fun a_history_read_that_lands_after_clear_does_not_bring_it_back() = runTest(dispatcher) {
+        history.rows["b1"] = mutableListOf("old")
+        val s = search()
+        s.loadHistory()
+        s.clearHistory()
+        advanceUntilIdle()
+        assertEquals(emptyList<String>(), s.state.value.history)
+    }
+
+    @Test fun the_scroll_position_survives_a_reopen_of_the_same_search_only() = runTest(dispatcher) {
+        val s = search()
+        s.submit("a"); advanceUntilIdle()
+        val run = s.state.value.runId
+        assertTrue(s.shownRun(run)) // first time shown: start at the top
+        s.scrollIndex = 12; s.scrollOffset = 7 // the panel saves these when it closes
+        assertFalse(s.shownRun(run)) // reopened: same search, keep the place
+        assertEquals(12, s.scrollIndex)
+        s.submit("b"); advanceUntilIdle()
+        assertTrue(s.shownRun(s.state.value.runId))
+        assertEquals(0, s.scrollIndex)
+        assertEquals(0, s.scrollOffset)
+    }
 }
