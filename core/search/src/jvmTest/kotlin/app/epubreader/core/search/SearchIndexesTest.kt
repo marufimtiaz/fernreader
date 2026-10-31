@@ -158,6 +158,23 @@ class SearchIndexesTest {
         assertEquals(setOf(0, 1, 2, 3), search("half", "alpha", whole = true).hits().map { it.spineIndex }.toSet())
     }
 
+    private fun failing_build_ends_not_running(id: String, error: Throwable) {
+        val secs = List(4) { "<p>" + "alpha ".repeat(60) + "</p>" }
+        indexes.ensureBuilt(id, "d") { ListBookText(secs) { if (it == 2) throw error } }
+        val updates = search(id, "alpha", whole = true) // may start before or after the failure: either way it must end
+        assertTrue(updates.last().done)
+        val p = runBlocking { withTimeout(30_000) { indexes.progress(id).first { !it.running } } }
+        assertTrue(p.failed && !p.complete, "$p")
+        assertEquals(listOf(id), indexes.incomplete())
+        built(id, ListBookText(secs)) // resumable
+    }
+
+    @Test fun unexpected_exception_fails_the_build_without_hanging_a_search() =
+        failing_build_ends_not_running("boom", IllegalStateException("boom"))
+
+    @Test fun out_of_memory_fails_the_build_instead_of_skipping_the_section() =
+        failing_build_ends_not_running("oom", OutOfMemoryError("test"))
+
     @Test fun stale_digest_finds_nothing_until_rebuilt() {
         built("wp", wpLike, digest = "d1")
         assertEquals(0, search("wp", "borodino", digest = "d2").hits().size)

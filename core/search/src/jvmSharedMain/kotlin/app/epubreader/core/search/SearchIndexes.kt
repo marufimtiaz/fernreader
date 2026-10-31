@@ -1,7 +1,6 @@
 package app.epubreader.core.search
 
 import androidx.sqlite.SQLiteConnection
-import androidx.sqlite.SQLiteException
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
@@ -52,18 +51,21 @@ class SearchIndexes(private val dir: String, private val io: CoroutineDispatcher
                 try {
                     val book = text() ?: throw BookUnavailableException("no book")
                     IndexBuilder.build(path, digest, book) { state.value = it }
-                    state.value = state.value.copy(running = false, failed = false)
                 } catch (e: CancellationException) {
-                    state.value = state.value.copy(running = false)
                     throw e
-                } catch (e: Exception) {
-                    // A book closed under us, a full disk, a damaged file: what is committed stays; the next ensureBuilt resumes.
-                    if (e !is BookUnavailableException && e !is SQLiteException) throw e
-                    state.value = state.value.copy(running = false, failed = true)
+                } catch (e: Throwable) {
+                    // A book closed under us, a full disk, a damaged file, out of memory: what is committed stays and the
+                    // next ensureBuilt resumes. Never crash the process from a background build.
+                    if (e !is BookUnavailableException) println("search index build failed for $bookId: $e")
+                    state.value = state.value.copy(failed = true)
                 }
             }
             builds[bookId] = job
-            job.invokeOnCompletion { synchronized(lock) { if (builds[bookId] === job) builds.remove(bookId) } }
+            // Whatever ended the job (also a scope cancelled before it started), nobody may wait for it any more.
+            job.invokeOnCompletion {
+                state.value = state.value.copy(running = false)
+                synchronized(lock) { if (builds[bookId] === job) builds.remove(bookId) }
+            }
             job.start()
         }
     }

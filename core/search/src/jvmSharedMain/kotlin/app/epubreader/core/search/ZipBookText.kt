@@ -26,12 +26,10 @@ class ZipBookText(private val zip: ZipReader) : BookText {
         val entry = zip.entry(item.path) ?: return null
         return try {
             TextExtractor.extract(TextDecoding.decode(zip.readBytes(entry)))
-        } catch (e: OutOfMemoryError) {
-            null
         } catch (e: IOException) {
             throw BookUnavailableException("book closed", e) // the session was closed or the file went away
         } catch (e: Exception) {
-            null // a damaged entry has no text
+            null // a damaged entry has no text (an OutOfMemoryError is not caught: the build fails and resumes later)
         }
     }
 }
