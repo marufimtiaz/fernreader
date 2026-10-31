@@ -1,5 +1,7 @@
 package app.epubreader.reader.bridge
 
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -11,7 +13,11 @@ import kotlinx.serialization.json.Json
     @Serializable @SerialName("close") data class Close(val v: Int = 1) : ToWeb
     @Serializable @SerialName("next") data class Next(val v: Int = 1) : ToWeb
     @Serializable @SerialName("prev") data class Prev(val v: Int = 1) : ToWeb
-    @Serializable @SerialName("goTo") data class GoTo(val v: Int = 1, val target: String) : ToWeb
+    /** With [id], the web side answers [FromWeb.Seeked] once the jump has landed (or failed). */
+    @OptIn(ExperimentalSerializationApi::class)
+    @Serializable @SerialName("goTo") data class GoTo(
+        val v: Int = 1, val target: String, @EncodeDefault(EncodeDefault.Mode.NEVER) val id: Int? = null,
+    ) : ToWeb
 }
 
 @Serializable data class WebTexts(val missingPart: String)
@@ -29,6 +35,8 @@ import kotlinx.serialization.json.Json
         val v: Int = 1, val sessionId: String, val cfi: String, val fraction: Double, val sectionIndex: Int, val tocHref: String? = null,
     ) : FromWeb
     @Serializable @SerialName("painted") data class Painted(val v: Int = 1, val sessionId: String) : FromWeb
+    /** Sent after the `relocate` of a [ToWeb.GoTo] that carried an id. */
+    @Serializable @SerialName("seeked") data class Seeked(val v: Int = 1, val sessionId: String, val id: Int) : FromWeb
     @Serializable @SerialName("tap") data class Tap(val v: Int = 1, val sessionId: String, val x: Double, val y: Double) : FromWeb
 }
 

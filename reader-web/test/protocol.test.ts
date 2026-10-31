@@ -7,7 +7,7 @@ import type { ToWeb } from '../src/bridge/protocol'
 const fixture = (n: string) => readFileSync(resolve(__dirname, `../../bridge/fixtures/${n}.json`), 'utf8').trim()
 
 describe('protocol v1', () => {
-  it.each(['open', 'close', 'next', 'prev', 'goTo'])('dispatches %s to handlers unchanged', name => {
+  it.each(['open', 'close', 'next', 'prev', 'goTo', 'goToSeek'])('dispatches %s to handlers unchanged', name => {
     const seen: ToWeb[] = []
     const b = new Bridge(vi.fn())
     b.onMessage(m => seen.push(m))
@@ -22,7 +22,7 @@ describe('protocol v1', () => {
     const h = vi.fn(); const b = new Bridge(vi.fn()); b.onMessage(h)
     expect(() => b.receive(json)).not.toThrow(); expect(h).not.toHaveBeenCalled()
   })
-  it.each(['opened', 'relocate', 'painted', 'tap', 'error'])('%s fixture is well-formed JSON with v and type', name => {
+  it.each(['opened', 'relocate', 'painted', 'seeked', 'tap', 'error'])('%s fixture is well-formed JSON with v and type', name => {
     const m = JSON.parse(fixture(name)); expect(m.v).toBe(1); expect(m.type).toBe(name)
   })
   it.each([
@@ -31,6 +31,7 @@ describe('protocol v1', () => {
     '{"v":1,"type":"open","sessionId":"x","texts":{"missingPart":2}}',
     '{"v":1,"type":"open","sessionId":"x","position":5,"texts":{"missingPart":"a"}}',
     '{"v":1,"type":"goTo"}',
+    '{"v":1,"type":"goTo","target":"c1.xhtml","id":"1"}',
   ])('ignores malformed message %s without throwing', json => {
     const h = vi.fn(); const b = new Bridge(vi.fn()); b.onMessage(h)
     expect(() => b.receive(json)).not.toThrow(); expect(h).not.toHaveBeenCalled()

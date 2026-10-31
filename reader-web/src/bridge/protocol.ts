@@ -8,7 +8,7 @@ export type ToWeb =
   | { v: 1; type: 'close' }
   | { v: 1; type: 'next' }
   | { v: 1; type: 'prev' }
-  | { v: 1; type: 'goTo'; target: string }
+  | { v: 1; type: 'goTo'; target: string; id?: number }
 
 export const TO_WEB_TYPES: ReadonlyArray<ToWeb['type']> = ['ping', 'open', 'close', 'next', 'prev', 'goTo']
 
@@ -20,4 +20,5 @@ export type FromWeb =
       dir: 'ltr' | 'rtl'; fixedLayout: boolean; sections: number; toc: TocItem[] }
   | { v: 1; type: 'relocate'; sessionId: string; cfi: string; fraction: number; sectionIndex: number; tocHref: string | null }
   | { v: 1; type: 'painted'; sessionId: string }
+  | { v: 1; type: 'seeked'; sessionId: string; id: number }
   | { v: 1; type: 'tap'; sessionId: string; x: number; y: number }

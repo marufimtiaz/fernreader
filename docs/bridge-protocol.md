@@ -31,11 +31,12 @@ current session.
 | app to web | `ping` | `id` |
 | app to web | `open` | `sessionId`, `position` (virtual CFI or null), `texts.missingPart` |
 | app to web | `close`, `next`, `prev` | none |
-| app to web | `goTo` | `target` (CFI or href) |
+| app to web | `goTo` | `target` (CFI or href), `id` (optional integer: ask for `seeked`) |
 | web to app | `ready`, `pong` | `engine` / `id` |
 | web to app | `opened` | `sessionId`, `identifier` (unique-identifier text or null), `title`, `authors[]`, `dir`, `fixedLayout`, `sections`, `toc[] {label, href, depth, missing}` |
 | web to app | `relocate` | `sessionId`, `cfi`, `fraction`, `sectionIndex`, `tocHref` |
 | web to app | `painted` | `sessionId` (two animation frames after `relocate`) |
+| web to app | `seeked` | `sessionId`, `id` (after the `relocate` of a `goTo` that carried `id`) |
 | web to app | `tap` | `sessionId`, `x`, `y` (fractions of the viewport; links and selections excluded) |
 | web to app | `error` | `sessionId` (or null), `kind` (`open_failed` or `nothing_readable`), `message` |
 
@@ -44,6 +45,20 @@ the book before the first `relocate` arrives. Reopening with the same `sessionId
 parsed book and its laid-out view, kept hidden since `close` (warm reopen, P-016): the view moves only if `position`
 differs from where it is, and `opened`, `relocate`, `painted` follow as for any open. Opening another book releases it. Missing content documents are shown as a placeholder page (F-084); TOC entries
 whose target is absent carry `missing: true` (R-001). Book scripts never run (CSP `script-src 'self'`, R-007).
+
+### Seeks and stored positions (F-037, R-009)
+
+- `next`, `prev` and `goTo` that arrive while a book is still opening (parse, first layout, initial seek) are queued
+  and applied, in order, once the open has settled. foliate ignores navigation while its first section loads, so a
+  `goTo` sent right after `opened` would otherwise be lost.
+- While the view seeks to a requested position (the `open` position, a warm reopen that moves, or a `goTo`), the
+  locations foliate reports on the way (e.g. the section start before the anchor) are not sent. Exactly one
+  `relocate` is sent when the seek lands: the landed location, or where the view stayed if the target did not
+  resolve. So the first `relocate` of an open is never a transient one.
+- A `goTo` with `id` is answered with `seeked {sessionId, id}` after that `relocate` (also when the target did not
+  resolve). The app uses it for the cross-source resume: when `opened` identifies a book that has a saved position
+  but was opened without it (known under another source), the app sends `goTo {target: saved, id}` and stores no
+  position until `seeked` with that id arrives. The book-start `relocate`s before it never replace the saved one.
 
 ## Rule for new messages
 

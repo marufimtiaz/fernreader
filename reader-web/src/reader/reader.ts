@@ -21,11 +21,20 @@ export class Reader {
   private sessionId: string | null = null
   private warm: Warm | null = null
   private token = 0
-  /** Resolves when the current open (parse, layout, seek) has finished; turns wait for it. */
+  /** Resolves when the current open (parse, layout, seek) has finished; queued commands wait for it. */
   private settled: Promise<void> = Promise.resolve()
-  /** Pending page turns, issued one at a time (F-030): foliate ignores a turn while one is animating. */
-  private turns: Array<'next' | 'prev'> = []
-  private turning = false
+  /**
+   * Pending turns and jumps, issued one at a time after the open has settled: foliate ignores a turn or a goTo while
+   * one is animating or while the first section is still loading (F-030, F-037).
+   */
+  private queue: Cmd[] = []
+  private pumping = false
+  /**
+   * True while the view seeks to a requested position (saved position on open, warm reopen move, goTo). foliate may
+   * report intermediate locations meanwhile (e.g. the section start before the anchor); they are not sent, only the
+   * location where the seek lands (bridge-protocol.md, R-009).
+   */
+  private seeking = false
 
   constructor(private bridge: Bridge) {
     bridge.onMessage(m => {
@@ -34,7 +43,7 @@ export class Reader {
         case 'close': this.close(); break
         case 'next': this.turn('next'); break
         case 'prev': this.turn('prev'); break
-        case 'goTo': this.view?.goTo(m.target)?.catch?.((e: unknown) => console.warn('goTo failed', e)); break
+        case 'goTo': this.enqueue({ kind: 'goTo', target: m.target, id: m.id }); break
       }
     })
   }
@@ -85,8 +94,13 @@ export class Reader {
       r.setAttribute('margin', '24px')
       r.setAttribute('gap', '6%')
       r.setAttribute('max-column-count', '1')
+      if (!position) { await view.init({}); return }
       // A position that no longer resolves (e.g. the file changed) falls back to the start (C-009 refinement: M3).
+      this.seeking = true
       try { await view.init({ lastLocation: position }) } catch { if (!stale()) await view.init({}) }
+      if (stale()) return
+      this.seeking = false
+      if (view.lastLocation) this.onRelocate(view, sessionId, view.lastLocation)
     } catch (e) {
       if (!stale()) {
         this.book = null; this.has = null
@@ -100,27 +114,44 @@ export class Reader {
 
   /** At most [MAX_TURNS] pending; more are dropped (a burst of taps still moves that many pages, in order). */
   private turn(dir: 'next' | 'prev') {
-    if (!this.sessionId || this.turns.length >= MAX_TURNS) return // also while the open is still loading
-    this.turns.push(dir)
+    if (this.queue.filter(c => c.kind === 'turn').length >= MAX_TURNS) return
+    this.enqueue({ kind: 'turn', dir })
+  }
+
+  /** Commands that arrive while the open is still loading wait for it (C1: the resume goTo after `opened`). */
+  private enqueue(c: Cmd) {
+    if (!this.sessionId) return
+    this.queue.push(c)
     void this.pump()
   }
 
   private async pump() {
-    if (this.turning) return
-    this.turning = true
+    if (this.pumping) return
+    this.pumping = true
     const token = this.token
     try {
       await this.settled
-      while (this.turns.length && this.token === token && this.view) {
+      while (this.queue.length && this.token === token && this.view) {
         const view = this.view
-        const dir = this.turns.shift()!
-        // Resolves after the turn (and foliate's lock) is over, so the next one is not ignored.
-        try { await (dir === 'next' ? view.next() : view.prev()) } catch (e) { console.warn('turn failed', e) }
+        const sessionId = this.sessionId!
+        const c = this.queue.shift()!
+        if (c.kind === 'turn') {
+          // Resolves after the turn (and foliate's lock) is over, so the next one is not ignored.
+          try { await (c.dir === 'next' ? view.next() : view.prev()) } catch (e) { console.warn('turn failed', e) }
+          continue
+        }
+        this.seeking = true
+        try { await view.goTo(c.target) } catch (e) { console.warn('goTo failed', e) }
+        if (this.token !== token || this.view !== view) break
+        this.seeking = false
+        // One relocate where it landed (or, if the target did not resolve, where it stayed), then the answer.
+        if (view.lastLocation) this.onRelocate(view, sessionId, view.lastLocation)
+        if (c.id != null) this.bridge.send({ v: 1, type: 'seeked', sessionId, id: c.id })
       }
     } finally {
-      this.turning = false
+      this.pumping = false
     }
-    if (this.turns.length && this.token !== token) void this.pump() // queued for a newer open
+    if (this.queue.length && this.token !== token) void this.pump() // queued for a newer open
   }
 
   /**
@@ -133,9 +164,10 @@ export class Reader {
     warm.view.style.visibility = ''
     if (position && position !== warm.view.lastLocation?.cfi) {
       // A position that no longer resolves stays where the view is (foliate's goTo logs and resolves undefined, or throws).
-      let moved = false
-      try { moved = !!(await warm.view.goTo(position)) } catch (e) { console.warn('goTo failed', e) }
-      if (moved || stale()) return // a move's relocate event reports the new location
+      this.seeking = true
+      try { await warm.view.goTo(position) } catch (e) { console.warn('goTo failed', e) }
+      if (stale()) return
+      this.seeking = false
     }
     this.onRelocate(warm.view, sessionId, warm.view.lastLocation)
   }
@@ -156,7 +188,7 @@ export class Reader {
 
   /** Only the open view's events count; `painted` is dropped if another open (or a close) came in between. */
   private onRelocate(view: any, sessionId: string, d: any) {
-    if (this.view !== view || this.sessionId !== sessionId) return
+    if (this.view !== view || this.sessionId !== sessionId || this.seeking) return
     const token = this.token
     this.bridge.send({
       // foliate reports NaN while a section has no layout yet; JSON turns NaN into null, which Kotlin rejects.
@@ -190,7 +222,8 @@ export class Reader {
    */
   private close() {
     this.token++ // invalidates any open still in flight
-    this.turns = []
+    this.queue = []
+    this.seeking = false
     const view = this.view
     if (view && !view.lastLocation) { destroyView(view) }
     if (this.book && this.sessionId && this.has) {
@@ -203,6 +236,8 @@ export class Reader {
 }
 
 const MAX_TURNS = 3
+
+type Cmd = { kind: 'turn'; dir: 'next' | 'prev' } | { kind: 'goTo'; target: string; id?: number }
 
 function destroyView(view: any) {
   try { view.close?.() } catch { /* already broken */ }

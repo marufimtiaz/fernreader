@@ -17,7 +17,11 @@ class FakeView extends HTMLElement {
   renderer = document.createElement('div')
   lastLocation: any = null
   open = vi.fn(async () => {})
-  init = vi.fn(async ({ lastLocation }: { lastLocation?: string | null }) => { await tick(); this.relocateTo(lastLocation ?? 'cfi-start') })
+  static initHook: ((v: FakeView, lastLocation: string | null | undefined) => Promise<void>) | null = null
+  init = vi.fn(async ({ lastLocation }: { lastLocation?: string | null }) => {
+    if (FakeView.initHook) return FakeView.initHook(this, lastLocation)
+    await tick(); this.relocateTo(lastLocation ?? 'cfi-start')
+  })
   goTo = vi.fn(async (t: string): Promise<object | undefined> => { await tick(); this.relocateTo(t); return {} })
   close = vi.fn()
   // Like foliate's paginator: a turn takes a while, and a turn asked for meanwhile is ignored (resolves at once).
@@ -54,7 +58,7 @@ beforeAll(() => {
   globalThis.requestAnimationFrame = (cb: FrameRequestCallback) => setTimeout(() => cb(0), 0) as unknown as number
 })
 beforeEach(() => {
-  FakeView.all = []; document.body.innerHTML = ''
+  FakeView.all = []; FakeView.initHook = null; document.body.innerHTML = ''
   h.makeLoader.mockReset().mockResolvedValue({ has: () => true })
   h.epubInit.mockReset().mockImplementation(async () => book())
   sent = []
@@ -190,6 +194,78 @@ describe('page turns (F-030)', () => {
     open('s1', v.lastLocation.cfi); await settle()
     expect(v.turnsMade.length).toBeLessThanOrEqual(1)
     expect(types()).toEqual(['opened', 'relocate', 'painted'])
+  })
+})
+
+describe('initial seek (I1) and goTo during open (C1, F-037)', () => {
+  const relocates = () => sent.filter(m => m.type === 'relocate').map(m => (m as { cfi: string }).cfi)
+
+  it('relocates foliate emits while seeking to the saved position are not sent; the landed one is', async () => {
+    FakeView.initHook = async (v, lastLocation) => { v.relocateTo('cfi-chapter-start'); await tick(); v.relocateTo(lastLocation ?? 'cfi-start') }
+    open('s1', 'cfi-saved'); await settle()
+    expect(relocates()).toEqual(['cfi-saved'])
+    expect(types()).toEqual(['opened', 'relocate', 'painted'])
+  })
+
+  it('a goTo that arrives while the book is still opening is applied after the open settles', async () => {
+    let release!: () => void
+    h.epubInit.mockImplementation(() => new Promise(r => { release = () => r(book()) }))
+    open('s1', null)
+    send({ v: 1, type: 'goTo', target: 'cfi-saved', id: 1 }) // no view yet
+    await settle()
+    release(); await settle()
+    const v = FakeView.all[0]
+    expect(v.goTo).toHaveBeenCalledWith('cfi-saved')
+    expect(relocates()).toEqual(['cfi-start', 'cfi-saved'])
+    const noPaint = sent.filter(m => m.type !== 'painted')
+    expect(noPaint.at(-2)).toMatchObject({ type: 'relocate', cfi: 'cfi-saved' })
+    expect(noPaint.at(-1)).toEqual({ v: 1, type: 'seeked', sessionId: 's1', id: 1 })
+  })
+
+  it('a goTo during the first layout (view.init running) waits for it', async () => {
+    let releaseInit!: () => void
+    const order: string[] = []
+    FakeView.initHook = v => new Promise<void>(r => { releaseInit = () => { order.push('init'); v.relocateTo('cfi-start'); r() } })
+    open('s1', null); await settle()
+    const v = FakeView.all[0]
+    v.goTo.mockImplementation(async (t: string) => { order.push('goTo'); v.relocateTo(t); return {} })
+    send({ v: 1, type: 'goTo', target: 'cfi-saved', id: 2 }); await settle()
+    expect(order).toEqual([])
+    releaseInit(); await settle()
+    expect(order).toEqual(['init', 'goTo'])
+    expect(v.lastLocation.cfi).toBe('cfi-saved')
+    expect(sent.filter(m => m.type !== 'painted').at(-1)).toEqual({ v: 1, type: 'seeked', sessionId: 's1', id: 2 })
+  })
+
+  it('a goTo without id (TOC jump) sends one relocate and no seeked', async () => {
+    open('s1', null); await settle()
+    const v = FakeView.all[0]
+    v.goTo.mockImplementation(async (t: string) => { v.relocateTo('cfi-section-start'); await tick(); v.relocateTo(t); return {} })
+    sent = []
+    send({ v: 1, type: 'goTo', target: 'c2.xhtml' }); await settle()
+    expect(relocates()).toEqual(['c2.xhtml'])
+    expect(types()).not.toContain('seeked')
+  })
+
+  it('a goTo that does not resolve still answers seeked (from where the view is)', async () => {
+    open('s1', null); await settle()
+    const v = FakeView.all[0]
+    v.goTo.mockResolvedValueOnce(undefined)
+    sent = []
+    send({ v: 1, type: 'goTo', target: 'cfi-gone', id: 3 }); await settle()
+    expect(relocates()).toEqual(['cfi-start'])
+    expect(sent.filter(m => m.type !== 'painted').at(-1)).toEqual({ v: 1, type: 'seeked', sessionId: 's1', id: 3 })
+  })
+
+  it('a goTo queued for a book that was closed is dropped', async () => {
+    let release!: () => void
+    h.epubInit.mockImplementation(() => new Promise(r => { release = () => r(book()) }))
+    open('s1', null)
+    send({ v: 1, type: 'goTo', target: 'cfi-saved', id: 1 })
+    await settle()
+    send({ v: 1, type: 'close' })
+    release(); await settle()
+    expect(types()).not.toContain('seeked')
   })
 })
 

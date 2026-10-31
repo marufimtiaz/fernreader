@@ -10,7 +10,7 @@ function validShape(m: Record<string, unknown>): boolean {
       return isStr(m.sessionId) && !!t && typeof t === 'object' && isStr(t.missingPart) &&
         (m.position == null || isStr(m.position))
     }
-    case 'goTo': return isStr(m.target)
+    case 'goTo': return isStr(m.target) && (m.id == null || Number.isInteger(m.id))
     default: return true
   }
 }

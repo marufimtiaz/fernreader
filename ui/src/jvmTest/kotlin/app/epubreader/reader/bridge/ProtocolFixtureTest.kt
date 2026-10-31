@@ -18,7 +18,8 @@ class ProtocolFixtureTest {
     @Test fun unknown_type_is_ignored() = assertNull(decodeFromWeb(fixture("unknown")))
 
     @Test fun every_from_web_fixture_decodes() {
-        for (n in listOf("opened", "relocate", "painted", "tap", "error")) assertNotNull(decodeFromWeb(fixture(n)), n)
+        for (n in listOf("opened", "relocate", "painted", "seeked", "tap", "error")) assertNotNull(decodeFromWeb(fixture(n)), n)
+        assertEquals(FromWeb.Seeked(sessionId = "s-1", id = 1), decodeFromWeb(fixture("seeked")))
         val o = decodeFromWeb(fixture("opened")) as FromWeb.Opened
         assertEquals(listOf(false, true), o.toc.map { it.missing })
     }
@@ -27,6 +28,7 @@ class ProtocolFixtureTest {
         val msgs = mapOf(
             "open" to ToWeb.Open(sessionId = "s-1", position = "epubcfi(/6/4!/4/2/1:0)", texts = WebTexts("This part of the book could not be shown.")),
             "close" to ToWeb.Close(), "next" to ToWeb.Next(), "prev" to ToWeb.Prev(), "goTo" to ToWeb.GoTo(target = "OEBPS/c2.xhtml"),
+            "goToSeek" to ToWeb.GoTo(target = "epubcfi(/6/6!/4/2)", id = 1),
         )
         for ((n, m) in msgs) assertEquals(tree(fixture(n)), tree(encodeToWeb(m)), n)
     }
