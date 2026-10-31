@@ -12,6 +12,8 @@ import kotlinx.coroutines.flow.Flow
 abstract class LibraryDao {
     @Query("SELECT * FROM book WHERE identityKey = :key") abstract suspend fun byIdentity(key: String): BookEntity?
     @Query("SELECT bookId FROM book_file WHERE path = :path") abstract suspend fun bookIdForPath(path: String): String?
+    /** A book's file paths, scanned files first (the idle search-index job wants a plain file it can open later). */
+    @Query("SELECT path FROM book_file WHERE bookId = :bookId ORDER BY (source = 'scan') DESC, path") abstract suspend fun pathsOf(bookId: String): List<String>
     @Insert abstract suspend fun insertBook(b: BookEntity)
     @Upsert abstract suspend fun upsertFile(f: BookFileEntity)
 

@@ -93,6 +93,8 @@ class ReaderControllerTest {
     private class FakeSearch : SearchPort {
         val ensured = mutableListOf<Triple<String, String, String>>()
         val queries = mutableListOf<SearchQuery>()
+        val closed = mutableListOf<String>()
+        override fun bookClosed(bookId: String) { closed += bookId }
         override fun ensureIndex(bookId: String, digest: String, sessionId: String) { ensured += Triple(bookId, digest, sessionId) }
         override fun search(bookId: String, digest: String, sessionId: String, query: SearchQuery): kotlinx.coroutines.flow.Flow<SearchUpdate> {
             queries += query
@@ -367,6 +369,34 @@ class ReaderControllerTest {
         assertEquals("Borodinó", c.searcher.state.value.query)
         assertEquals(listOf("One"), c.searcher.state.value.results.map { it.chapter })
         assertEquals(listOf("Borodinó"), searchHistory.recent(bookId))
+    }
+
+    @Test fun the_search_index_starts_after_the_first_paint_and_the_stats_not_before() = runTest(dispatcher) {
+        val c = controller()
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
+        assertEquals(emptyList(), searchPort.ensured) // opened, not yet painted
+        reader.events.emit(FromWeb.Painted(sessionId = "s-1")); advanceUntilIdle()
+        val bookId = library.knownBookId(ref)!!
+        assertEquals(1, opener.statsCalls)
+        assertEquals(listOf(Triple(bookId, "d".repeat(64), "s-1")), searchPort.ensured)
+        reader.events.emit(FromWeb.Painted(sessionId = "s-1")); advanceUntilIdle() // later paints do not restart it
+        assertEquals(1, searchPort.ensured.size)
+    }
+
+    @Test fun the_search_index_still_starts_when_the_stats_fail() = runTest(dispatcher) {
+        opener.stats = null
+        val c = controller()
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
+        reader.events.emit(FromWeb.Painted(sessionId = "s-1")); advanceUntilIdle()
+        assertEquals(1, searchPort.ensured.size)
+    }
+
+    @Test fun closing_a_book_tells_the_search_port() = runTest(dispatcher) {
+        val c = controller()
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
+        val bookId = library.knownBookId(ref)!!
+        c.close(); advanceUntilIdle()
+        assertEquals(listOf(bookId), searchPort.closed)
     }
 
     @Test fun selecting_a_result_sends_the_jump_hides_the_panel_and_keeps_the_results() = runTest(dispatcher) {

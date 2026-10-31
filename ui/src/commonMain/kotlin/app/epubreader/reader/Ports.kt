@@ -32,6 +32,8 @@ interface BookOpenerPort {
 interface SearchPort {
     /** Starts (or resumes) building this book's index in the background; idempotent. Must not block. */
     fun ensureIndex(bookId: String, digest: String, sessionId: String)
+    /** The book was closed: if its index is unfinished, arrange for it to be finished later. Must not block. */
+    fun bookClosed(bookId: String) {}
     /** Hits in book order, in batches; the last update has `done = true`. Cancelling the collector stops the search. */
     fun search(bookId: String, digest: String, sessionId: String, query: app.epubreader.core.search.SearchQuery): Flow<app.epubreader.core.search.SearchUpdate>
 }

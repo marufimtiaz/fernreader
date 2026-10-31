@@ -8,7 +8,8 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 
 class LibraryRepositoryTest {
-    private val repo = LibraryRepository(testDb(), HybridClock(System::currentTimeMillis))
+    private val db = testDb()
+    private val repo = LibraryRepository(db, HybridClock(System::currentTimeMillis))
     private fun info(id: String, ref: SourceRef, title: String = "T") = OpenedBookInfo(id, title, listOf("A"), ref, 100)
 
     @Test fun first_open_creates_book_and_remembers_source() = runTest {
@@ -25,6 +26,16 @@ class LibraryRepositoryTest {
         val b = repo.recordOpened(info("id-1", SourceRef.Content("content://x/2")))
         assertEquals(a.bookId, b.bookId)
         assertEquals(1, repo.library().first().size)
+    }
+
+    @Test fun file_path_prefers_a_scanned_plain_file_and_skips_content_uris() = runTest {
+        val id = repo.recordOpened(info("id-1", SourceRef.Content("content://x/9"))).bookId
+        assertNull(repo.filePath(id)) // only a content URI: nothing a background job can open
+        repo.recordOpened(info("id-1", SourceRef.File("/sdcard/z-opened.epub")))
+        assertEquals("/sdcard/z-opened.epub", repo.filePath(id))
+        db.libraryDao().upsertFile(BookFileEntity("/sdcard/a-scanned.epub", id, "scan", "/sdcard", 100, 0, 1))
+        assertEquals("/sdcard/a-scanned.epub", repo.filePath(id))
+        assertNull(repo.filePath("unknown"))
     }
 
     @Test fun different_identity_is_a_new_book() = runTest {

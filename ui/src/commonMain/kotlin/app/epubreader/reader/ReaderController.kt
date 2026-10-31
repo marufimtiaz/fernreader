@@ -233,6 +233,14 @@ class ReaderController(
             } catch (e: Exception) {
                 failed("loading section stats", e, showIfOpen = false)
             }
+            // The search index starts last, so its text pass never competes with the first page or the stats (5.1).
+            try {
+                if (session === s) search?.ensureIndex(id, s.cdDigest, s.id)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                failed("starting the search index", e, showIfOpen = false)
+            }
         }
     }
 
@@ -263,6 +271,7 @@ class ReaderController(
         _state.value = ReaderUiState()
         if (s == null) return
         reader.send(ToWeb.Close())
+        s.bookId?.let { id -> runCatching { search?.bookClosed(id) } } // an unfinished index is finished later (idle job)
         closing = closeScope.launch {
             try {
                 s.last?.let { positions.await().writeNow(it) }

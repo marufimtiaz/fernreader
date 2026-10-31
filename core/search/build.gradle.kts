@@ -13,7 +13,7 @@ kotlin {
     jvm { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
     @OptIn(org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi::class)
     applyDefaultHierarchyTemplate {
-        common { group("jvmShared") { withJvm(); withAndroidTarget() } }
+        common { group("jvmShared") { withJvm(); withCompilations { it.target.platformType == org.jetbrains.kotlin.gradle.plugin.KotlinPlatformType.androidJvm } } }
     }
     sourceSets {
         commonMain.dependencies {

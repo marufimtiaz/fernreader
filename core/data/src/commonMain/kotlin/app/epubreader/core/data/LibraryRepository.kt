@@ -13,6 +13,9 @@ data class OpenRecord(val bookId: String, val position: ReadingPositionEntity?)
 class LibraryRepository(private val db: AppDatabase, private val clock: HybridClock) {
     suspend fun knownBookId(ref: SourceRef): String? = db.libraryDao().bookIdForPath(ref.key)
 
+    /** A plain file path for [bookId] (scanned files preferred; content URIs are not usable from a background job), or null. */
+    suspend fun filePath(bookId: String): String? = db.libraryDao().pathsOf(bookId).firstOrNull { !it.contains("://") }
+
     suspend fun position(bookId: String): ReadingPositionEntity? = db.positionDao().get(bookId)
 
     suspend fun recordOpened(info: OpenedBookInfo): OpenRecord {
