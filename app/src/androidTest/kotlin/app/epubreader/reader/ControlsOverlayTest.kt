@@ -48,12 +48,16 @@ class ControlsOverlayTest {
             dev.click(cx, cy)
             withTimeout(3_000) { h.a.controller.state.first { it.chromeVisible } }
             assertTrue(dev.wait(Until.hasObject(By.desc(Copy.contents)), 3_000))
+            // F-035: fullscreen is on by default; the bars come with the controls and still nothing reflows
+            assertTrue(h.a.controller.settings.value.fullscreen)
+            assertTrue("bars shown with the controls", waitStatusBar(sc, true))
             delay(600)
             assertEquals(block, sc.js("window.__readerTest.firstVisibleBlock()"))
             assertEquals(pageBefore, sc.js("JSON.stringify(window.__readerTest.page())"))
             dev.click(cx, cy)
             withTimeout(3_000) { h.a.controller.state.first { !it.chromeVisible } }
             assertTrue(dev.wait(Until.gone(By.desc(Copy.contents)), 3_000))
+            assertTrue("bars hidden with the controls", waitStatusBar(sc, false))
             delay(600)
             watch.cancel()
 
@@ -63,5 +67,16 @@ class ControlsOverlayTest {
             assertFalse(h.a.controller.state.value.chromeVisible)
             h.stop()
         }
+    }
+
+    private fun waitStatusBar(sc: ActivityScenario<MainActivity>, visible: Boolean): Boolean {
+        val end = System.currentTimeMillis() + 3_000
+        while (System.currentTimeMillis() < end) {
+            var v = !visible
+            sc.onActivity { v = androidx.core.view.ViewCompat.getRootWindowInsets(it.window.decorView)?.isVisible(androidx.core.view.WindowInsetsCompat.Type.statusBars()) ?: !visible }
+            if (v == visible) return true
+            Thread.sleep(100)
+        }
+        return false
     }
 }

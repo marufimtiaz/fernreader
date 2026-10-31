@@ -5,7 +5,8 @@ import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.systemBarsIgnoringVisibility
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -37,8 +38,9 @@ import kotlin.coroutines.resume
  * Coming back straight into the reader (system picker, open-with while running, P-003) takes the same path: the
  * first frame shows the reader's opaque loading screen, and the WebView is revealed one frame later.
  */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-fun ReaderSurface(engine: ReaderEngine, covered: Boolean, background: Color) {
+fun ReaderSurface(engine: ReaderEngine, covered: Boolean, background: Color, fullscreen: Boolean = false) {
     val created by engine.created.collectAsState()
     if (!created) return
     val coveredNow by rememberUpdatedState(covered)
@@ -65,8 +67,9 @@ fun ReaderSurface(engine: ReaderEngine, covered: Boolean, background: Color) {
                 it.layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
             }
         },
-        // Book content stays clear of the status and gesture bars (edge-to-edge); chrome is drawn over it, so toggling it never reflows.
-        modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars),
+        // The inset is stable: it never follows the bars showing or hiding (with the controls, F-035), so the page does
+        // not reflow. Fullscreen: only the display cutout (transient bars draw over the page); otherwise the bars' size.
+        modifier = Modifier.fillMaxSize().windowInsetsPadding(if (fullscreen) WindowInsets.displayCutout else WindowInsets.systemBarsIgnoringVisibility),
         update = { it.setBackgroundColor(background.toArgb()) },
     )
     }

@@ -15,6 +15,10 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import app.epubreader.reader.ReaderWindowState
+import app.epubreader.reader.readerWindowState
 import android.view.WindowManager
 import app.epubreader.reader.display.ReadingTheme
 import androidx.compose.runtime.getValue
@@ -189,11 +193,13 @@ class MainActivity : ComponentActivity() {
             }
             androidx.compose.runtime.LaunchedEffect(mode) { withContext(Dispatchers.IO) { app.epubreader.settings.AppThemeCache.write(this@MainActivity, mode) } }
             val inReader = nav.top == Route.Reader
-            SideEffect { applyReaderWindow(inReader, rs.brightness, lightBars = if (inReader) theme.isLight else !dark) }
+            val ui by controller.state.collectAsState()
+            val win = readerWindowState(inReader, ui.open, ui.chromeVisible, rs)
+            SideEffect { applyReaderWindow(inReader, rs.brightness, lightBars = if (inReader) theme.isLight else !dark, win) }
             Box {
                 App(
                     dark = dark, webViewTooOld = webViewTooOld, nav = nav, library = library, reader = controller, probe = probe,
-                    readerSurface = { ReaderSurface(reader, covered = nav.top != Route.Reader, background = theme.background) },
+                    readerSurface = { ReaderSurface(reader, covered = nav.top != Route.Reader, background = theme.background, fullscreen = rs.fullscreen) },
                     fonts = fonts,
                     onOpenPicker = { pick.launch(arrayOf("application/epub+zip", "application/octet-stream")) },
                     onGrantAccess = access::request, onLeave = ::finish,
@@ -284,13 +290,21 @@ class MainActivity : ComponentActivity() {
      * Reader window state: app-controlled brightness only while reading (F-035 via F-075, "follow system" = none),
      * and bar icons that stay readable on the reading theme's strips.
      */
-    private fun applyReaderWindow(inReader: Boolean, brightness: Double?, lightBars: Boolean) {
+    private var appliedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+
+    private fun applyReaderWindow(inReader: Boolean, brightness: Double?, lightBars: Boolean, win: ReaderWindowState) {
         val want = if (inReader && brightness != null) brightness.toFloat() else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
         if (window.attributes.screenBrightness != want) window.attributes = window.attributes.apply { screenBrightness = want }
         WindowCompat.getInsetsController(window, window.decorView).apply {
             isAppearanceLightStatusBars = lightBars
             isAppearanceLightNavigationBars = lightBars
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            if (win.barsHidden) hide(WindowInsetsCompat.Type.systemBars()) else show(WindowInsetsCompat.Type.systemBars())
         }
+        if (win.keepScreenOn) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // Only on a change, so the bench `orient` command keeps winning until the lock or the route changes.
+        if (win.orientation != appliedOrientation) { appliedOrientation = win.orientation; requestedOrientation = win.orientation }
     }
 
     fun openBook(ref: SourceRef) {

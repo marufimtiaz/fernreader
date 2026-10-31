@@ -1,0 +1,80 @@
+package app.epubreader.reader
+
+import android.content.pm.ActivityInfo
+import android.view.WindowManager
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.test.core.app.ActivityScenario
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import app.epubreader.MainActivity
+import app.epubreader.TestBooks
+import app.epubreader.core.data.OrientationLock
+import app.epubreader.core.data.ReaderSettings
+import app.epubreader.ui.Route
+import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import org.junit.runner.RunWith
+
+/** F-035: fullscreen, keep-screen-on and orientation lock act in the reader only, and live. */
+@RunWith(AndroidJUnit4::class)
+class ScreenBehaviourTest {
+    private val inst = InstrumentationRegistry.getInstrumentation()
+
+    private fun <T> ActivityScenario<MainActivity>.read(f: (MainActivity) -> T): T { var r: T? = null; onActivity { r = f(it) }; @Suppress("UNCHECKED_CAST") return r as T }
+    private fun ActivityScenario<MainActivity>.keepOn() = read { it.window.attributes.flags and WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON != 0 }
+    private fun ActivityScenario<MainActivity>.statusBar() = read { ViewCompat.getRootWindowInsets(it.window.decorView)?.isVisible(WindowInsetsCompat.Type.statusBars()) ?: true }
+    private fun <T> eventually(what: String, want: T, get: () -> T) {
+        val end = System.currentTimeMillis() + 5_000
+        while (get() != want && System.currentTimeMillis() < end) Thread.sleep(100)
+        assertEquals(what, want, get())
+    }
+
+    private fun withReader(s: ReaderSettings?, body: suspend (ActivityScenario<MainActivity>, ReaderHarness) -> Unit) = runBlocking {
+        val f = TestBooks.write(inst.targetContext, "screen.epub", TestBooks.epub(id = "urn:uuid:scr-${System.nanoTime()}", chapters = 2, paragraphs = 30))
+        ActivityScenario.launch(MainActivity::class.java).use { sc ->
+            val h = ReaderHarness(sc, this)
+            try {
+                h.ready()
+                if (s != null) sc.onActivity { it.controller.updateSettings { _ -> s } }
+                h.open(f)
+                body(sc, h)
+            } finally {
+                sc.onActivity { it.controller.updateSettings { ReaderSettings() } }
+                h.stop()
+            }
+        }
+    }
+
+    @Test fun keep_screen_on_in_the_reader_only() = withReader(null) { sc, _ ->
+        eventually("flag set in the reader", true) { sc.keepOn() }
+        sc.onActivity { it.goBack() }
+        eventually("route", Route.Library) { sc.read { it.nav.top } }
+        eventually("flag cleared in the library", false) { sc.keepOn() }
+    }
+
+    @Test fun keep_screen_on_setting_off_never_sets_it() = withReader(ReaderSettings(keepScreenOn = false)) { sc, _ ->
+        Thread.sleep(500)
+        assertFalse(sc.keepOn())
+    }
+
+    @Test fun fullscreen_hides_the_status_bar_in_the_reader_and_restores_it_in_the_library() = withReader(null) { sc, _ ->
+        eventually("hidden in the reader", false) { sc.statusBar() }
+        sc.onActivity { it.goBack() }
+        eventually("visible in the library", true) { sc.statusBar() }
+    }
+
+    @Test fun fullscreen_off_keeps_the_bars() = withReader(ReaderSettings(fullscreen = false)) { sc, _ ->
+        Thread.sleep(500)
+        assertTrue(sc.statusBar())
+    }
+
+    @Test fun orientation_lock_applies_in_the_reader_and_is_released_on_leaving() = withReader(ReaderSettings(orientation = OrientationLock.PORTRAIT)) { sc, _ ->
+        eventually("portrait in the reader", ActivityInfo.SCREEN_ORIENTATION_PORTRAIT) { sc.read { it.requestedOrientation } }
+        sc.onActivity { it.goBack() }
+        eventually("unspecified in the library", ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) { sc.read { it.requestedOrientation } }
+    }
+}
