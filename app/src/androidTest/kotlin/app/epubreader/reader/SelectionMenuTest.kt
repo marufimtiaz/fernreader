@@ -171,6 +171,23 @@ class SelectionMenuTest {
         assertEquals("no page turn", from.cfi, hr.settle().cfi)
     }
 
+    /** I4 (review): Back with text selected dismisses the selection and its toolbar; the book stays open on its page. */
+    @Test fun back_with_a_selection_only_dismisses_it(): Unit = run { hr, sc ->
+        val from = hr.settle()
+        hr.longPress("Prince")
+        assertNotNull(dev.wait(Until.findObject(By.text(Copy.selHighlight)), 5_000))
+        dev.pressBack()
+        hr.next(3_000) { e -> (e as? FromWeb.Selection)?.takeIf { it.cfi == null } }
+        delay(500)
+        assertNull("selection gone", sc.selectionText())
+        assertTrue("toolbar gone", dev.wait(Until.gone(By.text(Copy.selHighlight)), 3_000))
+        var top: app.epubreader.ui.Route? = null
+        sc.onActivity { top = it.nav.top }
+        assertEquals("still in the reader", app.epubreader.ui.Route.Reader, top)
+        assertTrue(hr.a.controller.state.value.open)
+        assertEquals("same page", from.cfi, hr.settle().cfi)
+    }
+
     @Test fun scrolled_flow_long_press_and_copy(): Unit = run { hr, sc ->
         sc.onActivity { it.controller.updateSettings { s -> s.copy(flow = Flow.SCROLLED) } }
         hr.relocate(10_000); hr.quiet()
