@@ -8,11 +8,11 @@ declare -A BOOKS=([P-010]=$B/gutenberg/alice-epub3-images.epub [P-011]=$WP
                   [P-012]=$B/generated/stress-2000-chapters.epub [P-013]=$B/generated/stress-200-images.epub)
 [ "$RELEASE" = 1 ] && BOOKS[P-014]=$B/generated/stress-huge-single-chapter.epub
 $A shell appops set "$PKG" MANAGE_EXTERNAL_STORAGE allow
-row0() { $A logcat -d -s EPR:I | awk '/EVT row0 /{ match($0,/y=[0-9]+/); y=substr($0,RSTART+2,RLENGTH-2) } END{ print y }'; }
-tap_row0() { # <video>: record, tap the first recent row, wait, stop; prints the video open time in ms
+row0() { $A logcat -d -s EPR:I | awk '/EVT row0 /{ match($0,/x=[0-9]+/); x=substr($0,RSTART+2,RLENGTH-2); match($0,/y=[0-9]+/); y=substr($0,RSTART+2,RLENGTH-2) } END{ print x, y }'; }
+tap_row0() { # <video>: record, tap the first library entry (most recently read), wait, stop; prints the video open time in ms
   $A logcat -c
   $AD record start "$1" --scope device --hide-touches >/dev/null 2>&1 || echo "WARN record start failed" >&2
-  sleep 1.5; $AD press 540 "$Y" >/dev/null; sleep "${WAIT:-6}"
+  sleep 1.5; $AD press "$X" "$Y" >/dev/null; sleep "${WAIT:-6}"
   $AD record stop >/dev/null 2>&1 || echo "WARN record stop failed" >&2
   video_ms "$1"
 }
@@ -24,7 +24,7 @@ for id in "${!BOOKS[@]}"; do
   for RUN in 1 2 3; do
     $A shell am force-stop "$PKG"; $A logcat -c
     $A shell am start -W -n "$PKG/$ACT" >/dev/null; sleep 4 # home visible, reader pre-warmed
-    Y=$(row0)
+    read -r X Y <<< "$(row0)"
     first=$(tap_row0 "$OUT/$id-first-$RUN.mp4"); p15=$(ev_delta tap_book reader_frame)
     bench_cmd back; sleep 2
     again=$(tap_row0 "$OUT/$id-reopen-$RUN.mp4")

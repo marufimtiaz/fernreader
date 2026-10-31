@@ -18,7 +18,8 @@ import app.epubreader.bench.BenchCommands
 import app.epubreader.bench.BenchMarker
 import app.epubreader.bench.Probe
 import app.epubreader.core.data.SourceRef
-import app.epubreader.home.HomeState
+import app.epubreader.library.LibraryState
+import kotlinx.coroutines.launch
 import app.epubreader.library.StorageAccess
 import app.epubreader.reader.EventProbe
 import app.epubreader.reader.ReaderController
@@ -64,7 +65,7 @@ class MainActivity : ComponentActivity() {
             reader, graph.opener, graph.library, graph.positions, lifecycleScope, WebTexts(Copy.missingPart), probe,
             closeScope = graph.appScope, // onDestroy's close-out must not run on the already-cancelled lifecycleScope
         )
-        val home = HomeState(graph.library, lifecycleScope)
+        val library = LibraryState(graph.library.library(), graph.library.failures(), graph.scans.state, graph.settings, graph.library::removeBook, lifecycleScope)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (!goBack()) { isEnabled = false; onBackPressedDispatcher.onBackPressed(); isEnabled = true }
@@ -73,11 +74,12 @@ class MainActivity : ComponentActivity() {
         setContent {
             Box {
                 App(
-                    dark = isSystemInDarkTheme(), webViewTooOld = webViewTooOld, nav = nav, home = home, reader = controller, probe = probe,
+                    dark = isSystemInDarkTheme(), webViewTooOld = webViewTooOld, nav = nav, library = library, reader = controller, probe = probe,
                     readerSurface = { ReaderSurface(reader, covered = nav.top != Route.Reader) },
                     onOpenPicker = { pick.launch(arrayOf("application/epub+zip", "application/octet-stream")) },
                     onGrantAccess = access::request, onLeave = ::finish,
-                    onOpen = ::openBook, onBack = { goBack() },
+                    onOpen = ::openBook, onBack = { goBack() }, onRescan = graph.scans::rescan,
+                    onForget = { ref -> graph.appScope.launch { graph.library.forget(ref) } },
                 )
                 if (Probe.enabled) BenchMarker.Draw()
             }

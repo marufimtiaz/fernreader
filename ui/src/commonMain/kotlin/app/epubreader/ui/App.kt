@@ -11,8 +11,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import app.epubreader.core.data.SourceRef
-import app.epubreader.home.HomeScreen
-import app.epubreader.home.HomeState
+import app.epubreader.library.LibraryScreen
+import app.epubreader.library.LibraryState
 import app.epubreader.onboarding.OnboardingScreen
 import app.epubreader.reader.EventProbe
 import app.epubreader.reader.ReaderController
@@ -20,7 +20,7 @@ import app.epubreader.reader.ReaderScreen
 import app.epubreader.ui.theme.AppTheme
 
 /**
- * Root. [readerSurface] (the WebView) is composed first and stays underneath; the home screen is opaque over it,
+ * Root. [readerSurface] (the WebView) is composed first and stays underneath; the library (and onboarding) screen is opaque over it,
  * the reader route draws chrome only. [webViewTooOld] (no usable WebView): a full-screen message instead.
  */
 @Composable
@@ -28,7 +28,7 @@ fun App(
     dark: Boolean,
     webViewTooOld: Boolean,
     nav: Navigator,
-    home: HomeState,
+    library: LibraryState,
     reader: ReaderController,
     probe: EventProbe,
     readerSurface: @Composable () -> Unit,
@@ -36,6 +36,8 @@ fun App(
     onGrantAccess: () -> Unit,
     onLeave: () -> Unit,
     onOpen: (SourceRef) -> Unit,
+    onRescan: () -> Unit,
+    onForget: (SourceRef) -> Unit,
     onBack: () -> Unit,
 ) = AppTheme(dark) {
     if (webViewTooOld) {
@@ -48,8 +50,8 @@ fun App(
         readerSurface()
         when (nav.top) {
             Route.Onboarding -> OnboardingScreen(onGrant = onGrantAccess, onOpenPicker = onOpenPicker, onLeave = onLeave)
-            Route.Library -> HomeScreen(home, onOpenPicker = onOpenPicker, onOpen = onOpen, probe = probe)
-            Route.Reader -> ReaderScreen(reader, onBack = onBack, onForget = home::forget, probe = probe)
+            Route.Library -> LibraryScreen(library, onOpen = { onOpen(SourceRef.fromKey(it.path)) }, onOpenPicker = onOpenPicker, onRescan = onRescan, probe = probe)
+            Route.Reader -> ReaderScreen(reader, onBack = onBack, onForget = onForget, probe = probe)
         }
     }
 }

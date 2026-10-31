@@ -7,8 +7,6 @@ import androidx.room.Transaction
 import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
-data class RecentBookRow(val id: String, val title: String, val authors: String, val path: String)
-
 @Dao
 abstract class LibraryDao {
     @Query("SELECT * FROM book WHERE identityKey = :key") abstract suspend fun byIdentity(key: String): BookEntity?
@@ -21,15 +19,6 @@ abstract class LibraryDao {
             "lastOpenedAt = :at, updatedAt = :at, deleted = 0 WHERE id = :id",
     )
     abstract suspend fun touchOpened(id: String, title: String, sortTitle: String, authors: String, sortAuthor: String, at: Long)
-
-    /** One row per book that was opened through a picker/open-with/bench path, newest first (M2 home screen). */
-    @Query(
-        "SELECT b.id AS id, b.title AS title, b.authors AS authors, MAX(f.path) AS path " +
-            "FROM book b JOIN book_file f ON f.bookId = b.id " +
-            "WHERE b.deleted = 0 AND b.hidden = 0 AND f.source = 'opened' " +
-            "GROUP BY b.id ORDER BY b.lastOpenedAt DESC LIMIT 200",
-    )
-    abstract fun recent(): Flow<List<RecentBookRow>>
 
     @Query("DELETE FROM book_file WHERE path = :path AND source = 'opened'") abstract suspend fun forgetOpened(path: String)
 

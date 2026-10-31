@@ -17,14 +17,14 @@ class LibraryRepositoryTest {
         val rec = repo.recordOpened(info("id-1", ref, "Alice"))
         assertEquals(rec.bookId, repo.knownBookId(ref))
         assertNull(rec.position)
-        assertEquals(listOf("Alice"), repo.recent().first().map { it.title })
+        assertEquals(listOf("Alice"), repo.library().first().map { it.title })
     }
 
     @Test fun same_identity_from_another_source_is_the_same_book() = runTest {
         val a = repo.recordOpened(info("id-1", SourceRef.File("/sdcard/a.epub")))
         val b = repo.recordOpened(info("id-1", SourceRef.Content("content://x/2")))
         assertEquals(a.bookId, b.bookId)
-        assertEquals(1, repo.recent().first().size)
+        assertEquals(1, repo.library().first().size)
     }
 
     @Test fun different_identity_is_a_new_book() = runTest {
@@ -36,8 +36,8 @@ class LibraryRepositoryTest {
     @Test fun recent_is_newest_first_and_forget_removes() = runTest {
         repo.recordOpened(info("id-1", SourceRef.File("/a.epub"), "A"))
         repo.recordOpened(info("id-2", SourceRef.File("/b.epub"), "B"))
-        assertEquals(listOf("B", "A"), repo.recent().first().map { it.title })
+        assertEquals(setOf("A", "B"), repo.library().first().map { it.title }.toSet()) // ordering: LibraryState
         repo.forget(SourceRef.File("/b.epub"))
-        assertEquals(listOf("A"), repo.recent().first().map { it.title })
+        assertEquals(listOf("A"), repo.library().first().map { it.title })
     }
 }
