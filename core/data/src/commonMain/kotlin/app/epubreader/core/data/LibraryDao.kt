@@ -1,6 +1,7 @@
 package app.epubreader.core.data
 
 import androidx.room.Dao
+import app.epubreader.core.epub.meta.MetadataReader
 import androidx.room.Insert
 import androidx.room.Query
 import androidx.room.Transaction
@@ -14,11 +15,10 @@ abstract class LibraryDao {
     @Insert abstract suspend fun insertBook(b: BookEntity)
     @Upsert abstract suspend fun upsertFile(f: BookFileEntity)
 
-    @Query(
-        "UPDATE book SET title = :title, sortTitle = :sortTitle, authors = :authors, sortAuthor = :sortAuthor, " +
-            "lastOpenedAt = :at, updatedAt = :at, deleted = 0 WHERE id = :id",
-    )
-    abstract suspend fun touchOpened(id: String, title: String, sortTitle: String, authors: String, sortAuthor: String, at: Long)
+    /** Opening a book marks it read now (and brings back a tombstoned one); the scanner owns its metadata. */
+    @Query("UPDATE book SET lastOpenedAt = :at, updatedAt = :at, deleted = 0 WHERE id = :id")
+    abstract suspend fun touchOpened(id: String, at: Long)
+    @Query("SELECT * FROM book_file WHERE path = :path") abstract suspend fun fileRow(path: String): BookFileEntity?
 
     @Query("DELETE FROM book_file WHERE path = :path AND source = 'opened'") abstract suspend fun forgetOpened(path: String)
 
@@ -28,14 +28,19 @@ abstract class LibraryDao {
         val id = byIdentity(identityKey)?.id ?: newId().also {
             insertBook(
                 BookEntity(
-                    id = it, identityKey = identityKey, title = title, sortTitle = title.lowercase(), authors = authors,
+                    id = it, identityKey = identityKey, title = title, sortTitle = MetadataReader.sortKey(title), authors = authors,
                     sortAuthor = authors.substringBefore('\n').lowercase(), language = null, titleDirection = "auto",
                     coverThumb = null, addedAt = now, lastOpenedAt = now, hidden = false, updatedAt = now, deleted = false,
                 ),
             )
         }
-        touchOpened(id, title, title.lowercase(), authors, authors.substringBefore('\n').lowercase(), now)
-        upsertFile(BookFileEntity(path = path, bookId = id, source = "opened", folder = "", size = size, mtimeMs = 0, lastSeenScan = 0))
+        touchOpened(id, now)
+        // A scanned file stays a scanned file (final review I1): an "opened" row would never be pruned when the file
+        // is deleted, and the next scan would load it again as changed.
+        val row = fileRow(path)
+        if (row?.source != "scan" || row.bookId != id) {
+            upsertFile(BookFileEntity(path = path, bookId = id, source = "opened", folder = "", size = size, mtimeMs = 0, lastSeenScan = 0))
+        }
         return id
     }
 

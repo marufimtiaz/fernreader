@@ -174,4 +174,20 @@ class ScannerTest {
         assertEquals(2, done.failed, "${repo.failures().first()}")
         assertTrue(repo.failures().first().any { it.name == "hostile.epub" })
     }
+
+    // Final review I1: reading a scanned book keeps its file a scanned file.
+    @Test fun opened_scanned_book_still_leaves_when_deleted_and_rescans_cheaply() = runBlocking {
+        scanner().scan(ScanScope.Everywhere)
+        val path = f("Download/download.epub").path
+        val id = bookOf(path)!!
+        val key = db.libraryDao().byId(id)!!.identityKey
+        repo.recordOpened(OpenedBookInfo(key, "Folder Test download", listOf("Corpus Generator"), SourceRef.File(path), 10))
+        val opens = AtomicInteger()
+        scanner(open = { opens.incrementAndGet(); openFileSource(it) }).scan(ScanScope.Everywhere)
+        assertEquals(0, opens.get())
+        assertTrue(db.libraryDao().byId(id)!!.lastOpenedAt != null)
+        f("Download/download.epub").delete()
+        scanner().scan(ScanScope.Everywhere)
+        assertFalse("Folder Test download" in titles())
+    }
 }
