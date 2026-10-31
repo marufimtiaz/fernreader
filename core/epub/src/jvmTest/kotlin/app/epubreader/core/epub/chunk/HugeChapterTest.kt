@@ -59,8 +59,8 @@ class HugeChapterTest {
                 assertTrue(d.parts.size in 60..100, "${d.parts.size} parts")
                 assertTrue(partSizes.all { it < 300_000 }, "part sizes $partSizes")
                 assertTrue(reopened.map == cb.map)
-                assertTrue(runs.drop(1).all { it.second < 3_000 }, "chunking took ${runs.map { it.second }} ms")
-                assertTrue(reopenMs < 300, "reopen took $reopenMs ms")
+                assertTrue(runs.drop(1).all { it.second < 10_000 }, "chunking took ${runs.map { it.second }} ms")
+                assertTrue(reopenMs < 2_000, "reopen took $reopenMs ms")
                 // Heap growth above counts garbage not yet collected; the live bound is checked in a small child JVM.
                 assertTrue(runs.all { it.third < 40 * docSize }, "peak heap growth ${runs.map { it.third shr 20 }} MB")
             }

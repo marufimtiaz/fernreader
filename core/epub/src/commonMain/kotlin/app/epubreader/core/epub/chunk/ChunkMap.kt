@@ -122,16 +122,16 @@ data class ChunkMap(
         var endTerminal = b.terminal
         if (ma.slot != mb.slot) {
             // The reader shows one part at a time: a range saved under another policy that now spans parts ends
-            // after the start's part ("after" step of its container).
-            val d = ma.doc ?: return cfi
-            val k = childStepPos(d)
-            if (ma.steps.size <= k) return cfi
+            // after the start's part ("after" step of its container). Across documents only the start is kept.
+            val d = ma.doc
+            val k = d?.let(::childStepPos) ?: 0
+            if (d == null || ma.steps.size < k) return Cfi(CfiPath(ma.steps, a.terminal)).toString()
             mb = Mapped(ma.steps.take(k) + CfiStep(2 * d.parts[ma.part].childCount + 2), ma.slot, d, ma.part)
             endTerminal = ""
         }
         // Keep the reader's own split into parent/start/end when the mapped points still share that parent.
         val n = c.parent.steps.size
-        if (ma.steps.size > n && mb.steps.size > n && ma.steps.subList(0, n) == mb.steps.subList(0, n))
+        if (ma.steps.size >= n && mb.steps.size >= n && ma.steps.subList(0, n) == mb.steps.subList(0, n))
             return Cfi(CfiPath(ma.steps.take(n)), CfiPath(ma.steps.drop(n), a.terminal), CfiPath(mb.steps.drop(n), endTerminal)).toString()
         return Cfi.range(CfiPath(ma.steps, a.terminal), CfiPath(mb.steps, endTerminal)).toString()
     }
@@ -184,7 +184,13 @@ data class ChunkMap(
         val d = docs.getValue(spine[vs.orig].path!!)
         val part = d.parts[vs.part]
         val off = part.childOffset
-        if (steps.size >= 3 && steps[2].index == d.bodyStep) {
+        if (steps.size == 2 && vs.part > 0) {
+            // A whole section (the bare itemref step): the part's first element in the original.
+            out[1] = out[1].copy(indirect = true)
+            out += CfiStep(d.bodyStep)
+            if (d.wrapped) out += CfiStep(2)
+            out += CfiStep(2 * (off + 1))
+        } else if (steps.size >= 3 && steps[2].index == d.bodyStep) {
             val k = childStepPos(d)
             when {
                 d.wrapped && steps.size > 3 && steps[3].index != 2 -> {}   // text around the wrapper: same steps

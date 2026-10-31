@@ -132,6 +132,26 @@ class CfiTest {
         assertEquals("epubcfi(/6/6!/4,/18/1:0,/22)", flat.cfiToVirtual("epubcfi(/6/6[ib]!/4,/18/1:0,/22/1:4)"))
     }
 
+    @Test fun section_only_cfi_keeps_its_part() {
+        // the reader's CFI for a whole section (no range yet) is the bare itemref step
+        assertEquals("epubcfi(/6/6[ib]!/4/22)", flat.cfiToOriginal("epubcfi(/6/8)"))
+        assertEquals("epubcfi(/6/6[ib]!/4/2/22)", wrapped.cfiToOriginal("epubcfi(/6/8)"))
+        assertEquals("epubcfi(/6/6[ib])", flat.cfiToOriginal("epubcfi(/6/6)"))
+        assertEquals("epubcfi(/6/6)", flat.cfiToVirtual("epubcfi(/6/6[ib])"))
+    }
+
+    @Test fun range_from_the_container_across_parts_is_clamped() {
+        assertEquals("epubcfi(/6/6!/4,,/22)", flat.cfiToVirtual("epubcfi(/6/6[ib]!/4,,/58/1:3)"))
+        // start and end in different documents cannot be shown as one range: the start point is kept
+        assertEquals("epubcfi(/6/2[ia]!/4/2/1:0)", flat.cfiToVirtual("epubcfi(/6,/2[ia]!/4/2/1:0,/8!/4/2/1:0)"))
+    }
+
+    @Test fun range_with_terminal_only_start_and_end_keeps_its_shape() {
+        val o = "epubcfi(/6/6[ib]!/4/26/1,:2,:9)"
+        assertEquals("epubcfi(/6/8!/4/6/1,:2,:9)", flat.cfiToVirtual(o))
+        assertEquals(o, flat.cfiToOriginal(flat.cfiToVirtual(o)))
+    }
+
     @Test fun unparseable_and_non_spine_cfis_pass_through() {
         assertEquals("garbage", flat.cfiToVirtual("garbage"))
         assertEquals("epubcfi(/6)", flat.cfiToOriginal("epubcfi(/6)"))

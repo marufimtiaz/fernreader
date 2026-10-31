@@ -13,6 +13,7 @@ import app.epubreader.core.epub.zipOf
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
@@ -33,6 +34,7 @@ internal object ChunkBooks {
         bigHref: String = bigName,
         bigMediaType: String = "application/xhtml+xml",
         bigBytes: ((String) -> ByteArray)? = null,
+        otherBytes: ((String) -> ByteArray)? = null,
         extraMeta: String = "",
         prolog: String = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
     ): Pair<ZipReader, BookPackage> {
@@ -43,7 +45,7 @@ internal object ChunkBooks {
 <html xmlns="http://www.w3.org/1999/xhtml"><head><title>B</title></head><body>$body</body></html>"""
         val z = ZipReader.open(ByteArraySource(zipOf(
             "META-INF/container.xml" to """<container><rootfiles><rootfile full-path="OPS/p.opf" media-type="application/oebps-package+xml"/></rootfiles></container>""".b(),
-            "OPS/p.opf" to opf.b(), "OPS/$bigName" to (bigBytes?.invoke(big) ?: big.b()), "OPS/other.xhtml" to other.b(),
+            "OPS/p.opf" to opf.b(), "OPS/$bigName" to (bigBytes?.invoke(big) ?: big.b()), "OPS/other.xhtml" to (otherBytes?.invoke(other) ?: other.b()),
             "OPS/nav.xhtml" to nav.b(), "OPS/toc.ncx" to ncx.b())))
         return z to (PackageLoader.load(z) as LoadResult.Ok).pkg
     }
@@ -109,8 +111,12 @@ class ChunkerTest {
         val store = MemoryChunkStore()
         val cb = chunk(z, pkg, store)
         assertTrue(cb.map.isIdentity)
-        assertEquals(0, store.size)
         assertNull(cb.virtualEntry("OPS/big.xhtml"))
+        // the negative result is cached too, so a huge unsplittable document is not planned again on every open
+        assertEquals(1, store.size)
+        val w = store.writeCount
+        assertTrue(chunk(z, pkg, store).map.isIdentity)
+        assertEquals(w, store.writeCount)
     }
 
     @Test fun only_reflowable_xhtml_spine_documents_are_split() {
@@ -180,6 +186,15 @@ class ChunkerTest {
         assertTrue(vpkg.spine.all { it.present })
     }
 
+    @Test fun links_in_another_percent_encoding_are_retargeted() {
+        val (z, pkg) = ChunkBooks.book(ChunkBooks.paras(1000), bigName = "café.xhtml", bigHref = "caf%C3%A9.xhtml",
+            other = "<html xmlns=\"http://www.w3.org/1999/xhtml\"><body><a href=\"caf%c3%a9.xhtml#p77\">x</a></body></html>")
+        val cb = chunk(z, pkg)
+        val d = cb.map.docs.getValue("OPS/café.xhtml")
+        val part77 = d.parts[d.idToPart.getValue("p77")].path.substringAfterLast('/').replace("é", "%C3%A9")
+        assertTrue("href=\"$part77#p77\"" in cb.virtualEntry("OPS/other.xhtml")!!.decodeToString())
+    }
+
     @Test fun legacy_encodings_are_written_as_utf8() {
         val body = "<p>Café ‘quoted’</p>\n" + ChunkBooks.paras(1000)
         val (z, pkg) = ChunkBooks.book(body, prolog = "<?xml version=\"1.0\" encoding=\"windows-1252\"?>",
@@ -190,6 +205,17 @@ class ChunkerTest {
         assertTrue(s.startsWith("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"), s.take(60))
         assertEquals(s, TextDecoding.decode(p0))
         assertTrue("Café ‘quoted’" in s)
+    }
+
+    @Test fun documents_in_encodings_we_cannot_decode_are_left_alone() {
+        val sjis = { s: String -> s.toByteArray(charset("Shift_JIS")) }
+        val big = "<p>日本語のテキスト</p>\n" + ChunkBooks.paras(1000)
+        assertTrue(chunk(ChunkBooks.book(big, prolog = "<?xml version=\"1.0\" encoding=\"Shift_JIS\"?>", bigBytes = sjis)).map.isIdentity)
+        // undeclared and not UTF-8
+        assertTrue(chunk(ChunkBooks.book("<p>Café</p>\n" + ChunkBooks.paras(1000), prolog = "", bigBytes = { it.toByteArray(Charsets.ISO_8859_1) })).map.isIdentity)
+        // a document that links into the split one and would have to be rewritten
+        val other = "<?xml version=\"1.0\" encoding=\"Shift_JIS\"?><html xmlns=\"http://www.w3.org/1999/xhtml\"><body><p>日本語</p><a href=\"big.xhtml#p77\">x</a></body></html>"
+        assertTrue(chunk(ChunkBooks.book(ChunkBooks.paras(1000), other = other, otherBytes = sjis)).map.isIdentity)
     }
 
     @Test fun small_books_are_untouched_and_the_store_is_not_written() {
@@ -217,6 +243,31 @@ class ChunkerTest {
 
         store.write(Chunker.CACHE, "{broken".b())
         assertEquals(a.map, chunk(z, pkg, store).map, "a damaged cache rebuilds")
+    }
+
+    @Test fun cache_with_missing_or_truncated_entries_is_rebuilt() {
+        val (z, pkg) = ChunkBooks.book(ChunkBooks.paras(1000))
+        val store = MemoryChunkStore()
+        val a = chunk(z, pkg, store)
+        val part = a.map.docs.values.single().parts[3].path
+        val expected = a.virtualEntry(part)!!.decodeToString()
+        store.remove(Chunker.entryName(part))          // e.g. the system trimmed one cache file
+        val w = store.writeCount
+        val b = chunk(z, pkg, store)
+        assertTrue(store.writeCount > w, "rebuilt")
+        assertEquals(expected, b.virtualEntry(part)!!.decodeToString())
+        store.write(Chunker.entryName("OPS/p.opf"), ByteArray(0))   // e.g. lost on power failure
+        val c = chunk(z, pkg, store)
+        assertTrue(c.virtualEntry("OPS/p.opf")!!.isNotEmpty())
+    }
+
+    @Test fun a_virtual_entry_that_disappears_is_an_error_not_the_zip_entry() {
+        val (z, pkg) = ChunkBooks.book(ChunkBooks.paras(1000))
+        val store = MemoryChunkStore()
+        val cb = chunk(z, pkg, store)
+        store.remove(Chunker.entryName("OPS/p.opf"))
+        assertFailsWith<ChunkCacheException> { cb.virtualEntry("OPS/p.opf") }
+        assertNull(cb.virtualEntry("OPS/images/cover.png"))   // not virtual: serve the zip entry
     }
 
     @Test fun cache_from_another_file_is_not_used() {

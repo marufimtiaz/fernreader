@@ -28,7 +28,9 @@ import kotlinx.serialization.json.Json
  */
 class Chunker(private val policy: ChunkPolicy = ChunkPolicy()) {
     @Serializable
-    private class CacheFile(val policyKey: String, val digest: String, val rewritten: List<String>, val map: ChunkMap)
+    private class CacheFile(val policyKey: String, val digest: String, val rewritten: List<String>, val map: ChunkMap,
+                            /** Store name -> byte size of every entry written before this file. */
+                            val entries: Map<String, Long>)
 
     private class Planned(val item: String, val doc: ChunkMap.SplitDoc, val plan: SplitPlan)
 
@@ -44,8 +46,15 @@ class Chunker(private val policy: ChunkPolicy = ChunkPolicy()) {
         if (candidates.isEmpty()) return identity
         readCache(store, zip.centralDirectoryDigest, slots)?.let { return it }
 
-        val opfText = load(zip, pkg.opfPath) ?: return identity
-        if (!XmlTree.parse(opfText).wellFormed) return identity
+        // From here on "nothing to split" is cached too, so a huge unsplittable document is not planned on every open.
+        fun unsplit(): ChunkedBook {
+            store.clear()
+            val c = CacheFile(policy.key, zip.centralDirectoryDigest, emptyList(), identity.map, emptyMap())
+            store.write(CACHE, json.encodeToString(CacheFile.serializer(), c).encodeToByteArray())
+            return identity
+        }
+        val opfText = load(zip, pkg.opfPath) ?: return unsplit()
+        if (!XmlTree.parse(opfText).wellFormed) return unsplit()
 
         // Pass 1: plans.
         val taken = zip.entries.mapTo(HashSet()) { it.name }
@@ -65,32 +74,42 @@ class Chunker(private val policy: ChunkPolicy = ChunkPolicy()) {
             }
             planned[path] = Planned(path, ChunkMap.SplitDoc(path, plan.bodyStep, plan.wrapper != null, parts, ids), plan)
         }
-        if (planned.isEmpty()) return identity
+        if (planned.isEmpty()) return unsplit()
         val docs = planned.mapValues { it.value.doc }
         val map = ChunkMap(policy.key, slots, docs)
-        val opf = rewriteOpf(opfText, pkg, map) ?: return identity
+        val opf = rewriteOpf(opfText, pkg, map) ?: return unsplit()
 
         // Pass 2: parts, linking documents, package; the cache file last.
         store.clear()
         for ((path, pl) in planned) {
-            val markup = load(zip, path) ?: return identity
+            val markup = load(zip, path) ?: return unsplit()
             pl.doc.parts.forEachIndexed { p, part ->
                 val raw = renderPart(markup, pl.plan, p)
                 store.write(entryName(part.path), utf8(retarget(raw, Paths.dirOf(path), docs, pl.doc, p)).encodeToByteArray())
             }
         }
         val rewritten = LinkedHashSet<String>()
-        val needles = docs.keys.flatMap { val n = it.substringAfterLast('/'); listOf(n, encodeSegment(n)) }.toSet()
+        // Cheap filter: documents that do not mention a split document's file name need no rewriting. Names that are
+        // not plain ASCII can be spelled in several percent-encodings, so then every document is scanned.
+        val names = docs.keys.map { it.substringAfterLast('/') }
+        val needles = names.takeIf { n -> n.all { name -> name.all { it.code in 33..126 && it != '%' } } }
         for (item in pkg.manifest) {
             if (!item.present || item.path in docs || item.path == pkg.opfPath || !isLinkingDocument(item.mediaType)) continue
-            val markup = load(zip, item.path) ?: continue
-            if (needles.none { it in markup }) continue
-            val out = retarget(markup, Paths.dirOf(item.path), docs, null, -1)
-            if (out !== markup) { store.write(entryName(item.path), utf8(out).encodeToByteArray()); rewritten += item.path }
+            val bytes = readBytes(zip, item.path) ?: continue
+            val markup = TextDecoding.decodeExact(bytes)
+            val lenient = markup ?: TextDecoding.decode(bytes)
+            if (needles != null && needles.none { lenient.contains(it, ignoreCase = true) }) continue
+            val out = retarget(lenient, Paths.dirOf(item.path), docs, null, -1)
+            if (out === lenient) continue
+            // Rewriting a document we cannot decode exactly would corrupt its text: serve the book unsplit.
+            if (markup == null) return unsplit()
+            store.write(entryName(item.path), utf8(out).encodeToByteArray())
+            rewritten += item.path
         }
         store.write(entryName(pkg.opfPath), utf8(opf).encodeToByteArray())
         rewritten += pkg.opfPath
-        val cache = CacheFile(policy.key, zip.centralDirectoryDigest, rewritten.toList(), map)
+        val entries = (map.partPaths + rewritten).associate { entryName(it) to (store.size(entryName(it)) ?: -1L) }
+        val cache = CacheFile(policy.key, zip.centralDirectoryDigest, rewritten.toList(), map, entries)
         store.write(CACHE, json.encodeToString(CacheFile.serializer(), cache).encodeToByteArray())
         return ChunkedBook(map, store, rewritten)
     }
@@ -99,6 +118,9 @@ class Chunker(private val policy: ChunkPolicy = ChunkPolicy()) {
         val bytes = store.read(CACHE) ?: return null
         val c = try { json.decodeFromString(CacheFile.serializer(), bytes.decodeToString()) } catch (e: Exception) { return null }
         if (c.policyKey != policy.key || c.digest != digest || c.map.spine != slots) return null
+        if (c.map.isIdentity) return ChunkedBook(c.map, store, emptySet())
+        // Single cache files can vanish (the system trims cache directories) or be cut short (power loss).
+        if (c.entries.size != c.map.partPaths.size + c.rewritten.size || c.entries.any { (name, size) -> store.size(name) != size }) return null
         return ChunkedBook(c.map, store, c.rewritten.toSet())
     }
 
@@ -113,8 +135,11 @@ class Chunker(private val policy: ChunkPolicy = ChunkPolicy()) {
         return slots.takeIf { s -> s.mapNotNull { it.path } == pkg.spine.map { it.path } }
     }
 
-    private fun load(zip: ZipReader, path: String): String? =
-        zip.entry(path)?.let { e -> try { TextDecoding.decode(zip.readBytes(e)) } catch (x: Exception) { null } }
+    private fun readBytes(zip: ZipReader, path: String): ByteArray? =
+        zip.entry(path)?.let { e -> try { zip.readBytes(e) } catch (x: Exception) { null } }
+
+    /** Decoded exactly, or null (missing, unreadable, or an encoding we would corrupt by rewriting as UTF-8). */
+    private fun load(zip: ZipReader, path: String): String? = readBytes(zip, path)?.let(TextDecoding::decodeExact)
 
     /** Part p: the original prolog and head, its slice of the container (wrapper start tag repeated), the original end. */
     private fun renderPart(s: String, plan: SplitPlan, p: Int): String {
@@ -214,7 +239,7 @@ class Chunker(private val policy: ChunkPolicy = ChunkPolicy()) {
                         if (!selfClosing) replacing = depth + 1
                     } else if (s != null && s.path != null && s.path in map.docs) ok = false
                 }
-                if (ln == "spine" && spineDepth < 0 && !selfClosing) spineDepth = depth + 1
+                if (ln == "spine" && spineDepth == -1 && depth == 1 && !selfClosing) spineDepth = depth + 1
                 if (!selfClosing) depth++
             }
             override fun endTag(name: String, start: Int, end: Int) {

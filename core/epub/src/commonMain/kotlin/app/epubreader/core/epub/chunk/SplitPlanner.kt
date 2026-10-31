@@ -1,7 +1,6 @@
 package app.epubreader.core.epub.chunk
 
 import app.epubreader.core.epub.markup.Attr
-import app.epubreader.core.epub.markup.HTML_VOID
 import app.epubreader.core.epub.markup.MarkupScanner
 import app.epubreader.core.epub.markup.MarkupVisitor
 
@@ -29,15 +28,15 @@ internal class SplitPlan(
  * of the container cut only right after a complete child element, each at least [plan]'s `targetChars` except the
  * last (a last part under half the target joins the one before).
  *
- * No plan (null) unless the markup is balanced the way an XML parser sees it: every element closed by an end tag
- * with the same name (HTML void elements may stay unclosed), no scanner errors. Then the element children the
- * reader's DOM sees are the ones counted here, which the CFI mapping depends on.
+ * No plan (null) unless an XML parser would accept the document (see [Visitor]): only then does the reader build
+ * exactly the element children counted here, which the CFI mapping depends on. Anything else is served unsplit.
  */
 internal object SplitPlanner {
     fun plan(s: String, targetChars: Int): SplitPlan? {
-        val v = Visitor()
+        val v = Visitor(s)
         MarkupScanner.scan(s, v)
-        if (v.bad || v.bodyEnd < 0 || v.stack.size != 1) return null
+        v.finish()
+        if (v.bad || v.bodyEnd < 0) return null
         val wrapped = v.bodyChildren.size == 2 && v.firstChildChildren.size >= 4
         val children = if (wrapped) v.firstChildChildren else v.bodyChildren
         val n = children.size / 2
@@ -69,9 +68,20 @@ internal object SplitPlanner {
         return SplitPlan(v.bodyStep, v.bodyContentStart, v.bodyEnd, wrapper, parts)
     }
 
-    private class Visitor : MarkupVisitor {
+    private const val XHTML_NS = "http://www.w3.org/1999/xhtml"
+    private val XML_ENTITIES = setOf("amp", "lt", "gt", "quot", "apos")
+
+    /**
+     * Collects the structure and checks that an XML parser would accept the document as XHTML (the reader
+     * re-parses it as HTML otherwise, which can build other children): one root `html` in the XHTML namespace,
+     * every element closed with the same name (no HTML void-element leniency), no scanner errors, only XML or
+     * numeric character references (HTML named ones only under an XHTML public doctype), no `<` outside CDATA in
+     * script/style text, and no undeclared namespace prefixes.
+     */
+    private class Visitor(private val s: String) : MarkupVisitor {
         val stack = ArrayList<String>()
         var bad = false
+        var rootDone = false
         var rootChildren = 0
         var bodyStep = -1
         var bodyContentStart = -1
@@ -83,49 +93,113 @@ internal object SplitPlanner {
         var wrapperOpenEnd = -1
         var wrapperCloseStart = -1
         private val openStarts = IntList()   // start offset per open element (parallel to stack)
+        private var htmlEntities = false
+        private val usedPrefixes = HashSet<String>()
+        private val declaredPrefixes = hashSetOf("xml")
 
-        private val bodyDepth get() = if (bodyContentStart < 0 || bodyEnd >= 0) -1 else 2
+        private val inBody get() = bodyContentStart >= 0 && bodyEnd < 0
 
         override fun startTag(name: String, attrs: List<Attr>, selfClosing: Boolean, start: Int, end: Int) {
-            if (bad || bodyEnd >= 0) return
-            val void = selfClosing || name.lowercase() in HTML_VOID
+            if (bad) return
+            if (rootDone) { bad = true; return }
+            if (stack.isEmpty()) {
+                // The root: XHTML namespace, and the prolog decides whether HTML named entities are defined.
+                if (name != "html" || attrs.none { it.name == "xmlns" && it.value == XHTML_NS } || selfClosing) { bad = true; return }
+                htmlEntities = s.substring(0, start).contains("-//W3C//DTD XHTML")
+            }
+            prefixes(name, attrs, start, end)
             val depth = stack.size   // depth of the new element's parent
             if (depth == 1) {
                 rootChildren++
-                if (bodyContentStart < 0 && name.substringAfter(':').lowercase() == "body" && !void) {
+                if (bodyContentStart < 0 && name == "body" && !selfClosing) {
                     bodyStep = 2 * rootChildren
                     bodyContentStart = end
                 }
             }
-            val bd = bodyDepth
-            if (bd > 0 && depth == bd) {
-                if (bodyChildren.size == 0 && !void) { wrapperName = name; wrapperOpenEnd = end }
-                if (void) { bodyChildren.add(start); bodyChildren.add(end) }
+            if (inBody && depth == 2) {
+                if (bodyChildren.size == 0 && !selfClosing) { wrapperName = name; wrapperOpenEnd = end }
+                if (selfClosing) { bodyChildren.add(start); bodyChildren.add(end) }
             }
-            if (bd > 0 && depth == bd + 1 && bodyChildren.size == 0 && void) { firstChildChildren.add(start); firstChildChildren.add(end) }
-            if (!void) { stack += name; openStarts.add(start) }
+            if (inBody && depth == 3 && bodyChildren.size == 0 && selfClosing) { firstChildChildren.add(start); firstChildChildren.add(end) }
+            if (!selfClosing) { stack += name; openStarts.add(start) }
         }
 
         override fun endTag(name: String, start: Int, end: Int) {
-            if (bad || bodyEnd >= 0) return
-            if (stack.isEmpty() || stack.last() != name) {
-                // An unclosed void element closed explicitly (<br></br>) is fine; anything else is unbalanced.
-                if (name.lowercase() !in HTML_VOID) bad = true
-                return
-            }
+            if (bad) return
+            if (stack.isEmpty() || stack.last() != name) { bad = true; return }
             stack.removeAt(stack.size - 1)
             val elemStart = openStarts.removeLast()
             val depth = stack.size   // depth of the closed element's parent
-            val bd = bodyDepth
-            if (bd > 0 && depth == bd - 1) { bodyEnd = start; return }   // </body>
-            if (bd > 0 && depth == bd) {
+            if (stack.isEmpty()) { rootDone = true; return }
+            if (inBody && depth == 1) { bodyEnd = start; return }   // </body>
+            if (inBody && depth == 2) {
                 if (bodyChildren.size == 0) wrapperCloseStart = start
                 bodyChildren.add(elemStart); bodyChildren.add(end)
             }
-            if (bd > 0 && depth == bd + 1 && bodyChildren.size == 0) { firstChildChildren.add(elemStart); firstChildChildren.add(end) }
+            if (inBody && depth == 3 && bodyChildren.size == 0) { firstChildChildren.add(elemStart); firstChildChildren.add(end) }
         }
 
-        override fun error(message: String, at: Int) { if (bodyEnd < 0) bad = true }
+        override fun text(start: Int, end: Int) {
+            if (bad) return
+            if (stack.isEmpty()) { if (!isBlank(start, end)) bad = true; return }
+            // Script/style text comes through raw: only CDATA sections may hold '<' or '&'.
+            var i = start
+            while (i < end) {
+                val c = s[i]
+                if (c == '<') {
+                    if (!s.startsWith("<![CDATA[", i)) { bad = true; return }
+                    val e = s.indexOf("]]>", i + 9)
+                    if (e < 0 || e + 3 > end) { bad = true; return }
+                    i = e + 3
+                    continue
+                }
+                if (c == '&') { i = reference(i, end); if (i < 0) { bad = true; return }; continue }
+                i++
+            }
+        }
+
+        override fun error(message: String, at: Int) { bad = true }
+
+        fun finish() {
+            if (!rootDone || usedPrefixes.any { it !in declaredPrefixes }) bad = true
+        }
+
+        private fun prefixes(name: String, attrs: List<Attr>, start: Int, end: Int) {
+            if (':' in name) usedPrefixes += name.substringBefore(':')
+            for (a in attrs) {
+                when {
+                    a.name.startsWith("xmlns:") -> declaredPrefixes += a.name.substring(6)
+                    a.name == "xmlns" -> {}
+                    ':' in a.name -> usedPrefixes += a.name.substringBefore(':')
+                }
+                if (a.valueStart >= 0) {
+                    var i = a.valueStart
+                    while (i < a.valueEnd) {
+                        when (s[i]) {
+                            '&' -> { i = reference(i, a.valueEnd); if (i < 0) { bad = true; return } }
+                            '<' -> { bad = true; return }
+                            else -> i++
+                        }
+                    }
+                }
+            }
+        }
+
+        /** Validates the character reference at [i]; returns the index after it, or -1. */
+        private fun reference(i: Int, end: Int): Int {
+            val semi = s.indexOf(';', i)
+            if (semi < 0 || semi >= end || semi - i > 40) return -1
+            val ref = s.substring(i + 1, semi)
+            val ok = when {
+                ref.startsWith("#x") || ref.startsWith("#X") -> ref.length > 2 && ref.substring(2).all { it.isDigit() || it.lowercaseChar() in 'a'..'f' }
+                ref.startsWith("#") -> ref.length > 1 && ref.substring(1).all { it.isDigit() }
+                ref in XML_ENTITIES -> true
+                else -> htmlEntities && ref.isNotEmpty() && ref.all { it.isLetterOrDigit() }
+            }
+            return if (ok) semi + 1 else -1
+        }
+
+        private fun isBlank(start: Int, end: Int): Boolean { for (i in start until end) if (!s[i].isWhitespace()) return false; return true }
     }
 }
 

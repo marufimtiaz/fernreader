@@ -15,6 +15,8 @@ class FileChunkStore(private val dir: File) : ChunkStore {
         try { it.readBytes() } catch (e: IOException) { null }
     }
 
+    override fun size(name: String): Long? = file(name).takeIf { it.isFile }?.length()
+
     override fun write(name: String, bytes: ByteArray) {
         dir.mkdirs()
         val target = file(name)

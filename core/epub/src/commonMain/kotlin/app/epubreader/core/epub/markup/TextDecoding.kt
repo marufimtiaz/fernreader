@@ -24,6 +24,24 @@ object TextDecoding {
         }
     }
 
+    /**
+     * Like [decode], or null when the bytes cannot be decoded exactly: an encoding [decode] does not support (it
+     * would fall back to UTF-8) or invalid UTF-8. A document that is rewritten and stored as UTF-8 must come from here.
+     */
+    fun decodeExact(bytes: ByteArray): String? {
+        fun b(i: Int) = if (i < bytes.size) bytes[i].toInt() and 0xff else -1
+        val bom = (b(0) == 0xEF && b(1) == 0xBB && b(2) == 0xBF) || (b(0) == 0xFE && b(1) == 0xFF) || (b(0) == 0xFF && b(1) == 0xFE) ||
+            (b(0) == 0 && b(1) == '<'.code) || (b(0) == '<'.code && b(1) == 0)
+        if (bom) return decode(bytes)
+        val head = latin1(bytes, minOf(bytes.size, 1024))
+        return when ((XML_ENC.find(head) ?: META_CHARSET.find(head))?.groupValues?.get(1)?.lowercase()) {
+            "iso-8859-1", "latin1", "latin-1", "iso8859-1", "windows-1252", "cp1252" -> decode(bytes)
+            null, "utf-8", "utf8", "us-ascii", "ascii" ->
+                try { bytes.decodeToString(throwOnInvalidSequence = true) } catch (e: CharacterCodingException) { null }
+            else -> null
+        }
+    }
+
     private fun latin1(b: ByteArray, n: Int) = buildString(n) { for (i in 0 until n) append((b[i].toInt() and 0xff).toChar()) }
 
     private fun utf16(b: ByteArray, start: Int, bigEndian: Boolean) = buildString((b.size - start) / 2) {
