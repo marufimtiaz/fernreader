@@ -26,6 +26,7 @@ kotlin {
             implementation(kotlin("test"))
             implementation(libs.coroutines.test)
         }
+        jvmTest.dependencies { implementation(libs.room.testing) }
     }
 }
 

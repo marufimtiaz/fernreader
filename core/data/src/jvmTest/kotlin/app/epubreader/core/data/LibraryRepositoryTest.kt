@@ -1,0 +1,43 @@
+package app.epubreader.core.data
+
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.runTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
+import kotlin.test.assertNull
+
+class LibraryRepositoryTest {
+    private val repo = LibraryRepository(testDb(), HybridClock(System::currentTimeMillis))
+    private fun info(id: String, ref: SourceRef, title: String = "T") = OpenedBookInfo(id, title, listOf("A"), ref, 100)
+
+    @Test fun first_open_creates_book_and_remembers_source() = runTest {
+        val ref = SourceRef.Content("content://x/1")
+        assertNull(repo.knownBookId(ref))
+        val rec = repo.recordOpened(info("id-1", ref, "Alice"))
+        assertEquals(rec.bookId, repo.knownBookId(ref))
+        assertNull(rec.position)
+        assertEquals(listOf("Alice"), repo.recent().first().map { it.title })
+    }
+
+    @Test fun same_identity_from_another_source_is_the_same_book() = runTest {
+        val a = repo.recordOpened(info("id-1", SourceRef.File("/sdcard/a.epub")))
+        val b = repo.recordOpened(info("id-1", SourceRef.Content("content://x/2")))
+        assertEquals(a.bookId, b.bookId)
+        assertEquals(1, repo.recent().first().size)
+    }
+
+    @Test fun different_identity_is_a_new_book() = runTest {
+        val a = repo.recordOpened(info("id-1", SourceRef.File("/a.epub")))
+        val b = repo.recordOpened(info("id-2", SourceRef.File("/b.epub")))
+        assertNotEquals(a.bookId, b.bookId)
+    }
+
+    @Test fun recent_is_newest_first_and_forget_removes() = runTest {
+        repo.recordOpened(info("id-1", SourceRef.File("/a.epub"), "A"))
+        repo.recordOpened(info("id-2", SourceRef.File("/b.epub"), "B"))
+        assertEquals(listOf("B", "A"), repo.recent().first().map { it.title })
+        repo.forget(SourceRef.File("/b.epub"))
+        assertEquals(listOf("A"), repo.recent().first().map { it.title })
+    }
+}

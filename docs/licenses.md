@@ -7,7 +7,7 @@ flavor (enforced by `:app:checkFdroidClean`). Versions are those in `gradle/libs
 
 | Artifact | Version | Licence | Used in |
 |---|---|---|---|
-| androidx.room:room-runtime / room-compiler | 2.8.4 | Apache-2.0 | core:data |
+| androidx.room:room-runtime / room-compiler / room-testing | 2.8.4 | Apache-2.0 | core:data |
 | androidx.sqlite:sqlite-bundled | 2.6.2 | Apache-2.0 | core:data, core:search |
 | org.jetbrains.kotlinx:kotlinx-coroutines-core / -android / -test | 1.10.2 | Apache-2.0 | all modules |
 | org.jetbrains.kotlinx:kotlinx-serialization-json | 1.9.0 | Apache-2.0 | core:data, ui, app |
