@@ -1,5 +1,6 @@
 import { View } from '../../vendor/foliate-js/paginator.js'
 import { applySettings, type WebSettings } from './styles'
+import { polyfillMfenced } from './mathml'
 
 /**
  * Page counter (F-034, P-021; design: docs/spikes/S1-page-totals.md). Sections are laid out hidden, in batches, with the
@@ -209,6 +210,7 @@ html,body{margin:0!important;padding:0!important}
       await new Promise<void>(res => { frame.onload = () => res(); frame.src = url })
       const doc = frame.contentDocument
       if (!doc || !live()) return null
+      polyfillMfenced(doc) // as the shown document gets it (reader.ts load), before layout
       applySettings(doc, this.settings())
       await Promise.all([doc.fonts?.ready, imagesSettled(doc)])
       if (!live()) return null
@@ -243,6 +245,7 @@ html,body{margin:0!important;padding:0!important}
       await view.load(src, (doc: Document) => {
         doc.documentElement.lang ||= this.lang
         if (this.dir) doc.documentElement.dir ||= this.dir
+        polyfillMfenced(doc)
         if (doc.head) {
           const before = doc.createElement('style'); before.textContent = styles[0]; doc.head.prepend(before)
           const after = doc.createElement('style'); after.textContent = styles[1]; doc.head.append(after)
