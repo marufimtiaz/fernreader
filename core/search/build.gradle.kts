@@ -24,3 +24,10 @@ kotlin {
         commonTest.dependencies { implementation(kotlin("test")) }
     }
 }
+
+// Search tests index the generated stress books (see core/epub generateTestCorpus) and, when present, the full corpus.
+tasks.withType<Test>().configureEach {
+    dependsOn(":core:epub:generateTestCorpus")
+    systemProperty("corpus.dir", project(":core:epub").layout.buildDirectory.dir("test-corpus").get().asFile.absolutePath)
+    systemProperty("fullcorpus.dir", rootProject.layout.projectDirectory.dir("corpus").asFile.absolutePath)
+}

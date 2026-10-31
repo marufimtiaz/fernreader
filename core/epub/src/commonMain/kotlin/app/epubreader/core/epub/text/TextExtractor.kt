@@ -21,6 +21,8 @@ class ExtractedText(val text: String, val segments: List<Segment>, val imageCoun
 
 /** Canonical plain text of a content document; see the rules in the M2 plan / docs/bridge-protocol.md. */
 object TextExtractor {
+    /** Bump when the output changes: derived data built from it (the search index) is rebuilt. */
+    const val VERSION = 1
     const val MIN_SEGMENT = 200
     const val MAX_SEGMENT = 8000
     private val SKIP = setOf("script", "style", "template", "head")

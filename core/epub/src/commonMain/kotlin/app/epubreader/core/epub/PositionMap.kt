@@ -8,11 +8,16 @@ package app.epubreader.core.epub
 interface PositionMap {
     fun cfiToOriginal(virtualCfi: String): String
     fun cfiToVirtual(originalCfi: String): String
+    /** Text positions (search hits) between the original spine and the reader's virtual one. */
+    fun textToVirtual(p: TextPos): TextPos
+    fun textToOriginal(p: TextPos): TextPos
 
     companion object {
         val Identity: PositionMap = object : PositionMap {
             override fun cfiToOriginal(virtualCfi: String) = virtualCfi
             override fun cfiToVirtual(originalCfi: String) = originalCfi
+            override fun textToVirtual(p: TextPos) = p
+            override fun textToOriginal(p: TextPos) = p
         }
     }
 }
