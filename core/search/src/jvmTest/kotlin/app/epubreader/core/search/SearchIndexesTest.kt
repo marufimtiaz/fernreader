@@ -199,6 +199,18 @@ class SearchIndexesTest {
         assertTrue(got > 0)
     }
 
+    @Test fun first_update_comes_from_a_small_first_page_and_nothing_is_lost() {
+        val book = miniBook(List(250) { i -> "<p>" + "Hit$i alpha beta alpha gamma alpha. ".repeat(3) + "</p>" })
+        built("many-rows", book)
+        val updates = search("many-rows", "alpha", whole = true)
+        assertTrue(updates.first().hits.size <= QueryRunner.FIRST_PAGE * 9, "${updates.first().hits.size}")
+        assertTrue(updates.first().hits.map { it.spineIndex }.max() < QueryRunner.FIRST_PAGE)
+        assertEquals(250 * 9, updates.hits().size)
+        assertEquals(updates.hits().sortedWith(compareBy({ it.spineIndex }, { it.offset })), updates.hits())
+        assertEquals(250 * 9, updates.last().total)
+        assertTrue(updates.size >= 3) // 20, 200, 30 rows
+    }
+
     @Test fun stale_digest_finds_nothing_until_rebuilt() {
         built("wp", wpLike, digest = "d1")
         assertEquals(0, search("wp", "borodino", digest = "d2").hits().size)

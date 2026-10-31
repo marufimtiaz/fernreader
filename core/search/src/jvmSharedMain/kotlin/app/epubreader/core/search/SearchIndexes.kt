@@ -94,12 +94,13 @@ class SearchIndexes(
         var reader: SQLiteConnection? = null
         var after = 0L
         var total = 0
+        var limit = QueryRunner.FIRST_PAGE
         try {
             while (true) {
                 val seen = state.value // read before querying: later commits change it and are picked up next round
                 if (reader == null) reader = openReaderWithRetry(path, digest)
                 while (reader != null) {
-                    val rows = QueryRunner.page(reader, match, after)
+                    val rows = QueryRunner.page(reader, match, after, limit)
                     val hits = ArrayList<SearchHit>()
                     var capped = false
                     scan@ for (row in rows) {
@@ -112,7 +113,9 @@ class SearchIndexes(
                     total += hits.size
                     if (capped) { emit(SearchUpdate(hits, total, capped = true, done = true)); return@flow }
                     if (hits.isNotEmpty()) emit(SearchUpdate(hits, total, capped = false, done = false))
-                    if (rows.size < QueryRunner.PAGE) break
+                    val requested = limit
+                    limit = QueryRunner.PAGE
+                    if (rows.size < requested) break
                 }
                 if (seen.complete || !seen.running) break
                 state.first { it != seen }
