@@ -7,10 +7,10 @@ import androidx.room.RoomDatabase
 import androidx.room.RoomDatabaseConstructor
 
 @Database(
-    entities = [SettingEntity::class, BookEntity::class, BookFileEntity::class, ReadingPositionEntity::class, ScanFailureEntity::class, BookCacheEntity::class],
-    version = 4,
+    entities = [SettingEntity::class, BookEntity::class, BookFileEntity::class, ReadingPositionEntity::class, ScanFailureEntity::class, BookCacheEntity::class, SearchHistoryEntity::class],
+    version = 5,
     exportSchema = true,
-    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4)],
+    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4), AutoMigration(from = 4, to = 5)],
 )
 @ConstructedBy(AppDatabaseConstructor::class)
 abstract class AppDatabase : RoomDatabase() {
@@ -18,6 +18,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun libraryDao(): LibraryDao
     abstract fun positionDao(): PositionDao
     abstract fun bookCacheDao(): BookCacheDao
+    abstract fun searchHistoryDao(): SearchHistoryDao
 }
 
 @Suppress("NO_ACTUAL_FOR_EXPECT", "KotlinNoActualForExpect")

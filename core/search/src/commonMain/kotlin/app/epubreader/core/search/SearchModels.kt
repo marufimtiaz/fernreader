@@ -8,7 +8,7 @@ data class SearchQuery(val text: String, val wholeWord: Boolean = false, val cap
 
 /**
  * One match: [length] characters at [offset] in the canonical text of spine item [spineIndex]
- * (`TextPos(spineIndex, offset)`). [snippet] is ~200 characters around it; the hit is `snippetHitStart until snippetHitEnd`.
+ * (`TextPos(spineIndex, offset)`); [text] is that matched text (the jump's needle). [snippet] is ~200 characters around it; the hit is `snippetHitStart until snippetHitEnd`.
  */
 data class SearchHit(
     val spineIndex: Int,
@@ -17,6 +17,7 @@ data class SearchHit(
     val snippet: String,
     val snippetHitStart: Int,
     val snippetHitEnd: Int,
+    val text: String,
 )
 
 /** [hits] are this batch only; [total] counts every hit so far. The last update has `done = true`. */

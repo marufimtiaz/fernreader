@@ -57,6 +57,24 @@ class MigrationTest {
         migrated.close()
     }
 
+    @Test fun v4_to_v5_keeps_everything_and_adds_search_history() {
+        val dbPath = Files.createTempDirectory("mig").resolve("m.db")
+        val helper = MigrationTestHelper(
+            schemaDirectoryPath = Path.of("schemas"), databasePath = dbPath,
+            driver = BundledSQLiteDriver(), databaseClass = AppDatabase::class,
+        )
+        helper.createDatabase(4).also {
+            insertM2Book(it)
+            it.execSQL("INSERT INTO book_cache (bookId, kind, digest, json) VALUES ('b1', 'section-stats.v1', 'd', '[]')")
+        }.close()
+        val migrated = helper.runMigrationsAndValidate(5)
+        migrated.prepare("SELECT cfi FROM reading_position WHERE bookId = 'b1'").use { assertEquals(true, it.step()); assertEquals("epubcfi(/6/4!/4/2/1:0)", it.getText(0)) }
+        migrated.prepare("SELECT json FROM book_cache WHERE bookId = 'b1'").use { assertEquals(true, it.step()) }
+        migrated.execSQL("INSERT INTO search_history (bookId, query, usedAt) VALUES ('b1', 'prince', 5)")
+        migrated.prepare("SELECT COUNT(*) FROM search_history").use { assertEquals(true, it.step()); assertEquals(1L, it.getLong(0)) }
+        migrated.close()
+    }
+
     companion object {
         /** A book as M2 recorded it after a picker open: identity from foliate, a content:// file row, a position. */
         fun insertM2Book(c: androidx.sqlite.SQLiteConnection, identityKey: String = "k", uri: String = "content://com.android.providers.downloads.documents/document/42") {

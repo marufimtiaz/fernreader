@@ -70,6 +70,15 @@ class SearchIndexesTest {
         }
     }
 
+    @Test fun hit_carries_the_matched_text_for_the_jump() {
+        built("wp", wpLike)
+        for (h in search("wp", "Borodinó", whole = true).hits()) {
+            val text = wpLike.section(h.spineIndex)!!.text
+            assertEquals(text.substring(h.offset, h.offset + h.length), h.text)
+            assertEquals(h.length, h.text.length)
+        }
+    }
+
     @Test fun snippet_contains_the_hit_at_the_stated_range() {
         built("wp", wpLike)
         for (h in search("wp", "borodino").hits()) {

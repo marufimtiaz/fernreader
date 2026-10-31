@@ -20,7 +20,7 @@ internal object QueryRunner {
         val h = Highlights.parse(row.marked)
         return List(h.starts.size) { i ->
             val s = Snippets.build(h.plain, h.starts[i], h.ends[i])
-            SearchHit(row.spine, row.start + h.starts[i], h.ends[i] - h.starts[i], s.text, s.hitStart, s.hitEnd)
+            SearchHit(row.spine, row.start + h.starts[i], h.ends[i] - h.starts[i], s.text, s.hitStart, s.hitEnd, h.plain.substring(h.starts[i], h.ends[i]))
         }
     }
 }
