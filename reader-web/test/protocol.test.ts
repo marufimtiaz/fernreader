@@ -25,4 +25,19 @@ describe('protocol v1', () => {
   it.each(['opened', 'relocate', 'painted', 'tap', 'error'])('%s fixture is well-formed JSON with v and type', name => {
     const m = JSON.parse(fixture(name)); expect(m.v).toBe(1); expect(m.type).toBe(name)
   })
+  it.each([
+    '{"v":1,"type":"open","sessionId":"x"}',
+    '{"v":1,"type":"open","sessionId":1,"texts":{"missingPart":"a"}}',
+    '{"v":1,"type":"open","sessionId":"x","texts":{"missingPart":2}}',
+    '{"v":1,"type":"open","sessionId":"x","position":5,"texts":{"missingPart":"a"}}',
+    '{"v":1,"type":"goTo"}',
+  ])('ignores malformed message %s without throwing', json => {
+    const h = vi.fn(); const b = new Bridge(vi.fn()); b.onMessage(h)
+    expect(() => b.receive(json)).not.toThrow(); expect(h).not.toHaveBeenCalled()
+  })
+  it('a throwing handler does not stop later handlers', () => {
+    const h = vi.fn(); const b = new Bridge(vi.fn())
+    b.onMessage(() => { throw new Error('boom') }); b.onMessage(h)
+    expect(() => b.receive(fixture('close'))).not.toThrow(); expect(h).toHaveBeenCalledTimes(1)
+  })
 })

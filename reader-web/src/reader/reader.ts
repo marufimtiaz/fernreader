@@ -19,6 +19,7 @@ export class Reader {
   private has: ((n: string) => boolean) | null = null
   private sessionId: string | null = null
   private warm: Warm | null = null
+  private token = 0
 
   constructor(private bridge: Bridge) {
     bridge.onMessage(m => {
@@ -35,7 +36,8 @@ export class Reader {
   private async open(sessionId: string, position: string | null, missingPart: string) {
     this.close()
     this.sessionId = sessionId
-    const stale = () => this.sessionId !== sessionId
+    const token = ++this.token
+    const stale = () => this.token !== token
     try {
       if (this.warm?.sessionId === sessionId) {
         this.book = this.warm.book; this.has = this.warm.has
@@ -50,6 +52,7 @@ export class Reader {
       if (stale()) return
       const book = this.book
       if (!book.sections?.length) {
+        this.book = null; this.has = null
         this.bridge.send({ v: 1, type: 'error', sessionId, kind: 'nothing_readable', message: 'The book has no readable sections.' })
         return
       }
@@ -80,7 +83,11 @@ export class Reader {
       // A position that no longer resolves (e.g. the file changed) falls back to the start (C-009 refinement: M3).
       try { await view.init({ lastLocation: position }) } catch { if (!stale()) await view.init({}) }
     } catch (e) {
-      if (!stale()) this.bridge.send({ v: 1, type: 'error', sessionId, kind: 'open_failed', message: String((e as Error)?.message ?? e) })
+      if (!stale()) {
+        this.book = null; this.has = null
+        if (this.view) { try { this.view.close?.() } catch { /* already broken */ } this.view.remove(); this.view = null }
+        this.bridge.send({ v: 1, type: 'error', sessionId, kind: 'open_failed', message: String((e as Error)?.message ?? e) })
+      }
     }
   }
 
@@ -113,6 +120,7 @@ export class Reader {
 
   /** Releases the view (section frames) but keeps the parsed book for a same-session reopen (P-016). */
   private close() {
+    this.token++ // invalidates any open still in flight
     if (this.view) { this.view.close?.(); this.view.remove() }
     if (this.book && this.sessionId && this.has) this.warm = { sessionId: this.sessionId, book: this.book, has: this.has }
     this.view = null; this.book = null; this.has = null; this.sessionId = null
