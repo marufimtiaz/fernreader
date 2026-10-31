@@ -6,3 +6,7 @@ local.properties
 .idea/
 results/raw/
 .superpowers/
+*.apk
+*.aab
+.kotlin/
+.cxx/
