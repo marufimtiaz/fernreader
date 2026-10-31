@@ -13,3 +13,4 @@ results/raw/
 reader-web/dist/
 reader-web/node_modules/
 __pycache__/
+bench/results/

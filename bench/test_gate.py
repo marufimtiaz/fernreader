@@ -1,0 +1,40 @@
+# bench/test_gate.py  — run: python3 -I bench/test_gate.py  (from repo root)
+import json, os, sys, tempfile, unittest
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import gate  # noqa: E402
+
+TARGETS = {"P-001": {"must": 1200, "unit": "ms"}, "P-016": {"must": 1.0, "unit": "score"}}
+
+class GateTest(unittest.TestCase):
+    def rows(self, *vals, id="P-001"):
+        return [{"id": id, "value": v, "run": i + 1} for i, v in enumerate(vals)]
+
+    def test_median_of_odd_and_even(self):
+        self.assertEqual(gate.median([3, 1, 2]), 2)
+        self.assertEqual(gate.median([4, 1, 3, 2]), 2.5)
+
+    def test_pass_when_median_within_must(self):
+        self.assertEqual(gate.evaluate(self.rows(1300, 900, 1000), TARGETS)["P-001"]["status"], "PASS")
+
+    def test_fail_when_median_above_must(self):
+        self.assertEqual(gate.evaluate(self.rows(1300, 1250, 900), TARGETS)["P-001"]["status"], "FAIL")
+
+    def test_fail_when_fewer_than_three_runs(self):
+        res = gate.evaluate(self.rows(100, 100), TARGETS)
+        self.assertEqual(res["P-001"]["status"], "FAIL")
+        self.assertIn("runs", res["P-001"]["reason"])
+
+    def test_unknown_id_is_reported_not_ignored(self):
+        self.assertEqual(gate.evaluate(self.rows(1, 1, 1, id="P-999"), TARGETS)["P-999"]["status"], "FAIL")
+
+    def test_main_exit_code(self):
+        with tempfile.TemporaryDirectory() as d:
+            r, t = os.path.join(d, "r.jsonl"), os.path.join(d, "t.json")
+            open(r, "w").write("\n".join(json.dumps(x) for x in self.rows(900, 900, 900)))
+            json.dump(TARGETS, open(t, "w"))
+            self.assertEqual(gate.main([r, t]), 0)
+            open(r, "w").write("\n".join(json.dumps(x) for x in self.rows(1900, 1900, 1900)))
+            self.assertEqual(gate.main([r, t]), 1)
+
+if __name__ == "__main__":
+    unittest.main()

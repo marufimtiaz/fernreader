@@ -1,0 +1,33 @@
+# Milestone benchmark harness
+
+Lean by design (C-015): only **Must** targets from performance.md, medians of 3 runs, no baseline file, no
+regression rule, no jank/frame-time groups.
+
+## When to run
+- End of each milestone: `bench/run_all.sh <every group built so far>` (or `all`).
+- Before release (M9): `bench/run_all.sh all --release` (also measures release-stage items).
+- Never per build. For that use `tools/smoke.sh`.
+
+## Prerequisites
+- Emulator `Medium_Phone` running (serial `emulator-5554`).
+- Device tool: `device_open` then `export AD=...` (groups that tap/type need it; `start` does not).
+- Benchmark APK installed: `./gradlew :app:installPlayBenchmark`.
+- Corpus pushed: `bench/push_corpus.sh`.
+
+## Rules
+- A failing group is re-run once before acting (about +-20 % emulator noise).
+- `bench/gate.py` prints PASS/FAIL per id (median vs Must); exit 1 if anything fails. Unit tests:
+  `python3 -I bench/test_gate.py`.
+- Results are JSON Lines in `bench/results/` (git-ignored); copy the gate output into the milestone notes.
+- Non-numeric measurements are recorded as 999999 (a certain FAIL) with the raw value in `note`.
+
+## Groups
+
+| Group | Spec IDs | Since |
+|-------|----------|-------|
+| `start` | P-001, P-002 | M1 |
+
+Planned: `open action mem` (M2), `scan` (M3), `pagetotal` (M4), `search` (M5).
+
+## Not in the harness
+Checked once in M9, on a real device or by eye: P-025, P-027, the scroll clause of P-031, and P-063.
