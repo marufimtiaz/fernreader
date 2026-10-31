@@ -35,10 +35,9 @@ regression rule, no jank/frame-time groups.
 | `mem` | P-060 | M2 |
 | `scan` | P-050 (+ first book visible), P-051, P-052 | M3 |
 | `pagetotal` | P-021 (W&P, layout change -> exact total), estimate error | M4 |
+| `search` | P-040..P-043 (event delta `search_cmd` -> `search_first` / `search_done`, 6 s after open; no agent-device) | M5 |
 
 `bench/check_resume.sh` is a functional check (F-037/R-009), not a gate group.
-
-Planned: `search` (M5).
 
 `scan` clears the app's data (`pm clear`) before each run: it measures a first scan of the pushed corpus + folder set.
 

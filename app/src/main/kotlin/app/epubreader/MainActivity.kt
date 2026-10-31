@@ -87,6 +87,7 @@ class MainActivity : ComponentActivity() {
         controller = ReaderController(
             reader, graph.opener, graph.library, graph.positions, lifecycleScope, WebTexts(Copy.missingPart), probe,
             settingsStore = graph.settings,
+            search = graph.bookSearch, searchHistory = graph.searchHistory,
             closeScope = graph.appScope, // onDestroy's close-out must not run on the already-cancelled lifecycleScope
         )
         val library = LibraryState(graph.library.libraryLive(graph.scans.state.map { it.found }), graph.library.failures(), graph.scans.state, graph.settings, graph.library::removeBook, lifecycleScope,
@@ -137,6 +138,13 @@ class MainActivity : ComponentActivity() {
                     else -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
                 }
             }
+            // M5: in-book search (bench/groups/search.sh)
+            BenchCommands.register("search") { controller.searchFor(it) }
+            BenchCommands.register("searchWhole") { text ->
+                if (!controller.searcher.state.value.wholeWord) controller.searcher.toggleWholeWord()
+                controller.searchFor(text)
+            }
+            BenchCommands.register("hideSearch") { controller.hideSearch() }
             BenchCommands.register("tocJump") { label ->
                 controller.state.value.toc.firstOrNull { it.label.contains(label, ignoreCase = true) }?.let(controller::onTocSelected)
             }

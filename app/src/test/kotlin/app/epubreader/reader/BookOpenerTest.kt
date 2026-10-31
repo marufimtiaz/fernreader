@@ -59,4 +59,13 @@ class BookOpenerTest {
         val r = opener(FakeSources { OpenedSource(src, epub.size.toLong()) }).open(ref)
         assertTrue(r.toString(), r is OpenResult.Ok)
     }
+
+    @Test fun book_text_is_available_for_the_current_session_only() = runBlocking {
+        val o = opener(FakeSources { OpenedSource(TrackingSource(ByteArraySource(epub)), epub.size.toLong()) })
+        val id = (o.open(ref) as OpenResult.Ok).sessionId
+        assertTrue(o.bookText(id) != null)
+        assertEquals(null, o.bookText("another-session"))
+        o.close(id)
+        assertEquals(null, o.bookText(id)) // closed: the warm session is not "current"
+    }
 }

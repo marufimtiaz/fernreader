@@ -48,6 +48,7 @@ dependencies {
     implementation(project(":ui"))
     implementation(libs.coil.compose) // the app configures the image loader for covers (memory, P-060)
     implementation(libs.webkit)
+    implementation(libs.work.runtime) // idle/charging job that finishes unfinished search indexes
     implementation(libs.activity.compose)
     implementation(libs.coroutines.android)
     implementation(libs.serialization.json)

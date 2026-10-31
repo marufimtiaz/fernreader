@@ -4,7 +4,16 @@ import android.app.Application
 import app.epubreader.core.data.HybridClock
 import app.epubreader.core.data.LibraryRepository
 import app.epubreader.core.data.PositionWriter
+import app.epubreader.core.data.SearchHistoryStore
 import app.epubreader.core.data.SettingsStore
+import app.epubreader.core.search.SearchIndexes
+import app.epubreader.reader.BookSearch
+import app.epubreader.reader.SearchIndexWorker
+import android.os.Process
+import java.io.File
+import java.util.concurrent.Executors
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.launch
 import app.epubreader.core.library.FileStorageWalker
 import app.epubreader.core.library.ScanController
 import app.epubreader.core.library.ScanScope
@@ -42,6 +51,21 @@ class AppGraph(app: Application) {
     val server = BookContentServer()
     val opener = BookOpener(BookSources(app), server)
     val settings = SettingsStore(db, clock)
+    val searchHistory = SearchHistoryStore(db, clock)
+    /**
+     * F-050 indexes. One thread at background priority is the plan's "Dispatchers.IO at low priority": builds and
+     * queries never compete with reading for CPU.
+     */
+    val search: SearchIndexes by lazy {
+        val thread = Executors.newSingleThreadExecutor { r ->
+            Thread({ Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND); r.run() }, "search-index").apply { isDaemon = true }
+        }
+        SearchIndexes(File(app.filesDir, "search").path, thread.asCoroutineDispatcher())
+    }
+    val bookSearch: BookSearch by lazy {
+        // WorkManager initialises on first use (on demand, see EpubReaderApp): keep that off the main thread.
+        BookSearch(search, opener) { io.launch { SearchIndexWorker.enqueue(app) } }
+    }
     val scanner = Scanner(db, clock, FileStorageWalker(Environment.getExternalStorageDirectory().path))
     /** F-003/F-012: scans run on IO, never before the first frame (MainActivity calls onAppStart after it). */
     val scans = ScanController(

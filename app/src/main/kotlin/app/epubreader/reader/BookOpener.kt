@@ -6,6 +6,8 @@ import app.epubreader.core.data.newId
 import app.epubreader.core.epub.zip.ZipError
 import app.epubreader.core.epub.zip.ZipFormatException
 import app.epubreader.core.epub.zip.ZipReader
+import app.epubreader.core.search.BookText
+import app.epubreader.core.search.ZipBookText
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -26,7 +28,7 @@ class BookOpener(
     private val warn: (String) -> Unit = { Log.w("EPR", it) },
 ) : BookOpenerPort {
     private val lock = Mutex()
-    private var current: BookSession? = null
+    @Volatile private var current: BookSession? = null
     private var warm: BookSession? = null
 
     override suspend fun open(ref: SourceRef): OpenResult = withContext(io) {
@@ -79,6 +81,13 @@ class BookOpener(
         val s = lock.withLock { current?.takeIf { it.id == sessionId } } ?: return@withContext null
         try { sectionStats(s.zip) } catch (e: Exception) { null } // closed under us (Back) or unreadable
     }
+
+    /**
+     * Text of the current session's book for the search index builder (F-050); null if [sessionId] is not the current
+     * session. Reads the package, so call it on an I/O thread. Later reads fail with BookUnavailableException when the
+     * session is closed under the build (the index keeps what it has and resumes).
+     */
+    fun bookText(sessionId: String): BookText? = current?.takeIf { it.id == sessionId }?.let { ZipBookText(it.zip) }
 
     /** Current session becomes the warm one; the previous warm session is closed for good. */
     private fun retire(s: BookSession) {
