@@ -49,6 +49,11 @@ object Copy {
     const val missingTarget = "This entry points to a part that is missing from the book."
     const val missingPart = "This part of the book is missing from the file, so it can't be shown. You can keep reading."
     const val engineError = "This book can't be displayed."
+    const val fileChanged = "This book's file was changed or removed, so it was closed."
+    const val missingTitle = "File not found"
+    fun missingBody(title: String) = "The file for “$title” is no longer where it was. It may have been moved or deleted."
+    const val removeEntry = "Remove from library"
+    const val cancel = "Cancel"
     const val webViewTooOld = "This device's web engine is too old to display books. Update \"Android System WebView\" in the app store, then reopen this app."
     fun openFailure(r: OpenFailure) = when (r) {
         OpenFailure.NO_ACCESS -> "This book can't be opened. The file may have been moved or deleted, or access to it was removed."

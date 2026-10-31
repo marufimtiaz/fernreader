@@ -20,7 +20,10 @@ import app.epubreader.bench.Probe
 import app.epubreader.core.data.SourceRef
 import app.epubreader.library.LibraryState
 import kotlinx.coroutines.launch
+import app.epubreader.library.FileWatch
 import app.epubreader.library.StorageAccess
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import app.epubreader.reader.EventProbe
 import app.epubreader.reader.ReaderController
 import app.epubreader.reader.ReaderEngine
@@ -43,6 +46,9 @@ class MainActivity : ComponentActivity() {
     /** Access was just granted: the first full scan starts (F-003). Tests replace it. */
     var onAccessGranted: () -> Unit = {}
     private var resumedOnce = false
+    /** Started by an open-with intent: leaving the reader finishes the activity (back to the calling app). */
+    private var viewIntent = false
+    private var watch: FileWatch? = null
     private val probe = EventProbe { n, x -> Probe.ev(n, x) }
     private var webViewTooOld by mutableStateOf(false)
 
@@ -65,7 +71,8 @@ class MainActivity : ComponentActivity() {
             reader, graph.opener, graph.library, graph.positions, lifecycleScope, WebTexts(Copy.missingPart), probe,
             closeScope = graph.appScope, // onDestroy's close-out must not run on the already-cancelled lifecycleScope
         )
-        val library = LibraryState(graph.library.library(), graph.library.failures(), graph.scans.state, graph.settings, graph.library::removeBook, lifecycleScope)
+        val library = LibraryState(graph.library.library(), graph.library.failures(), graph.scans.state, graph.settings, graph.library::removeBook, lifecycleScope,
+            exists = { withContext(Dispatchers.IO) { java.io.File(it).exists() } })
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (!goBack()) { isEnabled = false; onBackPressedDispatcher.onBackPressed(); isEnabled = true }
@@ -84,6 +91,7 @@ class MainActivity : ComponentActivity() {
                 if (Probe.enabled) BenchMarker.Draw()
             }
         }
+        if (savedInstanceState == null) openFromIntent(intent)
         if (Probe.enabled) {
             BenchCommands.register("openPath") { openBook(SourceRef.File(it)) }
             BenchCommands.register("back") { goBack() }
@@ -109,13 +117,39 @@ class MainActivity : ComponentActivity() {
     fun openBook(ref: SourceRef) {
         if (webViewTooOld) return
         Probe.ev("tap_book", ref.key)
+        watch?.stop()
+        watch = (ref as? SourceRef.File)?.let { FileWatch(it.path) { controller.fileGone() }.start() }
         controller.open(ref)
         if (nav.top != Route.Reader) nav.push(Route.Reader)
     }
 
+    /** F-013: an EPUB opened from another app (file manager, browser, mail). Back returns to that app. */
+    private fun openFromIntent(intent: Intent?): Boolean {
+        if (intent?.action != Intent.ACTION_VIEW) return false
+        val uri = intent.data ?: return false
+        val ref = when (uri.scheme) {
+            "file" -> uri.path?.let { SourceRef.File(it) }
+            "content" -> {
+                runCatching { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } // often refused: fine
+                SourceRef.Content(uri.toString())
+            }
+            else -> null
+        } ?: return false
+        viewIntent = true
+        openBook(ref)
+        return true
+    }
+
     /** Returns false when Back should leave the app. Leaving the reader never waits for the engine (R-005). */
     fun goBack(): Boolean = when (nav.top) {
-        Route.Reader -> { if (!controller.backInside()) { controller.close(); nav.pop(); Probe.ev("home_shown") }; true }
+        Route.Reader -> {
+            if (!controller.backInside()) {
+                watch?.stop(); watch = null
+                controller.close()
+                if (viewIntent) finish() else { nav.pop(); Probe.ev("home_shown") }
+            }
+            true
+        }
         Route.Library, Route.Onboarding -> false
     }
 
@@ -135,6 +169,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        watch?.stop()
         controller.close()
         reader.destroy()
         super.onDestroy()

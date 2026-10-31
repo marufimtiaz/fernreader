@@ -28,6 +28,8 @@ data class LibraryUi(
     val failures: List<ScanFailureEntity> = emptyList(),
     val failureNoticeVisible: Boolean = false,
     val loaded: Boolean = false,
+    /** F-018: the entry the user tapped whose file is gone (dialog: remove or rescan). */
+    val missing: LibraryBook? = null,
 )
 
 /**
@@ -41,9 +43,11 @@ class LibraryState(
     private val settings: SettingsPort,
     private val remove: suspend (String) -> Unit,
     private val scope: CoroutineScope,
+    /** Whether a local file exists (one stat, off the main thread); content:// sources are not checked here. */
+    private val exists: suspend (String) -> Boolean = { true },
 ) {
     private data class Prefs(val query: String = "", val layout: LibraryLayout = LibraryLayout.GRID, val sort: LibrarySort = LibrarySort.RECENT,
-                             val dismissed: ScanEvent.Complete? = null)
+                             val dismissed: ScanEvent.Complete? = null, val missing: LibraryBook? = null)
     private val prefs = MutableStateFlow(Prefs())
 
     val ui: StateFlow<LibraryUi> = combine(books, failures, scan, prefs) { all, fails, s, p ->
@@ -51,7 +55,7 @@ class LibraryState(
             books = arrange(all, p.query, p.sort), total = all.size, query = p.query, layout = p.layout, sort = p.sort, scan = s,
             failures = fails,
             failureNoticeVisible = fails.isNotEmpty() && !s.running && s.lastComplete != null && s.lastComplete !== p.dismissed,
-            loaded = true,
+            loaded = true, missing = p.missing,
         )
     }.stateIn(scope, SharingStarted.Eagerly, LibraryUi())
 
@@ -68,6 +72,19 @@ class LibraryState(
     fun setSort(s: LibrarySort) { prefs.value = prefs.value.copy(sort = s); scope.launch { settings.put(SettingsStore.LIBRARY_SORT, s.name) } }
     fun dismissFailures() { prefs.value = prefs.value.copy(dismissed = ui.value.scan.lastComplete) }
     fun remove(bookId: String) { scope.launch { remove.invoke(bookId) } }
+
+    /**
+     * F-018: opens the first of the book's files that still exists (a duplicate copy may remain); if none does, shows
+     * the missing-file dialog instead of a blank reader.
+     */
+    fun open(book: LibraryBook, onOpen: (path: String) -> Unit) {
+        scope.launch {
+            val path = (listOf(book.path) + book.paths).distinct().firstOrNull { !it.startsWith("/") || exists(it) }
+            if (path != null) onOpen(path) else prefs.value = prefs.value.copy(missing = book)
+        }
+    }
+    fun dismissMissing() { prefs.value = prefs.value.copy(missing = null) }
+    fun removeMissing() { prefs.value.missing?.let { remove(it.id) }; dismissMissing() }
 
     companion object {
         /** F-023 search (case-insensitive substring over title and authors), then F-022 sort. */

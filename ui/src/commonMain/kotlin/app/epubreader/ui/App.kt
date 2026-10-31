@@ -50,7 +50,7 @@ fun App(
         readerSurface()
         when (nav.top) {
             Route.Onboarding -> OnboardingScreen(onGrant = onGrantAccess, onOpenPicker = onOpenPicker, onLeave = onLeave)
-            Route.Library -> LibraryScreen(library, onOpen = { onOpen(SourceRef.fromKey(it.path)) }, onOpenPicker = onOpenPicker, onRescan = onRescan, probe = probe)
+            Route.Library -> LibraryScreen(library, onOpen = { b -> library.open(b) { onOpen(SourceRef.fromKey(it)) } }, onOpenPicker = onOpenPicker, onRescan = onRescan, probe = probe)
             Route.Reader -> ReaderScreen(reader, onBack = onBack, onForget = onForget, probe = probe)
         }
     }

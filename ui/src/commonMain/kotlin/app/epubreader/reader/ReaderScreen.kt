@@ -43,7 +43,7 @@ fun ReaderScreen(c: ReaderController, onBack: () -> Unit, onForget: (SourceRef) 
             s.error != null -> Surface(Modifier.fillMaxSize()) {
                 Column(Modifier.fillMaxSize().safeDrawingPadding().padding(24.dp), verticalArrangement = Arrangement.Center) {
                     val err = s.error
-                    Text(if (err is ReaderError.Open) Copy.openFailure(err.reason) else Copy.engineError, style = MaterialTheme.typography.bodyLarge)
+                    Text(when (err) { is ReaderError.Open -> Copy.openFailure(err.reason); ReaderError.FileChanged -> Copy.fileChanged; else -> Copy.engineError }, style = MaterialTheme.typography.bodyLarge)
                     if (err is ReaderError.Engine) Text(err.message, style = MaterialTheme.typography.bodySmall)
                     Row {
                         TextButton(onClick = onBack) { Text(Copy.back) }

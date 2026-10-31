@@ -80,4 +80,24 @@ class LibraryStateTest {
         scan.value = ScanState(lastComplete = done.copy(ms = 6)); runCurrent() // a new scan still finds it
         assertTrue(s.ui.value.failureNoticeVisible)
     }
+
+    @Test fun missing_file_shows_dialog_and_remove_deletes() = runTest {
+        val removed = mutableListOf<String>()
+        val s = LibraryState(MutableStateFlow(books), MutableStateFlow(emptyList()), MutableStateFlow(ScanState()), FakeSettings(),
+            { removed += it }, backgroundScope, exists = { false })
+        var opened: String? = null
+        s.open(books[0]) { opened = it }; runCurrent()
+        assertEquals(null, opened); assertEquals("moby", s.ui.value.missing?.id)
+        s.removeMissing(); runCurrent()
+        assertEquals(listOf("moby"), removed); assertEquals(null, s.ui.value.missing)
+    }
+
+    @Test fun open_uses_a_remaining_duplicate() = runTest {
+        val dup = books[0].copy(path = "/gone/a.epub", paths = listOf("/gone/a.epub", "/kept/b.epub"))
+        val s = LibraryState(MutableStateFlow(books), MutableStateFlow(emptyList()), MutableStateFlow(ScanState()), FakeSettings(),
+            {}, backgroundScope, exists = { it.startsWith("/kept") })
+        var opened: String? = null
+        s.open(dup) { opened = it }; runCurrent()
+        assertEquals("/kept/b.epub", opened)
+    }
 }

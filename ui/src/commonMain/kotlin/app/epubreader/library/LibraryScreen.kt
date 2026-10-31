@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -93,6 +94,20 @@ fun LibraryScreen(state: LibraryState, onOpen: (LibraryBook) -> Unit, onOpenPick
         }
     }
     if (failuresOpen) FailureSheet(ui.failures, onClose = { failuresOpen = false })
+    ui.missing?.let { b ->
+        AlertDialog(
+            onDismissRequest = state::dismissMissing,
+            title = { Text(Copy.missingTitle) },
+            text = { Text(Copy.missingBody(b.title)) },
+            confirmButton = { TextButton(onClick = state::removeMissing) { Text(Copy.removeEntry) } },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = { state.dismissMissing(); onRescan() }) { Text(Copy.rescan) }
+                    TextButton(onClick = state::dismissMissing) { Text(Copy.cancel) }
+                }
+            },
+        )
+    }
 }
 
 @Composable

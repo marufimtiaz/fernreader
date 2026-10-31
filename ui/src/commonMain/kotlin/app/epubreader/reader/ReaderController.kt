@@ -26,6 +26,8 @@ import kotlinx.coroutines.withContext
 sealed interface ReaderError {
     data class Open(val reason: OpenFailure) : ReaderError
     data class Engine(val kind: String, val message: String) : ReaderError
+    /** R-008: the open book's file was deleted or replaced; the book was closed. */
+    data object FileChanged : ReaderError
 }
 
 enum class Notice { MissingTarget }
@@ -188,6 +190,13 @@ class ReaderController(
                 failed("close: releasing the book", e, showIfOpen = false)
             }
         }
+    }
+
+    /** R-008: the book's file went away or was rewritten under the reader: close it safely and say so. */
+    fun fileGone() {
+        if (!_state.value.open) return
+        close()
+        _state.value = ReaderUiState(open = true, error = ReaderError.FileChanged)
     }
 
     /** Handles Back inside the reader (closes the TOC first). Returns false if Back should leave the reader. */
