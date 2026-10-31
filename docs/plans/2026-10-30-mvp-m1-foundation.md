@@ -474,7 +474,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 **Interfaces:**
 - Produces: `AppDatabase` (Room, version 1, entity `SettingEntity`), `fun buildDatabase(builder: RoomDatabase.Builder<AppDatabase>): AppDatabase`,
   `object Fts5Capability { fun check(dbPath: String): Fts5Report }` with `data class Fts5Report(val sqliteVersion: String, val fts5: Boolean, val diacriticsFolded: Boolean)`.
-  Task 3.1 extends `AppDatabase` (version stays 1 until the first release; schema JSON committed).
+  Task 3.1 extends `AppDatabase` (M2 Task 2.2 bumps to version 2 with `AutoMigration(1, 2)`; every later schema change bumps the version; schema JSON committed).
 
 - [ ] **Step 1: Write the failing JVM tests**
 
