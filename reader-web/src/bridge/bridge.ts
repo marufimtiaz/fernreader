@@ -20,6 +20,7 @@ function validShape(m: Record<string, unknown>): boolean {
     }
     case 'goTo': return isStr(m.target) && (m.id == null || Number.isInteger(m.id))
     case 'setSettings': return validSettings(m.settings)
+    case 'goToFraction': return isNum(m.fraction) && (m.fraction as number) >= 0 && (m.fraction as number) <= 1
     default: return true
   }
 }

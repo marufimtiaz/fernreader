@@ -12,8 +12,9 @@ export type ToWeb =
   | { v: 1; type: 'prev' }
   | { v: 1; type: 'goTo'; target: string; id?: number }
   | { v: 1; type: 'setSettings'; settings: WebSettings }
+  | { v: 1; type: 'goToFraction'; fraction: number }
 
-export const TO_WEB_TYPES: ReadonlyArray<ToWeb['type']> = ['ping', 'open', 'close', 'next', 'prev', 'goTo', 'setSettings']
+export const TO_WEB_TYPES: ReadonlyArray<ToWeb['type']> = ['ping', 'open', 'close', 'next', 'prev', 'goTo', 'setSettings', 'goToFraction']
 
 export type FromWeb =
   | { v: 1; type: 'ready'; engine: string }
@@ -26,4 +27,5 @@ export type FromWeb =
       page: number; pages: number; sectionFraction: number }
   | { v: 1; type: 'painted'; sessionId: string }
   | { v: 1; type: 'seeked'; sessionId: string; id: number }
+  | { v: 1; type: 'pageCounts'; sessionId: string; gen: number; linear?: number[]; counts: [number, number][]; sample: boolean; done: boolean }
   | { v: 1; type: 'tap'; sessionId: string; x: number; y: number }

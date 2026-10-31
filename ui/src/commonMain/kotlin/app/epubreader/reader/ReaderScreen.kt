@@ -31,6 +31,12 @@ import app.epubreader.reader.display.DisplayPanel
 import app.epubreader.reader.display.ReadingTheme
 import app.epubreader.reader.toc.TocPanel
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.material3.Slider
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import app.epubreader.ui.Copy
 
 /**
@@ -42,6 +48,7 @@ import app.epubreader.ui.Copy
 fun ReaderScreen(c: ReaderController, onBack: () -> Unit, onForget: (SourceRef) -> Unit, probe: EventProbe, fonts: Map<String, FontFamily> = emptyMap()) {
     val s by c.state.collectAsState()
     val settings by c.settings.collectAsState()
+    val page by c.page.collectAsState()
     LaunchedEffect(Unit) { withFrameNanos { }; probe.ev("reader_frame", "") }
     // F-074: the reader's own surfaces (loading screen, bars, panels) follow the reading theme, not the app theme.
     MaterialTheme(colorScheme = ReadingTheme.of(settings.theme).colorScheme()) {
@@ -73,6 +80,26 @@ fun ReaderScreen(c: ReaderController, onBack: () -> Unit, onForget: (SourceRef) 
                     Text(s.title, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     TextButton(onClick = c::showDisplay) { Text(Copy.display) }
                     TextButton(onClick = c::showToc, enabled = s.toc.isNotEmpty()) { Text(Copy.contents) }
+                }
+            }
+        }
+        // F-034: always visible in the page's bottom margin (32 px, kept free by the reader), never over the text.
+        if (!s.loading && s.error == null) Copy.pageLabel(page)?.let { label ->
+            Text(
+                label, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 8.dp),
+                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+            )
+        }
+        if (s.chromeVisible && s.error == null) {
+            var drag by remember { mutableStateOf<Float?>(null) }
+            Surface(Modifier.fillMaxWidth().align(Alignment.BottomCenter), tonalElevation = 3.dp) {
+                Column(Modifier.navigationBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    Text(Copy.pageLabel(page) ?: "", style = MaterialTheme.typography.labelLarge)
+                    Slider(
+                        value = drag ?: s.fraction.toFloat(), onValueChange = { drag = it },
+                        onValueChangeFinished = { drag?.let { c.seek(it.toDouble()) }; drag = null },
+                        modifier = Modifier.semantics { contentDescription = Copy.seek },
+                    )
                 }
             }
         }

@@ -150,6 +150,20 @@ class ReaderControllerTest {
         assertEquals(opener.stats, c.sectionStats)
     }
 
+    @Test fun page_indicator_follows_counts_and_stats() = runTest(dispatcher) {
+        val c = controller()
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
+        reader.events.emit(FromWeb.Relocate(sessionId = "s-1", cfi = "x", fraction = 0.5, sectionIndex = 2, page = 2, pages = 4)); advanceUntilIdle()
+        reader.events.emit(FromWeb.Painted(sessionId = "s-1")); advanceUntilIdle() // stats load
+        reader.events.emit(FromWeb.PageCounts(sessionId = "s-1", gen = 1, linear = listOf(0, 1, 2))); advanceUntilIdle()
+        reader.events.emit(FromWeb.PageCounts(sessionId = "old", gen = 1, counts = listOf(listOf(0, 99)), done = true)); advanceUntilIdle()
+        reader.events.emit(FromWeb.PageCounts(sessionId = "s-1", gen = 1, counts = listOf(listOf(0, 3), listOf(1, 1), listOf(2, 4)), sample = true, done = true)); advanceUntilIdle()
+        assertEquals(PageIndicator(page = 3 + 1 + 2, total = 8, exact = true, chapterScope = false), c.page.value)
+        assertEquals(0.5, c.state.value.fraction)
+        c.seek(0.25)
+        assertEquals(ToWeb.GoToFraction(fraction = 0.25), reader.sent.last())
+    }
+
     @Test fun reopen_sends_saved_position() = runTest(dispatcher) {
         val c = controller()
         c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()

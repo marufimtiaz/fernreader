@@ -45,6 +45,8 @@ data class ReaderUiState(
     val title: String = "",
     val toc: List<TocItem> = emptyList(),
     val currentTocHref: String? = null,
+    /** Book fraction of the current location (seek slider, F-034). */
+    val fraction: Double = 0.0,
     val chromeVisible: Boolean = false,
     val tocVisible: Boolean = false,
     val displayVisible: Boolean = false,
@@ -84,6 +86,7 @@ class ReaderController(
         var last: PositionWriter.Update? = null
         var painted = false
         var stats: List<SectionStat>? = null
+        var sections = 0
         /**
          * Id of the resume jump sent after `opened` (same book, new source) until the web side answers `seeked`.
          * Relocates before that are where the book opened (its start), not where the reader is: not stored (R-009).
@@ -100,6 +103,9 @@ class ReaderController(
     private var seeks = 0
     /** Text sizes of the open book's spine items (page estimates); null until loaded or if unreadable. */
     val sectionStats: List<SectionStat>? get() = session?.stats
+    private val totals = PageTotals(probe)
+    /** Page indicator: "page N", then "page N of ≈ M", then exact (F-034, C-016, C-017). */
+    val page: StateFlow<PageIndicator> = totals.state
     private val _settings = MutableStateFlow(ReaderSettings())
     /** Display settings (F-070..F-075), one value for every book. */
     val settings: StateFlow<ReaderSettings> = _settings
@@ -109,6 +115,7 @@ class ReaderController(
     private val settingsLoaded: Deferred<Unit> = scope.async {
         try {
             settingsStore?.get(ReaderSettings.KEY)?.let { _settings.value = ReaderSettings.decode(it) }
+            totals.scope = _settings.value.pageIndicatorScope
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -141,6 +148,7 @@ class ReaderController(
 
     fun open(ref: SourceRef) {
         close()
+        totals.reset()
         _state.value = ReaderUiState(open = true, loading = true, source = ref)
         val previous = closing
         openJob = scope.launch {
@@ -208,8 +216,14 @@ class ReaderController(
         }
     }
 
-    /** Hook for the page totals (Task 8). */
-    private fun onStats(@Suppress("UNUSED_PARAMETER") s: Session) = Unit
+    private fun onStats(s: Session) = totals.setStats(s.stats, s.sections)
+
+    /** F-034 seek slider: jump to [fraction] of the book. */
+    fun seek(fraction: Double) {
+        if (session == null) return
+        probe.ev("seek_cmd", "$fraction")
+        reader.send(ToWeb.GoToFraction(fraction = fraction.coerceIn(0.0, 1.0)))
+    }
 
     /** Releases a session that never became [session] (the open was cancelled); never throws. */
     private suspend fun release(sessionId: String) = withContext(NonCancellable) {
@@ -255,6 +269,7 @@ class ReaderController(
         val next = change(before).clamped()
         if (next == before) return
         _settings.value = next
+        totals.scope = next.pageIndicatorScope
         if (web(before) != web(next)) { probe.ev("layout_change", ""); reader.send(ToWeb.SetSettings(settings = web())) }
         saveJob?.cancel()
         saveJob = closeScope.launch {
@@ -322,6 +337,7 @@ class ReaderController(
                     s.seek = id
                     reader.send(ToWeb.GoTo(target = s.map.cfiToVirtual(it.cfi), id = id))
                 }
+                s.sections = m.sections
                 _state.update { it.copy(title = m.title, toc = m.toc) }
             }
             is FromWeb.Relocate -> if (m.sessionId == s.id) {
@@ -331,8 +347,12 @@ class ReaderController(
                     s.last = u
                     positions.await().submit(u)
                 }
-                if (session === s) _state.update { it.copy(currentTocHref = m.tocHref) }
+                if (session === s) {
+                    _state.update { it.copy(currentTocHref = m.tocHref, fraction = m.fraction) }
+                    totals.onRelocate(m)
+                }
             }
+            is FromWeb.PageCounts -> if (m.sessionId == s.id) totals.onCounts(m)
             is FromWeb.Seeked -> if (m.sessionId == s.id && m.id == s.seek) { s.seek = null; probe.ev("seeked", "") }
             is FromWeb.Painted -> if (m.sessionId == s.id) {
                 probe.ev("painted", "")

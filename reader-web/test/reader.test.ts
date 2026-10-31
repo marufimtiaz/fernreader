@@ -62,7 +62,8 @@ beforeEach(() => {
   h.makeLoader.mockReset().mockResolvedValue({ has: () => true })
   h.epubInit.mockReset().mockImplementation(async () => book())
   sent = []
-  bridge = new Bridge(json => sent.push(JSON.parse(json)))
+  // Page counts are the counter's business (counter.test.ts); these tests follow the open/turn/seek sequence.
+  bridge = new Bridge(json => { const m = JSON.parse(json); if (m.type !== 'pageCounts') sent.push(m) })
   new Reader(bridge)
 })
 afterEach(() => vi.restoreAllMocks())

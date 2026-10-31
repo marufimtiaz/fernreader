@@ -59,7 +59,10 @@ export function readerCss(base: string): string {
     'html[data-er-align="justify"] body :is(p, li, blockquote, dd) { text-align: justify !important; }',
     'html[data-er-font] body, html[data-er-font] body :not(code, pre, kbd, samp, tt, code *, pre *) { font-family: var(--er-font) !important; }',
     ...themes,
-    'html[data-er-theme] { background-color: var(--er-bg) !important; color: var(--er-fg) !important; }',
+    // The paper is the host page (it follows the theme); section documents stay transparent, so margins, the page and
+    // the edges always have the same colour, also right after a theme change.
+    'html[data-er-theme], html[data-er-theme] body { background-color: transparent !important; }',
+    'html[data-er-theme] { color: var(--er-fg) !important; }',
     // Dark-ish themes take the book's colours over: text in the theme colour, no page-coloured boxes (images stay).
     `${any('body')}, ${any('body *:not(img, svg, svg *, video, image)')} { color: inherit !important; background-color: transparent !important; border-color: var(--er-rule) !important; }`,
     `${any('a:any-link')} { color: var(--er-link) !important; }`,

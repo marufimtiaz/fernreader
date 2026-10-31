@@ -5,6 +5,7 @@ import type { Bridge } from '../bridge/bridge'
 import { makeLoader } from './loader'
 import { flattenToc } from './toc'
 import { resolveSaved } from './position'
+import { PageCounter } from './counter'
 import { applySettings, DEFAULT_SETTINGS, readerCss, THEMES, type WebSettings } from './styles'
 
 /* foliate-js is untyped JS; keep `any` at this boundary only. */
@@ -41,6 +42,10 @@ export class Reader {
   /** Display settings for every view (the open one, the warm one, preloaded sections). */
   private settings: WebSettings = DEFAULT_SETTINGS
   private readonly css = readerCss(new URL('./', location.href).href)
+  /** Page counts for the open book (F-034); one generation per layout. */
+  private counter: PageCounter | null = null
+  private countGen = 0
+  private countTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(private bridge: Bridge) {
     // Read-only probes for the app's instrumented tests (evaluateJavascript); nothing in the app calls them.
@@ -85,12 +90,15 @@ export class Reader {
       htmlVar: (index: number, name: string) => this.view?.renderer?.getContents?.().find((x: any) => x.index === index)?.doc?.documentElement.style.getPropertyValue(name) ?? null,
       overlayCount: (index: number) => this.view?.renderer?.getContents?.().find((x: any) => x.index === index)?.overlayer?.element?.childElementCount ?? -1,
     }
+    // A new viewport (rotation, window size) is a new layout: count again (F-034, P-022).
+    window.addEventListener('resize', () => { if (this.view) this.scheduleCount() })
     bridge.onMessage(m => {
       switch (m.type) {
         case 'open':
           if (m.settings) this.settings = m.settings
           void this.open(m.sessionId, m.position, m.texts.missingPart); break
         case 'setSettings': this.setSettings(m.settings); break
+        case 'goToFraction': this.enqueue({ kind: 'fraction', fraction: m.fraction }); break
         case 'close': this.close(); break
         case 'next': this.turn('next'); break
         case 'prev': this.turn('prev'); break
@@ -193,12 +201,15 @@ export class Reader {
           continue
         }
         this.seeking = true
-        try { await goToTarget(view, c.target) } catch (e) { console.warn('goTo failed', e) }
+        try {
+          if (c.kind === 'fraction') await view.goToFraction(c.fraction)
+          else await goToTarget(view, c.target)
+        } catch (e) { console.warn('goTo failed', e) }
         if (this.token !== token || this.view !== view) break
         this.seeking = false
         // One relocate where it landed (or, if the target did not resolve, where it stayed), then the answer.
         if (view.lastLocation) this.onRelocate(view, sessionId, view.lastLocation)
-        if (c.id != null) this.bridge.send({ v: 1, type: 'seeked', sessionId, id: c.id })
+        if (c.kind === 'goTo' && c.id != null) this.bridge.send({ v: 1, type: 'seeked', sessionId, id: c.id })
       }
     } finally {
       this.pumping = false
@@ -244,9 +255,34 @@ export class Reader {
   }
 
   private setSettings(s: WebSettings) {
+    const old = this.settings
     this.settings = s
+    const layout = (x: WebSettings) => [x.fontScale, x.fontFamily, x.lineHeight, x.marginPercent, x.align].join('|')
+    if (layout(old) !== layout(s) && this.counter) this.scheduleCount()
     if (this.view) this.applyToView(this.view)
     else document.body.style.background = THEMES[s.theme]?.bg ?? ''
+  }
+
+  private startCounter(sessionId: string) {
+    const book = this.book
+    if (!book || this.sessionId !== sessionId) return
+    this.counter = new PageCounter(
+      book.sections, () => this.view?.renderer ?? null, () => this.settings,
+      String(book.metadata?.language ?? ''), book.dir === 'rtl' ? 'rtl' : 'ltr',
+      m => { if (this.sessionId === sessionId) this.bridge.send({ v: 1, type: 'pageCounts', sessionId, ...m }) },
+    )
+    this.scheduleCount()
+  }
+
+  /** Counts again 150 ms after the last layout change (a slider drag counts once). */
+  private scheduleCount() {
+    if (this.countTimer) clearTimeout(this.countTimer)
+    const gen = ++this.countGen
+    this.counter?.announce(gen)
+    this.countTimer = setTimeout(() => {
+      this.countTimer = null
+      void this.counter?.start(gen).catch(e => console.warn('count failed', e))
+    }, 150)
   }
 
   private sendOpened(sessionId: string) {
@@ -273,7 +309,9 @@ export class Reader {
       sectionIndex: d.section?.current ?? 0, tocHref: d.tocItem?.href ?? null, ...pageOf(view.renderer),
     })
     requestAnimationFrame(() => requestAnimationFrame(() => {
-      if (this.token === token) this.bridge.send({ v: 1, type: 'painted', sessionId })
+      if (this.token !== token) return
+      this.bridge.send({ v: 1, type: 'painted', sessionId })
+      if (!this.counter) this.startCounter(sessionId) // first page on screen: counting may start
     }))
   }
 
@@ -299,6 +337,8 @@ export class Reader {
    */
   private close() {
     this.token++ // invalidates any open still in flight
+    if (this.countTimer) { clearTimeout(this.countTimer); this.countTimer = null }
+    this.counter?.stop(); this.counter = null
     this.queue = []
     this.seeking = false
     const view = this.view
@@ -314,7 +354,7 @@ export class Reader {
 
 const MAX_TURNS = 3
 
-type Cmd = { kind: 'turn'; dir: 'next' | 'prev' } | { kind: 'goTo'; target: string; id?: number }
+type Cmd = { kind: 'turn'; dir: 'next' | 'prev' } | { kind: 'goTo'; target: string; id?: number } | { kind: 'fraction'; fraction: number }
 
 /** Position inside the visible section as the paginator sees it (bridge relocate fields). */
 function pageOf(r: any): { page: number; pages: number; sectionFraction: number } {

@@ -20,6 +20,8 @@ import kotlinx.serialization.json.Json
     ) : ToWeb
     /** Display settings, applied live (F-070..F-074, F-031); the flow is already resolved (AUTO → by orientation). */
     @Serializable @SerialName("setSettings") data class SetSettings(val v: Int = 1, val settings: WebSettings) : ToWeb
+    /** F-034 slider: seek to a fraction of the book (0..1). */
+    @Serializable @SerialName("goToFraction") data class GoToFraction(val v: Int = 1, val fraction: Double) : ToWeb
 }
 
 @Serializable data class WebSettings(
@@ -48,6 +50,15 @@ import kotlinx.serialization.json.Json
     @Serializable @SerialName("painted") data class Painted(val v: Int = 1, val sessionId: String) : FromWeb
     /** Sent after the `relocate` of a [ToWeb.GoTo] that carried an id. */
     @Serializable @SerialName("seeked") data class Seeked(val v: Int = 1, val sessionId: String, val id: Int) : FromWeb
+    /**
+     * Page counts of one layout generation [gen] (F-034, P-021): [linear] (the counted sections, first message of a
+     * generation only), [counts] as [index, pages] pairs, [sample] for the stratified first batch, [done] when every
+     * linear section has been counted.
+     */
+    @Serializable @SerialName("pageCounts") data class PageCounts(
+        val v: Int = 1, val sessionId: String, val gen: Int, val linear: List<Int>? = null, val counts: List<List<Int>> = emptyList(),
+        val sample: Boolean = false, val done: Boolean = false,
+    ) : FromWeb
     @Serializable @SerialName("tap") data class Tap(val v: Int = 1, val sessionId: String, val x: Double, val y: Double) : FromWeb
 }
 

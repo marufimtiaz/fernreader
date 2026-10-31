@@ -43,6 +43,18 @@ object Copy {
     const val onboardingLeave = "Leave"
     const val back = "Back"
     const val display = "Display"
+    const val seek = "Position in book"
+    /** "12,345": grouping by thousands, no locale needed for digits. */
+    private fun n(x: Int) = x.toString().reversed().chunked(3).joinToString(",").reversed()
+    fun pageLabel(p: app.epubreader.reader.PageIndicator): String? {
+        val page = p.page ?: return null
+        return when {
+            p.total == null -> "Page ${n(page)}"
+            p.chapterScope -> "Page ${n(page)} of ${n(p.total)} in chapter"
+            p.exact -> "Page ${n(page)} of ${n(p.total)}"
+            else -> "Page ${n(page)} of ≈ ${n(p.total)}"
+        }
+    }
     const val textSize = "Text size"
     const val smallerText = "Smaller text"
     const val largerText = "Larger text"

@@ -606,6 +606,21 @@ export class Paginator extends HTMLElement {
         return true
     }
     get layout() { return this.#lastLayout }
+    /**
+     * The layout paged flow has (or would have) at the current size: what #beforeRender computes for horizontal
+     * writing, without its side effects. The page counter counts with it in either flow (C-002).
+     */
+    get pagedLayout() {
+        const { width, height } = this.#root.getElementById('probe').getBoundingClientRect()
+        const style = getComputedStyle(this.#top)
+        const maxInlineSize = parseFloat(style.getPropertyValue('--_max-inline-size'))
+        const maxColumnCount = parseInt(style.getPropertyValue('--_max-column-count-spread'))
+        const margin = parseFloat(style.getPropertyValue('--_margin'))
+        const g = parseFloat(style.getPropertyValue('--_gap')) / 100
+        const gap = -g / (g - 1) * width
+        const divisor = Math.min(maxColumnCount, Math.ceil(width / maxInlineSize))
+        return { height, width, margin, gap, columnWidth: (width / divisor) - gap }
+    }
     /** Diagnostics for tests: the slots in DOM order and the scroll position. */
     get debugSlots() {
         return { scrollTop: this.#container.scrollTop, viewport: this.#container.clientHeight, current: this.#index, stackTop: this.#stackTop, mode: this.#mode,
@@ -672,6 +687,12 @@ export class Paginator extends HTMLElement {
             grid-column: 1 / -1;
             grid-row: 1 / -1;
         }
+        #probe { /* where the paged #container is, in any flow (page counter) */
+            grid-column: 2 / 5;
+            grid-row: 2;
+            visibility: hidden;
+            pointer-events: none;
+        }
         #container {
             grid-column: 2 / 5;
             grid-row: 2;
@@ -714,6 +735,7 @@ export class Paginator extends HTMLElement {
         </style>
         <div id="top">
             <div id="background" part="filter"></div>
+            <div id="probe"></div>
             <div id="header"></div>
             <div id="container"></div>
             <div id="footer"></div>
