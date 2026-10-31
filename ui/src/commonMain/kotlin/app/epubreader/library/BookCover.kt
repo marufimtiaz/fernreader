@@ -41,3 +41,6 @@ fun BookCover(title: String, thumb: String?, modifier: Modifier = Modifier, smal
         )
     }
 }
+
+/** Drops decoded covers held in memory (the reader needs the room; the thumbnail files stay). */
+fun releaseCoverMemory(context: coil3.PlatformContext) { coil3.SingletonImageLoader.get(context).memoryCache?.clear() }

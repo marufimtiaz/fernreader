@@ -19,6 +19,7 @@ import app.epubreader.bench.BenchMarker
 import app.epubreader.bench.Probe
 import app.epubreader.core.data.SourceRef
 import app.epubreader.library.LibraryState
+import app.epubreader.library.releaseCoverMemory
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -136,6 +137,8 @@ class MainActivity : ComponentActivity() {
         watch?.stop()
         watch = (ref as? SourceRef.File)?.let { FileWatch(it.path) { controller.fileGone() }.start() }
         controller.open(ref)
+        (application as EpubReaderApp).graph.covers.setPaused(true)
+        releaseCoverMemory(this)
         if (nav.top != Route.Reader) nav.push(Route.Reader)
     }
 
@@ -162,6 +165,7 @@ class MainActivity : ComponentActivity() {
             if (!controller.backInside()) {
                 watch?.stop(); watch = null
                 controller.close()
+                (application as EpubReaderApp).graph.covers.setPaused(false)
                 when (view) {
                     View.COLD -> finish()
                     View.WARM -> { view = View.NONE; nav.pop(); moveTaskToBack(true) }

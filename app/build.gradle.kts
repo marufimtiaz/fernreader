@@ -46,6 +46,7 @@ dependencies {
     implementation(project(":core:data"))
     implementation(project(":core:search"))
     implementation(project(":ui"))
+    implementation(libs.coil.compose) // the app configures the image loader for covers (memory, P-060)
     implementation(libs.webkit)
     implementation(libs.activity.compose)
     implementation(libs.coroutines.android)

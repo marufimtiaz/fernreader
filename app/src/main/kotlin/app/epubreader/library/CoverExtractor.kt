@@ -12,6 +12,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -74,12 +76,17 @@ class CoverExtractor(private val dir: File) {
 class CoverQueue(private val repo: LibraryRepository, private val extractor: CoverExtractor, scope: CoroutineScope) {
     private val requests = Channel<Unit>(Channel.CONFLATED)
     private val work = Dispatchers.IO.limitedParallelism(2)
+    private val paused = MutableStateFlow(false)
+
+    /** While a book is open the queue waits: decoding covers must not compete with the reader (P-060, R-005). */
+    fun setPaused(p: Boolean) { paused.value = p }
 
     init {
         scope.launch {
             for (r in requests) runCatching {
                 kotlinx.coroutines.coroutineScope {
                     for (job in repo.coverJobs()) launch(work) {
+                        paused.first { !it }
                         // One book at a time: a failure skips that book only. I/O failures are retried after the next scan.
                         try { repo.setCover(job.bookId, extractor.extract(job.bookId, job.path) ?: "") } catch (e: CoverExtractor.Retry) { Log.w("EPR", "cover later: ${job.path}") }
                     }
