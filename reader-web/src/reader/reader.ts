@@ -1,5 +1,6 @@
 import '../../vendor/foliate-js/view.js'
 import { EPUB } from '../../vendor/foliate-js/epub.js'
+import { Overlayer } from '../../vendor/foliate-js/overlayer.js'
 import type { Bridge } from '../bridge/bridge'
 import { makeLoader } from './loader'
 import { flattenToc } from './toc'
@@ -41,6 +42,25 @@ export class Reader {
     // Read-only probes for the app's instrumented tests (evaluateJavascript); nothing in the app calls them.
     ;(window as any).__readerTest = {
       page: () => { const r = this.view?.renderer; return r ? { page: r.page, textPages: r.pages - 2, index: this.view.lastLocation?.section?.current } : null },
+      /** Sections with a loaded document: the current one first, then preloaded neighbours. */
+      loaded: () => this.view?.renderer?.getContents?.().map((c: any) => c.index) ?? [],
+      firstParagraphCfi: (index: number) => {
+        const c = this.view?.renderer?.getContents?.().find((x: any) => x.index === index)
+        const p = c?.doc?.querySelector('p')
+        if (!p) return null
+        const r = c.doc.createRange(); r.selectNodeContents(p)
+        return this.view.getCFI(index, r)
+      },
+      /** Draws a test highlight like a user highlight (F-061 path; S2 bug: preloaded sections must get it too). */
+      decorate: (cfi: string) => {
+        const v = this.view
+        if (!v) return false
+        if (!v.__testDraw) { v.__testDraw = true; v.addEventListener('draw-annotation', (e: CustomEvent) => e.detail.draw(Overlayer.highlight, { color: 'yellow' })) }
+        void v.addAnnotation({ value: cfi })
+        return true
+      },
+      lastPage: () => { const v = this.view; const i = v?.lastLocation?.section?.current; if (v && i != null) void v.renderer.goTo({ index: i, anchor: () => 1 }) },
+      overlayCount: (index: number) => this.view?.renderer?.getContents?.().find((x: any) => x.index === index)?.overlayer?.element?.childElementCount ?? -1,
     }
     bridge.onMessage(m => {
       switch (m.type) {
@@ -99,6 +119,7 @@ export class Reader {
       r.setAttribute('margin', '24px')
       r.setAttribute('gap', '6%')
       r.setAttribute('max-column-count', '1')
+      r.setAttribute('preload', '') // neighbour sections laid out in advance: boundary turns swap instantly (P-026)
       if (!position) { await view.init({}); return }
       // A position that no longer resolves exactly (the file changed in place) lands on the nearest valid place in its
       // chapter (C-009); only a position whose chapter is gone falls back to the start.

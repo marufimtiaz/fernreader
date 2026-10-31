@@ -6,6 +6,8 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.webkit.ConsoleMessage
+import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
@@ -72,6 +74,16 @@ class ReaderEngine(private val context: Context, private val server: BookContent
                 assets.shouldInterceptRequest(r.url)
             override fun shouldOverrideUrlLoading(v: WebView, r: WebResourceRequest) =
                 !allowNavigation(r.url.scheme, r.url.host, r.isForMainFrame)
+        }
+        // Web-side warnings and errors reach logcat (tag EPRJS); book scripts never run, so this is our own code only.
+        w.webChromeClient = object : WebChromeClient() {
+            override fun onConsoleMessage(m: ConsoleMessage): Boolean {
+                val level = m.messageLevel()
+                // foliate sandboxes section frames with allow-scripts (WebKit event bug); the CSP keeps book scripts off (R-007).
+                if ((level == ConsoleMessage.MessageLevel.ERROR || level == ConsoleMessage.MessageLevel.WARNING) && "escape its sandboxing" !in m.message())
+                    Log.w("EPRJS", "${m.message()} (${m.sourceId()?.substringAfterLast('/')}:${m.lineNumber()})")
+                return true
+            }
         }
         WebViewCompat.addWebMessageListener(w, "ReaderBridge", setOf("https://$ORIGIN_HOST")) { _, msg, _, _, _ ->
             val text = msg.data ?: return@addWebMessageListener

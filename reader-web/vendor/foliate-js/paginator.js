@@ -1,3 +1,17 @@
+// LOCAL PATCH (epub-reader M4, see PATCHES.md): `View` exported; `layout`, `styles`, `busy` getters; neighbour-section
+// preloading enabled by the `preload` attribute (ported from the M0 S2 spike):
+//   - #cache: index -> { slot, view, ready, loaded }. Every view lives in its own slot div inside #container;
+//     the current slot is in flow, cached slots are absolute/hidden (an iframe must never be re-parented,
+//     that would reload it).
+//   - #preloadIndex(i): creates a hidden view for section i, loads and columnizes it with the current layout
+//     and styles, dispatches 'load' and 'create-overlayer' as #display does. A neighbour whose writing mode
+//     differs from the current one is dropped (its boundary takes the normal load path).
+//   - #turnPage(dir): on the first/last page, if the neighbour is cached, #swapTo() it (hide current slot,
+//     show target slot, scroll target to first/last page synchronously in the same task).
+//   - #goTo: a cached target is swapped in; otherwise #display as before, with #createView keeping the old view.
+//   - #display/#swapTo end with #afterSwap(): evict views farther than one linear section, preload neighbours.
+//   - render(), setStyles(), destroy(): applied to every cached view.
+//   - getContents(): also returns loaded hidden views (current first) so annotations/search hits reach them.
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 const debounce = (f, wait, immediate) => {
@@ -207,7 +221,7 @@ const setStylesImportant = (el, styles) => {
     for (const [k, v] of Object.entries(styles)) style.setProperty(k, v, 'important')
 }
 
-class View {
+export class View {
     #observer = new ResizeObserver(() => this.expand())
     #element = document.createElement('div')
     #iframe = document.createElement('iframe')
@@ -449,6 +463,103 @@ export class Paginator extends HTMLElement {
     #touchState
     #touchScrolled
     #lastVisibleRange
+    #lastLayout
+    #cache = new Map()
+    get #preload() { return this.hasAttribute('preload') && !this.scrolled }
+    #slotStyle(slot, current) {
+        slot.style.cssText = current ? 'height: 100%'
+            : 'position: absolute; inset: 0; overflow: hidden; visibility: hidden; pointer-events: none'
+    }
+    #newEntry(index, current) {
+        const slot = document.createElement('div')
+        this.#slotStyle(slot, current)
+        const view = new View({
+            container: this,
+            onExpand: () => { if (this.#view === view) this.#scrollToAnchor(this.#anchor) },
+        })
+        slot.append(view.element)
+        this.#container.append(slot)
+        const entry = { index, slot, view, loaded: false }
+        this.#cache.set(index, entry)
+        return entry
+    }
+    #evict(index) {
+        const e = this.#cache.get(index)
+        if (!e) return
+        this.#cache.delete(index)
+        e.view.destroy()
+        e.slot.remove()
+        this.sections[index]?.unload?.()
+    }
+    #afterLoadFor(index) {
+        return doc => {
+            if (doc.head) {
+                const $styleBefore = doc.createElement('style')
+                doc.head.prepend($styleBefore)
+                const $style = doc.createElement('style')
+                doc.head.append($style)
+                this.#styleMap.set(doc, [$styleBefore, $style])
+                this.#applyStyles(doc)
+            }
+            this.dispatchEvent(new CustomEvent('load', { detail: { doc, index } }))
+        }
+    }
+    #applyStyles(doc) {
+        const $$styles = this.#styleMap.get(doc)
+        const styles = this.#styles
+        if (!$$styles || styles == null) return
+        const [$beforeStyle, $style] = $$styles
+        if (Array.isArray(styles)) {
+            $beforeStyle.textContent = styles[0]
+            $style.textContent = styles[1]
+        } else $style.textContent = styles
+    }
+    #preloadIndex(index) {
+        if (index == null || this.#cache.has(index)) return
+        const entry = this.#newEntry(index, false)
+        entry.ready = (async () => {
+            const src = await this.sections[index].load()
+            if (!src) throw new Error(`no src for ${index}`)
+            // Same layout as the current view; a different writing mode would need its own layout: not preloaded.
+            await entry.view.load(src, this.#afterLoadFor(index), ({ vertical, rtl }) => {
+                if (vertical !== this.#vertical || rtl !== this.#rtl) entry.mismatch = true
+                return this.#lastLayout
+            })
+            if (entry.mismatch) throw new Error(`section ${index}: other writing mode, not preloaded`)
+            this.dispatchEvent(new CustomEvent('create-overlayer', {
+                detail: { doc: entry.view.document, index, attach: o => entry.view.overlayer = o },
+            }))
+            entry.loaded = true
+        })().catch(e => { if (!entry.mismatch) console.warn(e); if (this.#cache.get(index) === entry) this.#evict(index) })
+    }
+    #afterSwap() {
+        if (!this.#preload) return
+        const keep = new Set([this.#index, this.#adjacentIndex(-1), this.#adjacentIndex(1)])
+        for (const i of [...this.#cache.keys()]) if (!keep.has(i)) this.#evict(i)
+        this.#preloadIndex(this.#adjacentIndex(1))
+        this.#preloadIndex(this.#adjacentIndex(-1))
+    }
+    async #swapTo(index, anchor, select) {
+        const entry = this.#cache.get(index)
+        if (!entry.loaded) await entry.ready
+        if (!entry.loaded || this.#cache.get(index) !== entry) return false
+        const cur = this.#cache.get(this.#index)
+        if (cur) this.#slotStyle(cur.slot, false)
+        this.#slotStyle(entry.slot, true)
+        this.#view = entry.view
+        this.#index = index
+        this.#background.style.background = getBackground(entry.view.document)
+        // synchronous for fraction anchors: the target page is scrolled into place before the next frame
+        await this.scrollToAnchor((typeof anchor === 'function'
+            ? anchor(entry.view.document) : anchor) ?? 0, select)
+        this.#afterSwap()
+        return true
+    }
+    get layout() { return this.#lastLayout }
+    /** True while a page turn or a jump is running (navigation is locked). */
+    get busy() { return this.#locked }
+    get styles() { return this.#styles }
+    get containerRect() { return this.#container.getBoundingClientRect() }
     constructor() {
         super()
         this.#root.innerHTML = `<style>
@@ -507,6 +618,7 @@ export class Paginator extends HTMLElement {
             grid-column: 2 / 5;
             grid-row: 2;
             overflow: hidden;
+            position: relative;
         }
         :host([flow="scrolled"]) #container {
             grid-column: 1 / -1;
@@ -663,7 +775,14 @@ export class Paginator extends HTMLElement {
                     `break-${x}: ${y ?? ''}column`))
         })
     }
-    #createView() {
+    #createView(index) {
+        if (this.#preload) {
+            const cur = this.#cache.get(this.#index)
+            if (cur) this.#slotStyle(cur.slot, false)
+            else if (this.#view) { this.#view.destroy(); this.#view.element.remove() }
+            this.#evict(index)
+            return this.#newEntry(index, true).view
+        }
         if (this.#view) {
             this.#view.destroy()
             this.#container.removeChild(this.#view.element)
@@ -749,14 +868,18 @@ export class Paginator extends HTMLElement {
         this.#header.replaceChildren(...heads)
         this.#footer.replaceChildren(...feet)
 
+        this.#lastLayout = { height, width, margin, gap, columnWidth }
         return { height, width, margin, gap, columnWidth }
     }
     render() {
         if (!this.#view) return
-        this.#view.render(this.#beforeRender({
+        const layout = this.#beforeRender({
             vertical: this.#vertical,
             rtl: this.#rtl,
-        }))
+        })
+        this.#view.render(layout)
+        for (const e of this.#cache.values())
+            if (e.view !== this.#view && e.loaded) e.view.render(layout)
         this.#scrollToAnchor(this.#anchor)
     }
     get scrolled() {
@@ -970,10 +1093,11 @@ export class Paginator extends HTMLElement {
     }
     async #display(promise) {
         const { index, src, anchor, onLoad, select } = await promise
+        const prevIndex = this.#index
         this.#index = index
         const hasFocus = this.#view?.document?.hasFocus()
         if (src) {
-            const view = this.#createView()
+            const view = this.#createView(index)
             const afterLoad = doc => {
                 if (doc.head) {
                     const $styleBefore = doc.createElement('style')
@@ -993,20 +1117,24 @@ export class Paginator extends HTMLElement {
                 },
             }))
             this.#view = view
+            if (this.#preload) this.#cache.get(index).loaded = true
         }
         await this.scrollToAnchor((typeof anchor === 'function'
             ? anchor(this.#view.document) : anchor) ?? 0, select)
         if (hasFocus) this.focusView()
+        if (src) this.#afterSwap()
     }
     #canGoToIndex(index) {
         return index >= 0 && index <= this.sections.length - 1
     }
     async #goTo({ index, anchor, select}) {
         if (index === this.#index) await this.#display({ index, anchor, select })
+        else if (this.#preload && this.#cache.has(index) && await this.#swapTo(index, anchor, select)) return
         else {
             const oldIndex = this.#index
+            const preload = this.#preload
             const onLoad = detail => {
-                this.sections[oldIndex]?.unload?.()
+                if (!preload) this.sections[oldIndex]?.unload?.()
                 this.setStyles(this.#styles)
                 this.dispatchEvent(new CustomEvent('load', { detail }))
             }
@@ -1061,6 +1189,15 @@ export class Paginator extends HTMLElement {
         if (this.#locked) return
         this.#locked = true
         const prev = dir === -1
+        if (this.#preload && this.#view) { // no view yet: the first `next()` of an open displays section 0
+            const target = this.#adjacentIndex(dir)
+            const atEdge = prev ? this.page <= 1 : this.page >= this.pages - 2
+            if (atEdge && target != null && this.#cache.has(target)
+                && await this.#swapTo(target, prev ? () => 1 : () => 0)) {
+                this.#locked = false
+                return
+            }
+        }
         const shouldGo = await (prev ? this.#scrollPrev(distance) : this.#scrollNext(distance))
         if (shouldGo) await this.#goTo({
             index: this.#adjacentIndex(dir),
@@ -1094,11 +1231,19 @@ export class Paginator extends HTMLElement {
             index: this.#index,
             overlayer: this.#view.overlayer,
             doc: this.#view.document,
-        }]
+        // loaded hidden neighbours too (current first), so view.js draws annotations and search
+        // results into them; otherwise a preloaded section shows no highlights after the swap.
+        }, ...[...this.#cache.values()].filter(e => e.view !== this.#view && e.loaded).map(e => ({
+            index: e.index, overlayer: e.view.overlayer, doc: e.view.document,
+        }))]
         return []
     }
     setStyles(styles) {
         this.#styles = styles
+        for (const e of this.#cache.values()) if (e.view !== this.#view && e.view.document) {
+            this.#applyStyles(e.view.document)
+            e.view.document.fonts?.ready?.then(() => e.view.expand())
+        }
         const $$styles = this.#styleMap.get(this.#view?.document)
         if (!$$styles) return
         const [$beforeStyle, $style] = $$styles
@@ -1120,6 +1265,7 @@ export class Paginator extends HTMLElement {
     }
     destroy() {
         this.#observer.unobserve(this)
+        for (const i of [...this.#cache.keys()]) if (i !== this.#index) this.#evict(i)
         this.#view.destroy()
         this.#view = null
         this.sections[this.#index]?.unload?.()
