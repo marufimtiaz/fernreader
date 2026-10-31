@@ -106,6 +106,8 @@ class ReaderController(
     private val totals = PageTotals(probe)
     /** Page indicator: "page N", then "page N of ≈ M", then exact (F-034, C-016, C-017). */
     val page: StateFlow<PageIndicator> = totals.state
+    /** Counted pages of a section in the current layout (diagnostics for the C-003 agreement test). */
+    fun countedPages(index: Int): Int? = totals.counted(index)
     private val _settings = MutableStateFlow(ReaderSettings())
     /** Display settings (F-070..F-075), one value for every book. */
     val settings: StateFlow<ReaderSettings> = _settings

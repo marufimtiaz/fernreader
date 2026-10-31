@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { readingOrder, stratifiedSample } from '../src/reader/counter'
+import { planBatch, readingOrder, stratifiedSample } from '../src/reader/counter'
 
 describe('stratifiedSample (S1: 12 sections spread over the book)', () => {
   const linear = Array.from({ length: 368 }, (_, i) => i)
@@ -30,5 +30,22 @@ describe('readingOrder', () => {
     expect([...order].sort((a, b) => a - b)).toEqual(linear)
     const rest = order.slice(12)
     expect([...rest].sort((a, b) => a - b)).toEqual(rest)
+  })
+})
+
+describe('planBatch (S1 risks: only sections the batch box reproduces exactly share a document)', () => {
+  it('batches the sections with the most common head style sheets and body attributes; the rest are counted alone', () => {
+    const p = planBatch([
+      { index: 3, key: 'A' }, { index: 4, key: 'A' }, { index: 5, key: 'B' }, { index: 6, key: 'A' }, { index: 7, key: 'C' },
+    ])
+    expect(p.key).toBe('A')
+    expect(p.batched).toEqual([3, 4, 6])
+    expect(p.alone).toEqual([5, 7])
+  })
+  it('a tie takes the first key in reading order', () => {
+    expect(planBatch([{ index: 1, key: 'B' }, { index: 2, key: 'A' }]).key).toBe('B')
+  })
+  it('a section whose document could not be read is counted alone', () => {
+    expect(planBatch([{ index: 1, key: 'A' }, { index: 2, key: null }]).alone).toEqual([2])
   })
 })

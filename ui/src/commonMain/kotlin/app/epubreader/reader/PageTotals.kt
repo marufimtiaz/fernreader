@@ -44,6 +44,9 @@ class PageTotals(private val probe: EventProbe = EventProbe.None) {
     private var reportedEstimate = -1
     private var reportedExact = -1
 
+    /** Pages counted for section [index] in the current layout, if counted yet (diagnostics, C-003 agreement test). */
+    fun counted(index: Int): Int? = counts[index]
+
     /** [sections]: foliate's section count; stats for another spine (count mismatch) are not used. */
     fun setStats(stats: List<SectionStat>?, sections: Int) {
         this.stats = stats?.takeIf { it.size == sections }

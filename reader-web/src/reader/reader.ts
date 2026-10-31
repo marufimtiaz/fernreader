@@ -87,6 +87,8 @@ export class Reader {
         return [...(d?.body?.querySelectorAll('h1, h2, h3, h4, p') ?? [])].map(e => e.textContent?.trim()).find(Boolean) ?? null
       },
       slots: () => this.view?.renderer?.debugSlots ?? null,
+      linear: () => (this.book?.sections ?? []).map((x: any, i: number) => (x.linear !== 'no' ? i : -1)).filter((i: number) => i >= 0),
+      goIndex: (i: number) => { void this.view?.renderer?.goTo({ index: i, anchor: 0 }) },
       htmlVar: (index: number, name: string) => this.view?.renderer?.getContents?.().find((x: any) => x.index === index)?.doc?.documentElement.style.getPropertyValue(name) ?? null,
       overlayCount: (index: number) => this.view?.renderer?.getContents?.().find((x: any) => x.index === index)?.overlayer?.element?.childElementCount ?? -1,
     }
@@ -266,6 +268,10 @@ export class Reader {
   private startCounter(sessionId: string) {
     const book = this.book
     if (!book || this.sessionId !== sessionId) return
+    // The counter mirrors horizontal pagination only; vertical books show no book-wide total yet (M4 known gap).
+    const doc = this.view?.renderer?.getContents?.()[0]?.doc
+    const mode = doc ? doc.defaultView?.getComputedStyle(doc.documentElement).writingMode ?? '' : ''
+    if (mode.startsWith('vertical')) return
     this.counter = new PageCounter(
       book.sections, () => this.view?.renderer ?? null, () => this.settings,
       String(book.metadata?.language ?? ''), book.dir === 'rtl' ? 'rtl' : 'ltr',

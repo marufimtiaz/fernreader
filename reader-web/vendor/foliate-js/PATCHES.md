@@ -11,3 +11,4 @@ text-walker, footnotes). Every local change is listed below with the reason and 
 | 2026-10-31 | paginator.js | Stack mode (scrolled flow + `preload` + horizontal writing): slots stacked in reading order in one scroller, the section at the top of the viewport is current, offsets relative to it, slot insert/remove keeps the on-screen position, browser scroll anchoring off; flow switch re-lays out neighbours | F-031: scrolling continues across chapter boundaries |
 | 2026-10-31 | paginator.js | `#createView` finds the current slot by its view (not `#index`, already the target in `#display`) | spike bug: a jump left the old section's slot cached with a destroyed view (blank swap, leak) |
 | 2026-10-31 | paginator.js | `debugSlots` getter | diagnostics for instrumented tests |
+| 2026-10-31 | paginator.js | `pagedLayout` getter and a hidden `#probe` grid item where the paged `#container` sits | the page counter uses the paged layout in scrolled mode too (C-002) |

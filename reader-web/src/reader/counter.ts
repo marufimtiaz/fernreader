@@ -1,3 +1,4 @@
+import { View } from '../../vendor/foliate-js/paginator.js'
 import { applySettings, type WebSettings } from './styles'
 
 /**
@@ -19,6 +20,26 @@ export function readingOrder(linear: number[], sample: number[]): number[] {
   const s = new Set(sample)
   return [...sample, ...linear.filter(i => !s.has(i))]
 }
+
+/**
+ * Which sections of a batch share the hidden document: those with the batch's most common [key] (head style sheets plus
+ * `html`/`body` attributes, which the batch document copies). Others are counted alone in a foliate View, exact by
+ * construction (S1 "Risks"). A null key (unreadable document) is counted alone.
+ */
+export function planBatch(metas: { index: number; key: string | null }[]): { key: string | null; batched: number[]; alone: number[] } {
+  const freq = new Map<string, number>()
+  for (const m of metas) if (m.key != null) freq.set(m.key, (freq.get(m.key) ?? 0) + 1)
+  let key: string | null = null
+  for (const [k, n] of freq) if (key == null || n > freq.get(key)!) key = k
+  return {
+    key,
+    batched: metas.filter(m => m.key === key && key != null).map(m => m.index),
+    alone: metas.filter(m => m.key !== key || key == null).map(m => m.index),
+  }
+}
+
+const attrs = (el: Element | null | undefined) =>
+  el ? [...el.attributes].filter(a => !a.name.startsWith('xmlns')).map(a => `${a.name}="${a.value.replace(/"/g, '&quot;')}"`).join(' ') : ''
 
 export type Layout = { width: number; height: number; gap: number; columnWidth: number; margin: number }
 export type CountMessage = { gen: number; linear?: number[]; counts: [number, number][]; sample: boolean; done: boolean }
@@ -94,8 +115,6 @@ export class PageCounter {
     if (!r) return null
     const layout = r.pagedLayout
     if (!layout || !(layout.width > 0 && layout.height > 0)) return null // no viewport yet: nothing to count
-    const styles = Array.isArray(r.styles) ? r.styles : ['', r.styles ?? '']
-    const { width, height, gap, columnWidth, margin } = layout
     const docs = await Promise.all(batch.map(async i => {
       try {
         const url = await this.sections[i].load()
@@ -108,11 +127,38 @@ export class PageCounter {
       } catch { return null }
     }))
     if (!live()) { batch.forEach(i => this.sections[i].unload?.()); return null }
-    const heads = new Set<string>()
-    for (const d of docs) for (const el of d?.querySelectorAll('head link[rel~=stylesheet], head style') ?? []) heads.add(el.outerHTML)
-    const boxes = docs.map((d, k) => `<div class="er-box" data-i="${batch[k]}">${d?.body?.innerHTML ?? ''}</div>`)
-    const html = `<!doctype html><html lang="${this.lang}" dir="${this.dir}"><head><meta charset="utf-8">
-<style>${styles[0]}</style>${[...heads].join('')}<style>${styles[1]}</style><style>
+    const heads = (d: Document) => [...d.querySelectorAll('head link[rel~=stylesheet], head style')].map(el => el.outerHTML)
+    const metas = docs.map((d, k) => ({
+      index: batch[k],
+      key: d?.body ? JSON.stringify([heads(d), attrs(d.documentElement), attrs(d.body)]) : null,
+    }))
+    const plan = planBatch(metas)
+    const out: [number, number][] = []
+    try {
+      if (plan.batched.length) {
+        const first = docs[batch.indexOf(plan.batched[0])]!
+        const counted = await this.layoutBatch(plan.batched.map(i => [i, docs[batch.indexOf(i)]!] as const), first, heads(first), r, live)
+        if (!counted) return null
+        out.push(...counted)
+      }
+      for (const i of plan.alone) {
+        if (!live()) return null
+        out.push([i, await this.countAlone(i, r)])
+      }
+      return out
+    } finally {
+      batch.forEach(i => this.sections[i].unload?.())
+    }
+  }
+
+  /** Sections that share head style sheets and html/body attributes, each in a column box of one hidden document. */
+  private async layoutBatch(items: (readonly [number, Document])[], first: Document, head: string[], r: Renderer, live: () => boolean): Promise<[number, number][] | null> {
+    const { width, height, gap, columnWidth, margin } = r.pagedLayout
+    const styles = Array.isArray(r.styles) ? r.styles : ['', r.styles ?? '']
+    const htmlAttrs = attrs(first.documentElement) || `lang="${this.lang}" dir="${this.dir}"`
+    const boxes = items.map(([i, d]) => `<div class="er-box" data-i="${i}">${d.body?.innerHTML ?? ''}</div>`)
+    const html = `<!doctype html><html ${htmlAttrs}><head><meta charset="utf-8">
+<style>${styles[0]}</style>${head.join('')}<style>${styles[1]}</style><style>
 html,body{margin:0!important;padding:0!important}
 .er-box{box-sizing:border-box!important;width:${width}px!important;height:${height}px!important;
  column-width:${Math.trunc(columnWidth)}px!important;column-gap:${gap}px!important;column-fill:auto!important;
@@ -120,7 +166,7 @@ html,body{margin:0!important;padding:0!important}
  -webkit-line-box-contain:block glyphs replaced}
 .er-box :is(img,svg,video){max-height:${height - margin * 2}px!important;max-width:100%;object-fit:contain!important;
  break-inside:avoid!important;box-sizing:border-box!important}
-</style></head><body>${boxes.join('')}</body></html>`
+</style></head><body ${attrs(first.body)}>${boxes.join('')}</body></html>`
     const frame = this.frame(width, height)
     const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }))
     try {
@@ -141,7 +187,42 @@ html,body{margin:0!important;padding:0!important}
       return out
     } finally {
       URL.revokeObjectURL(url)
-      batch.forEach(i => this.sections[i].unload?.())
+    }
+  }
+
+  /** One section in its own foliate View with the paginator's layout: what the visible paginator would count (C-003). */
+  private async countAlone(i: number, r: Renderer): Promise<number> {
+    const layout = r.pagedLayout
+    const host = document.createElement('div')
+    Object.assign(host.style, {
+      position: 'fixed', left: '-20000px', top: '0', width: `${layout.width}px`, height: `${layout.height}px`,
+      visibility: 'hidden', overflow: 'hidden', pointerEvents: 'none', contain: 'strict',
+    })
+    document.body.append(host)
+    const view = new View({ container: host, onExpand: () => {} })
+    host.append(view.element)
+    const styles = Array.isArray(r.styles) ? r.styles : ['', r.styles ?? '']
+    try {
+      const src = await this.sections[i].load()
+      await view.load(src, (doc: Document) => {
+        doc.documentElement.lang ||= this.lang
+        doc.documentElement.dir ||= this.dir
+        if (doc.head) {
+          const before = doc.createElement('style'); before.textContent = styles[0]; doc.head.prepend(before)
+          const after = doc.createElement('style'); after.textContent = styles[1]; doc.head.append(after)
+        }
+        applySettings(doc, this.settings())
+      }, () => layout)
+      const doc = view.document as Document
+      await Promise.all([doc.fonts?.ready, imagesSettled(doc)])
+      view.expand()
+      return Math.max(1, Math.round(view.element.getBoundingClientRect().width / layout.width) - 2)
+    } catch (e) {
+      console.warn('count alone failed', i, e)
+      return 1
+    } finally {
+      view.destroy(); host.remove()
+      this.sections[i].unload?.()
     }
   }
 
