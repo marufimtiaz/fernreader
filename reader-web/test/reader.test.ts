@@ -20,6 +20,18 @@ class FakeView extends HTMLElement {
   init = vi.fn(async ({ lastLocation }: { lastLocation?: string | null }) => { await tick(); this.relocateTo(lastLocation ?? 'cfi-start') })
   goTo = vi.fn(async (t: string): Promise<object | undefined> => { await tick(); this.relocateTo(t); return {} })
   close = vi.fn()
+  // Like foliate's paginator: a turn takes a while, and a turn asked for meanwhile is ignored (resolves at once).
+  page = 0
+  locked = false
+  turnsMade: string[] = []
+  next = vi.fn(() => this.turnBy(1))
+  prev = vi.fn(() => this.turnBy(-1))
+  async turnBy(d: number) {
+    if (this.locked || !this.lastLocation) return
+    this.locked = true
+    await tick(); this.page += d; this.turnsMade.push(d > 0 ? 'next' : 'prev'); this.relocateTo(`p${this.page}`)
+    await tick(); this.locked = false
+  }
   constructor() { super(); FakeView.all.push(this) }
   relocateTo(cfi: string) {
     this.lastLocation = { cfi, fraction: 0.25, section: { current: 1, total: 3 }, tocItem: { href: 'c1.xhtml' } }
@@ -127,5 +139,80 @@ describe('warm reopen (P-016)', () => {
     open('s1', 'cfi-z'); send({ v: 1, type: 'close' }); await settle()
     expect(types()).not.toContain('relocate')
     expect(types()).not.toContain('painted')
+  })
+})
+
+describe('page turns (F-030)', () => {
+  const turned = () => sent.filter(m => m.type === 'relocate').map(m => (m as { cfi: string }).cfi)
+
+  it('three quick nexts turn three pages, in order', async () => {
+    open('s1', null); await settle()
+    const v = FakeView.all[0]; sent = []
+    send({ v: 1, type: 'next' }); send({ v: 1, type: 'next' }); send({ v: 1, type: 'next' }); await settle()
+    expect(v.turnsMade).toEqual(['next', 'next', 'next'])
+    expect(turned()).toEqual(['p1', 'p2', 'p3'])
+  })
+
+  it('a next/prev mix keeps its order', async () => {
+    open('s1', null); await settle()
+    const v = FakeView.all[0]
+    send({ v: 1, type: 'next' }); send({ v: 1, type: 'next' }); send({ v: 1, type: 'prev' }); await settle()
+    expect(v.turnsMade).toEqual(['next', 'next', 'prev'])
+    expect(v.page).toBe(1)
+  })
+
+  it('turns sent while the book is still opening are applied after it settles', async () => {
+    let release!: () => void
+    h.epubInit.mockImplementation(() => new Promise(r => { release = () => r(book()) }))
+    open('s1', 'cfi-a')
+    send({ v: 1, type: 'next' }); send({ v: 1, type: 'next' }) // no view yet
+    await settle()
+    release(); await settle()
+    const v = FakeView.all[0]
+    expect(v.turnsMade).toEqual(['next', 'next'])
+    expect(turned()).toEqual(['cfi-a', 'p1', 'p2']) // the seek first, then the turns
+  })
+
+  it('keeps at most three pending turns', async () => {
+    open('s1', null); await settle()
+    const v = FakeView.all[0]
+    for (let i = 0; i < 6; i++) send({ v: 1, type: 'next' })
+    await settle()
+    expect(v.turnsMade).toHaveLength(3)
+  })
+
+  it('close drops pending turns', async () => {
+    open('s1', null); await settle()
+    const v = FakeView.all[0]
+    send({ v: 1, type: 'next' }); send({ v: 1, type: 'next' }); send({ v: 1, type: 'close' }); await settle()
+    expect(v.turnsMade.length).toBeLessThanOrEqual(1) // the one already running may finish
+    sent = []
+    open('s1', v.lastLocation.cfi); await settle()
+    expect(v.turnsMade.length).toBeLessThanOrEqual(1)
+    expect(types()).toEqual(['opened', 'relocate', 'painted'])
+  })
+})
+
+describe('stale events', () => {
+  it('a throwing goTo on warm reopen stays at the kept location', async () => {
+    open('s1', 'cfi-a'); await settle()
+    const v = FakeView.all[0]
+    v.goTo.mockRejectedValueOnce(new Error('bad target'))
+    send({ v: 1, type: 'close' }); sent = []
+    vi.spyOn(console, 'warn').mockImplementation(() => {}) // printing the error can outlast settle()
+    open('s1', 'cfi-bad'); await settle()
+    expect(types()).toEqual(['opened', 'relocate', 'painted'])
+    expect(sent[1]).toMatchObject({ cfi: 'cfi-a' })
+  })
+
+  it('painted is dropped when a close comes between relocate and paint', async () => {
+    open('s1', 'cfi-a'); await settle()
+    const v = FakeView.all[0]
+    send({ v: 1, type: 'close' })
+    open('s1', 'cfi-a') // reopen sends relocate synchronously, paint is 2 frames later
+    send({ v: 1, type: 'close' }); sent = []
+    await settle()
+    expect(types()).not.toContain('painted')
+    expect(v.isConnected).toBe(true)
   })
 })

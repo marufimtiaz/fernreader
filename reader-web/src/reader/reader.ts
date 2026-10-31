@@ -21,14 +21,19 @@ export class Reader {
   private sessionId: string | null = null
   private warm: Warm | null = null
   private token = 0
+  /** Resolves when the current open (parse, layout, seek) has finished; turns wait for it. */
+  private settled: Promise<void> = Promise.resolve()
+  /** Pending page turns, issued one at a time (F-030): foliate ignores a turn while one is animating. */
+  private turns: Array<'next' | 'prev'> = []
+  private turning = false
 
   constructor(private bridge: Bridge) {
     bridge.onMessage(m => {
       switch (m.type) {
         case 'open': void this.open(m.sessionId, m.position, m.texts.missingPart); break
         case 'close': this.close(); break
-        case 'next': void this.view?.next(); break
-        case 'prev': void this.view?.prev(); break
+        case 'next': this.turn('next'); break
+        case 'prev': this.turn('prev'); break
         case 'goTo': this.view?.goTo(m.target)?.catch?.((e: unknown) => console.warn('goTo failed', e)); break
       }
     })
@@ -39,6 +44,8 @@ export class Reader {
     this.sessionId = sessionId
     const token = ++this.token
     const stale = () => this.token !== token
+    let settle!: () => void
+    this.settled = new Promise(r => { settle = r })
     try {
       const warm = this.warm
       this.warm = null
@@ -67,7 +74,7 @@ export class Reader {
       const view = document.createElement('foliate-view') as any
       this.view = view
       document.body.append(view)
-      view.addEventListener('relocate', (e: CustomEvent) => this.onRelocate(sessionId, e.detail))
+      view.addEventListener('relocate', (e: CustomEvent) => this.onRelocate(view, sessionId, e.detail))
       view.addEventListener('load', (e: CustomEvent) => this.onLoad(sessionId, e.detail.doc))
       view.addEventListener('external-link', (e: Event) => e.preventDefault()) // F-044 arrives in M6
       await view.open(book)
@@ -86,7 +93,34 @@ export class Reader {
         if (this.view) { destroyView(this.view); this.view = null }
         this.bridge.send({ v: 1, type: 'error', sessionId, kind: 'open_failed', message: String((e as Error)?.message ?? e) })
       }
+    } finally {
+      settle()
     }
+  }
+
+  /** At most [MAX_TURNS] pending; more are dropped (a burst of taps still moves that many pages, in order). */
+  private turn(dir: 'next' | 'prev') {
+    if (!this.sessionId || this.turns.length >= MAX_TURNS) return // also while the open is still loading
+    this.turns.push(dir)
+    void this.pump()
+  }
+
+  private async pump() {
+    if (this.turning) return
+    this.turning = true
+    const token = this.token
+    try {
+      await this.settled
+      while (this.turns.length && this.token === token && this.view) {
+        const view = this.view
+        const dir = this.turns.shift()!
+        // Resolves after the turn (and foliate's lock) is over, so the next one is not ignored.
+        try { await (dir === 'next' ? view.next() : view.prev()) } catch (e) { console.warn('turn failed', e) }
+      }
+    } finally {
+      this.turning = false
+    }
+    if (this.turns.length && this.token !== token) void this.pump() // queued for a newer open
   }
 
   /**
@@ -98,11 +132,12 @@ export class Reader {
     this.sendOpened(sessionId)
     warm.view.style.visibility = ''
     if (position && position !== warm.view.lastLocation?.cfi) {
-      // A position that no longer resolves stays where the view is (foliate's goTo logs and resolves undefined).
-      if (await warm.view.goTo(position)) return // its relocate event reports the new location
-      if (stale()) return
+      // A position that no longer resolves stays where the view is (foliate's goTo logs and resolves undefined, or throws).
+      let moved = false
+      try { moved = !!(await warm.view.goTo(position)) } catch (e) { console.warn('goTo failed', e) }
+      if (moved || stale()) return // a move's relocate event reports the new location
     }
-    this.onRelocate(sessionId, warm.view.lastLocation)
+    this.onRelocate(warm.view, sessionId, warm.view.lastLocation)
   }
 
   private sendOpened(sessionId: string) {
@@ -119,15 +154,17 @@ export class Reader {
     })
   }
 
-  private onRelocate(sessionId: string, d: any) {
-    if (this.sessionId !== sessionId) return
+  /** Only the open view's events count; `painted` is dropped if another open (or a close) came in between. */
+  private onRelocate(view: any, sessionId: string, d: any) {
+    if (this.view !== view || this.sessionId !== sessionId) return
+    const token = this.token
     this.bridge.send({
       // foliate reports NaN while a section has no layout yet; JSON turns NaN into null, which Kotlin rejects.
       v: 1, type: 'relocate', sessionId, cfi: d.cfi ?? '', fraction: Number.isFinite(d.fraction) ? d.fraction : 0,
       sectionIndex: d.section?.current ?? 0, tocHref: d.tocItem?.href ?? null,
     })
     requestAnimationFrame(() => requestAnimationFrame(() => {
-      if (this.sessionId === sessionId) this.bridge.send({ v: 1, type: 'painted', sessionId })
+      if (this.token === token) this.bridge.send({ v: 1, type: 'painted', sessionId })
     }))
   }
 
@@ -153,6 +190,7 @@ export class Reader {
    */
   private close() {
     this.token++ // invalidates any open still in flight
+    this.turns = []
     const view = this.view
     if (view && !view.lastLocation) { destroyView(view) }
     if (this.book && this.sessionId && this.has) {
@@ -163,6 +201,8 @@ export class Reader {
     this.view = null; this.book = null; this.has = null; this.sessionId = null
   }
 }
+
+const MAX_TURNS = 3
 
 function destroyView(view: any) {
   try { view.close?.() } catch { /* already broken */ }

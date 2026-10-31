@@ -11,8 +11,6 @@ import app.epubreader.ui.Route
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -43,16 +41,20 @@ class SmokeTest {
             lateinit var a: MainActivity
             sc.onActivity { a = it }
             withTimeout(15_000) { a.reader.isReady.first { it } }
-            val relocates = Channel<FromWeb.Relocate>(Channel.UNLIMITED)
-            val job = launch(start = CoroutineStart.UNDISPATCHED) { a.reader.events.filterIsInstance<FromWeb.Relocate>().collect { relocates.send(it) } }
+            val events = Channel<FromWeb>(Channel.UNLIMITED)
+            val job = launch(start = CoroutineStart.UNDISPATCHED) { a.reader.events.collect { events.send(it) } }
+            var at: FromWeb.Relocate? = null
             sc.onActivity { it.openBook(SourceRef.File(f.path)) }
-            var at = withTimeout(10_000) { relocates.receive() }
-            // foliate repeats and refines the opening location while the first section settles, and drops a turn sent
-            // meanwhile: turn once no relocate came for 500 ms, like a reader would.
-            while (true) at = withTimeoutOrNull(500) { relocates.receive() } ?: break
+            // Up to the first paint; the latest relocate is then the opening location (foliate may repeat it meanwhile).
+            withTimeout(10_000) { while (true) { val e = events.receive(); if (e is FromWeb.Relocate) at = e; if (e is FromWeb.Painted && at != null) break } }
+            while (true) { val e = events.tryReceive().getOrNull() ?: break; if (e is FromWeb.Relocate) at = e }
+            val from = at!!
             sc.onActivity { it.reader.send(ToWeb.Next()) }
-            val moved = withTimeout(5_000) { var r = relocates.receive(); while (r.cfi == at.cfi && r.fraction == at.fraction) r = relocates.receive(); r }
-            assertNotEquals(at.cfi to at.fraction, moved.cfi to moved.fraction)
+            val moved = withTimeout(5_000) {
+                while (true) { val e = events.receive(); if (e is FromWeb.Relocate && (e.cfi != from.cfi || e.fraction != from.fraction)) return@withTimeout e }
+                error("unreachable")
+            }
+            assertNotEquals(from.cfi to from.fraction, moved.cfi to moved.fraction)
             job.cancel()
             sc.onActivity { assertTrue(it.goBack()); assertEquals(Route.Home, it.nav.top) }
         }
