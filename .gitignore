@@ -10,3 +10,5 @@ results/raw/
 *.aab
 .kotlin/
 .cxx/
+reader-web/dist/
+reader-web/node_modules/

@@ -73,3 +73,37 @@ val checkFdroidClean by tasks.registering {
     }
 }
 tasks.named("check") { dependsOn(checkFdroidClean) }
+
+val readerWebDir = rootProject.layout.projectDirectory.dir("reader-web")
+
+val buildReaderWeb by tasks.registering(Exec::class) {
+    workingDir = readerWebDir.asFile
+    commandLine("bash", "-c", "npm ci --no-audit --no-fund && npm run build")
+    inputs.dir(readerWebDir.dir("src"))
+    inputs.dir(readerWebDir.dir("vendor"))
+    inputs.file(readerWebDir.file("package-lock.json"))
+    inputs.file(readerWebDir.file("vite.config.ts"))
+    inputs.file(readerWebDir.file("tsconfig.json"))
+    outputs.dir(readerWebDir.dir("dist"))
+}
+
+abstract class CopyReaderAssets : DefaultTask() {
+    @get:InputDirectory abstract val from: DirectoryProperty
+    @get:OutputDirectory abstract val outputDir: DirectoryProperty
+    @TaskAction fun copy() {
+        val out = outputDir.get().asFile
+        out.deleteRecursively()
+        from.get().asFile.copyRecursively(out.resolve("reader"))
+    }
+}
+
+val copyReaderAssets by tasks.registering(CopyReaderAssets::class) {
+    dependsOn(buildReaderWeb)
+    from.set(readerWebDir.dir("dist"))
+}
+
+androidComponents {
+    onVariants { variant ->
+        variant.sources.assets?.addGeneratedSourceDirectory(copyReaderAssets, CopyReaderAssets::outputDir)
+    }
+}

@@ -24,8 +24,18 @@ Compose Multiplatform plugin 1.10.0 (Apache-2.0), Room Gradle plugin 2.8.4 (Apac
 
 ## npm devDependencies
 
-None yet (added with the host page in a later task).
+Build and test tooling for `reader-web/` only; nothing from npm ships in the app except the Vite-bundled host page
+code. Versions are pinned by `reader-web/package-lock.json`.
+
+| Package | Range | Licence |
+|---|---|---|
+| typescript | ^5.6.0 | Apache-2.0 |
+| vite | ^6.0.0 | MIT |
+| vitest | ^3.0.0 | MIT |
+| jsdom | ^25.0.0 | MIT |
+| @types/node | ^22 | MIT |
 
 ## Vendored sources
 
-foliate-js: MIT, pinned at 78914ae (added with the host page in a later task).
+foliate-js: MIT, pinned at commit 78914aef4466eb960965702401634c2cb348e9b1 (78914ae), vendored unmodified in
+`reader-web/vendor/foliate-js/` (licence text in that directory; local changes logged in its `PATCHES.md`).
