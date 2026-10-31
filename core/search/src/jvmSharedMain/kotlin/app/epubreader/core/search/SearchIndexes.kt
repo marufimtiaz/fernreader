@@ -1,6 +1,7 @@
 package app.epubreader.core.search
 
 import androidx.sqlite.SQLiteConnection
+import androidx.sqlite.SQLiteException
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
@@ -10,6 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -95,7 +97,7 @@ class SearchIndexes(
         try {
             while (true) {
                 val seen = state.value // read before querying: later commits change it and are picked up next round
-                if (reader == null) reader = SearchIndex.openReader(path, digest)
+                if (reader == null) reader = openReaderWithRetry(path, digest)
                 while (reader != null) {
                     val rows = QueryRunner.page(reader, match, after)
                     val hits = ArrayList<SearchHit>()
@@ -140,6 +142,14 @@ class SearchIndexes(
     /** Stops all builds. The indexes stay on disk. */
     fun close() = scope.cancel()
 
+    /** A transient failure to read the file (still locked after the busy timeout) must not look like "no index". */
+    private suspend fun openReaderWithRetry(path: String, digest: String): SQLiteConnection? {
+        repeat(OPEN_ATTEMPTS - 1) {
+            try { return SearchIndex.openReader(path, digest) } catch (e: SQLiteException) { delay(OPEN_RETRY_MS) }
+        }
+        return try { SearchIndex.openReader(path, digest) } catch (e: SQLiteException) { null } // damaged for good
+    }
+
     private fun state(bookId: String) = states.getOrPut(bookId) { MutableStateFlow(IDLE) }
 
     private fun pathOf(bookId: String): String {
@@ -150,6 +160,8 @@ class SearchIndexes(
     private suspend fun Job.cancelAndJoinQuietly() { cancel(); join() }
 
     private companion object {
+        const val OPEN_ATTEMPTS = 5
+        const val OPEN_RETRY_MS = 100L
         val IDLE = IndexProgress(0, 0, complete = false, running = false, failed = false)
     }
 }

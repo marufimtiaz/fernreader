@@ -185,6 +185,20 @@ class SearchIndexesTest {
     @Test fun out_of_memory_fails_the_build_instead_of_skipping_the_section() =
         failing_build_ends_not_running("oom", OutOfMemoryError("test"))
 
+    @Test fun search_waits_out_a_briefly_locked_index_file() {
+        built("wp", wpLike)
+        val expected = search("wp", "borodino").hits().size
+        val holder = androidx.sqlite.driver.bundled.BundledSQLiteDriver().open(java.io.File(dir, "wp.db").path)
+        // Exclusive locking mode keeps the file locked against every other connection, like a builder closing its connection.
+        holder.prepare("PRAGMA locking_mode=EXCLUSIVE").use { it.step() }
+        holder.prepare("SELECT count(*) FROM meta").use { it.step() }
+        val release = Thread { Thread.sleep(300); holder.close() }.also { it.start() }
+        val got = search("wp", "borodino").hits().size
+        release.join()
+        assertEquals(expected, got)
+        assertTrue(got > 0)
+    }
+
     @Test fun stale_digest_finds_nothing_until_rebuilt() {
         built("wp", wpLike, digest = "d1")
         assertEquals(0, search("wp", "borodino", digest = "d2").hits().size)

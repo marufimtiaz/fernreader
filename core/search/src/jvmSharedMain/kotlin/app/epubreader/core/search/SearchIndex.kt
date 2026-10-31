@@ -84,17 +84,28 @@ internal class SearchIndex private constructor(private val db: SQLiteConnection)
         fun peek(path: String): IndexMeta? {
             if (!File(path).exists()) return null
             val db = try { BundledSQLiteDriver().open(path) } catch (e: SQLiteException) { return null }
-            return try { readMeta(db) } catch (e: SQLiteException) { null } finally { db.close() }
+            return try {
+                db.execSQL("PRAGMA busy_timeout=$BUSY_MS")
+                readMeta(db)
+            } catch (e: SQLiteException) { null } finally { db.close() }
         }
 
-        /** A connection for queries; null if the file is missing, damaged, or not the index of the file with [digest]. */
+        /**
+         * A connection for queries; null if the file is missing or is not the index of the file with [digest]. Throws
+         * [SQLiteException] if it cannot be read right now (locked while a builder closes, or damaged): the caller may retry.
+         */
         fun openReader(path: String, digest: String, tag: String = formatTag()): SQLiteConnection? {
             if (!File(path).exists()) return null
-            val db = try { BundledSQLiteDriver().open(path) } catch (e: SQLiteException) { return null }
-            val ok = try { readMeta(db)?.let { it.tag == tag && it.digest == digest } == true } catch (e: SQLiteException) { false }
-            if (!ok) { db.close(); return null }
-            db.execSQL("PRAGMA busy_timeout=$BUSY_MS")
-            return db
+            val db = BundledSQLiteDriver().open(path)
+            try {
+                db.execSQL("PRAGMA busy_timeout=$BUSY_MS") // before the first read: the builder's close holds locks briefly
+                val m = readMeta(db)
+                if (m != null && m.tag == tag && m.digest == digest) return db
+            } catch (t: Throwable) {
+                db.close(); throw t
+            }
+            db.close()
+            return null
         }
 
         fun deleteFiles(path: String) {
