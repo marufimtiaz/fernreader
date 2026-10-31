@@ -277,6 +277,9 @@ class MainActivity : ComponentActivity() {
             BenchCommands.register("tocJump") { label ->
                 controller.state.value.toc.firstOrNull { it.label.contains(label, ignoreCase = true) }?.let(controller::onTocSelected)
             }
+            // M6 (tools/run_checks.sh, rendering compatibility): TOC entry by position, search result by position
+            BenchCommands.register("tocIndex") { n -> n.trim().toIntOrNull()?.let { controller.state.value.toc.getOrNull(it) }?.let(controller::onTocSelected) }
+            BenchCommands.register("searchHit") { n -> n.trim().toIntOrNull()?.let { controller.searcher.state.value.results.getOrNull(it) }?.let(controller.searcher::select) }
         }
         // Pre-warm after the first frame so it never delays the library (P-001). Creating the WebView blocks the main
         // thread for ~0.3-0.5 s, so on the library it waits until the books are on screen (or a first scan found
