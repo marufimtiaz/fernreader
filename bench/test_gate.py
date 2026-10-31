@@ -30,10 +30,23 @@ class GateTest(unittest.TestCase):
     def test_main_exit_code(self):
         with tempfile.TemporaryDirectory() as d:
             r, t = os.path.join(d, "r.jsonl"), os.path.join(d, "t.json")
-            open(r, "w").write("\n".join(json.dumps(x) for x in self.rows(900, 900, 900)))
-            json.dump(TARGETS, open(t, "w"))
+            def write(rows):
+                with open(r, "w") as f:
+                    f.write("\n".join(json.dumps(x) for x in rows))
+            with open(t, "w") as f:
+                json.dump(TARGETS, f)
+            write(self.rows(900, 900, 900))
             self.assertEqual(gate.main([r, t]), 0)
-            open(r, "w").write("\n".join(json.dumps(x) for x in self.rows(1900, 1900, 1900)))
+            write(self.rows(1900, 1900, 1900))
+            self.assertEqual(gate.main([r, t]), 1)
+
+    def test_empty_results_fail(self):
+        with tempfile.TemporaryDirectory() as d:
+            r, t = os.path.join(d, "r.jsonl"), os.path.join(d, "t.json")
+            with open(r, "w") as f:
+                f.write("")
+            with open(t, "w") as f:
+                json.dump(TARGETS, f)
             self.assertEqual(gate.main([r, t]), 1)
 
 if __name__ == "__main__":

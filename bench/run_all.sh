@@ -14,6 +14,14 @@ done
 mkdir -p bench/results
 export RESULTS="$ROOT/bench/results/$(date -u +%Y%m%dT%H%M%SZ)-$(git rev-parse --short HEAD).jsonl"
 : > "$RESULTS"
-for g in "${GRPS[@]}"; do echo "== $g"; bash "bench/groups/$g.sh" || echo "WARN: $g exited non-zero" >&2; done
+[ ${#GRPS[@]} -gt 0 ] || { echo "usage: bench/run_all.sh <group...|all> [--release]" >&2; exit 2; }
+empty=0
+for g in "${GRPS[@]}"; do
+  echo "== $g"
+  before=$(wc -l < "$RESULTS")
+  bash "bench/groups/$g.sh" || echo "WARN: $g exited non-zero" >&2
+  if [ "$(wc -l < "$RESULTS")" -eq "$before" ]; then echo "FAIL: group '$g' produced no results" >&2; empty=1; fi
+done
 python3 -I bench/gate.py "$RESULTS" bench/targets.json; rc=$?
+[ "$empty" -eq 0 ] || rc=1
 echo "results: $RESULTS"; exit $rc
