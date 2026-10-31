@@ -96,7 +96,7 @@ fun DisplayPanel(
 }
 
 @Composable
-private fun Label(text: String, modifier: Modifier = Modifier) =
+internal fun Label(text: String, modifier: Modifier = Modifier) =
     Text(text, modifier, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
 @Composable
@@ -165,7 +165,7 @@ private fun SliderRow(label: String, value: String, v: Float, range: ClosedFloat
 }
 
 @Composable
-private fun <T> Segments(label: String, options: List<Pair<T, String>>, current: T, onPick: (T) -> Unit) {
+internal fun <T> Segments(label: String, options: List<Pair<T, String>>, current: T, onPick: (T) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Label(label)
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {

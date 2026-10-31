@@ -434,4 +434,46 @@ class ReaderControllerTest {
         c.searcher.clearHistory(); advanceUntilIdle()
         assertEquals(1, searchHistory.recent(library.knownBookId(ref)!!).size) // the other book's history is untouched
     }
+
+    @Test fun settings_sheet_opens_closes_and_back_closes_it_first() = runTest(dispatcher) {
+        val c = controller()
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
+        reader.events.emit(FromWeb.Tap(sessionId = "s-1", x = 0.5, y = 0.5)); advanceUntilIdle()
+        assertTrue(c.state.value.chromeVisible)
+        c.showSettings()
+        assertTrue(c.state.value.settingsVisible)
+        assertFalse(c.state.value.chromeVisible)
+        assertTrue(c.backInside())
+        assertFalse(c.state.value.settingsVisible)
+        assertFalse(c.backInside())
+    }
+
+    @Test fun a_tap_on_the_page_closes_the_settings_sheet() = runTest(dispatcher) {
+        val c = controller()
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
+        c.showSettings()
+        reader.events.emit(FromWeb.Tap(sessionId = "s-1", x = 0.5, y = 0.5)); advanceUntilIdle()
+        assertFalse(c.state.value.settingsVisible)
+        assertFalse(c.state.value.chromeVisible) // the tap only closed the sheet
+    }
+
+    @Test fun toggle_bookmark_stub_is_harmless() = runTest(dispatcher) {
+        val c = controller()
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
+        val before = c.state.value
+        reader.sent.clear()
+        c.toggleBookmark()
+        assertEquals(before, c.state.value)
+        assertTrue(reader.sent.isEmpty())
+    }
+
+    @Test fun settings_sheet_edits_the_new_fields_live_and_persist() = runTest(dispatcher) {
+        val c = controller()
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
+        reader.sent.clear()
+        c.updateSettings { it.copy(tapZones = true, volumeKeys = app.epubreader.core.data.VolumeKeys.REVERSED) }
+        assertTrue(c.settings.value.tapZones)
+        assertEquals(app.epubreader.core.data.VolumeKeys.REVERSED, c.settings.value.volumeKeys)
+        assertTrue(reader.sent.isEmpty()) // nothing for the web side changed
+    }
 }

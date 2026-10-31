@@ -55,6 +55,7 @@ data class ReaderUiState(
     val tocVisible: Boolean = false,
     val searchVisible: Boolean = false,
     val displayVisible: Boolean = false,
+    val settingsVisible: Boolean = false,
     val notice: Notice? = null,
     val error: ReaderError? = null,
     val source: SourceRef? = null,
@@ -334,6 +335,7 @@ class ReaderController(
     /** Handles Back inside the reader (closes the TOC first). Returns false if Back should leave the reader. */
     fun backInside(): Boolean = when {
         _state.value.searchVisible -> { hideSearch(); true }
+        _state.value.settingsVisible -> { hideSettings(); true }
         _state.value.displayVisible -> { hideDisplay(); true }
         _state.value.tocVisible -> { hideToc(); true }
         else -> false
@@ -353,6 +355,11 @@ class ReaderController(
     }
     fun showDisplay() { probe.ev("display_cmd", ""); _state.update { it.copy(displayVisible = true, chromeVisible = false) } }
     fun hideDisplay() = _state.update { it.copy(displayVisible = false) }
+    fun showSettings() { probe.ev("settings_cmd", ""); _state.update { it.copy(settingsVisible = true, chromeVisible = false) } }
+    fun hideSettings() = _state.update { it.copy(settingsVisible = false) }
+
+    /** Adds or removes the bookmark at the current location (F-033 button). Task 6 implements it; until then it does nothing. */
+    fun toggleBookmark() = Unit
     fun dismissNotice() = _state.update { it.copy(notice = null) }
 
     /** R-001: a missing target shows a notice and the page stays; otherwise jump (href is the reader's own). */
@@ -407,7 +414,8 @@ class ReaderController(
                 if (!s.painted) { s.painted = true; probe.ev("painted_first", ""); _state.update { it.copy(loading = false) }; loadStats(s) }
             }
             is FromWeb.Tap -> if (m.sessionId == s.id) when {
-                _state.value.displayVisible -> hideDisplay() // a tap on the page closes the panel
+                _state.value.settingsVisible -> hideSettings() // a tap on the page closes the sheet or panel
+                _state.value.displayVisible -> hideDisplay()
                 m.x in 0.33..0.67 -> toggleChrome()
             }
             is FromWeb.Error -> if (m.sessionId == null || m.sessionId == s.id) {

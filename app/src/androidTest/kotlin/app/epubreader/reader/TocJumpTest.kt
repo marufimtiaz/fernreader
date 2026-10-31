@@ -44,8 +44,8 @@ class TocJumpTest {
 
             fun openToc() {
                 dev.click(dev.displayWidth / 2, dev.displayHeight / 2)
-                assertTrue(dev.wait(Until.hasObject(By.text(Copy.contents)), 3_000))
-                dev.findObject(By.text(Copy.contents)).click()
+                assertTrue(dev.wait(Until.hasObject(By.desc(Copy.contents)), 3_000))
+                dev.findObject(By.desc(Copy.contents)).click()
                 assertTrue(dev.wait(Until.hasObject(By.text(Copy.close)), 3_000))
             }
             openToc()

@@ -47,11 +47,11 @@ class ReaderTouchTest {
             assertNotEquals(first.cfi, withTimeout(5_000) { turned.await() }.cfi)
 
             dev.click(w / 2, h / 2) // center tap → chrome
-            assertTrue(dev.wait(Until.hasObject(By.text(Copy.contents)), 3_000))
+            assertTrue(dev.wait(Until.hasObject(By.desc(Copy.contents)), 3_000))
             val leaked = async(start = CoroutineStart.UNDISPATCHED) {
                 withTimeoutOrNull(1_500) { a.reader.events.filterIsInstance<FromWeb.Tap>().first() }
             }
-            dev.findObject(By.text(Copy.contents)).click()
+            dev.findObject(By.desc(Copy.contents)).click()
             assertNull("tap on a chrome button reached the WebView", leaked.await())
             withTimeout(3_000) { a.controller.state.first { it.tocVisible } }
         }
