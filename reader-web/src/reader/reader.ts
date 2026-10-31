@@ -3,6 +3,7 @@ import { EPUB } from '../../vendor/foliate-js/epub.js'
 import type { Bridge } from '../bridge/bridge'
 import { makeLoader } from './loader'
 import { flattenToc } from './toc'
+import { resolveSaved } from './position'
 
 /* foliate-js is untyped JS; keep `any` at this boundary only. */
 type Book = any
@@ -37,6 +38,10 @@ export class Reader {
   private seeking = false
 
   constructor(private bridge: Bridge) {
+    // Read-only probes for the app's instrumented tests (evaluateJavascript); nothing in the app calls them.
+    ;(window as any).__readerTest = {
+      page: () => { const r = this.view?.renderer; return r ? { page: r.page, textPages: r.pages - 2, index: this.view.lastLocation?.section?.current } : null },
+    }
     bridge.onMessage(m => {
       switch (m.type) {
         case 'open': void this.open(m.sessionId, m.position, m.texts.missingPart); break
@@ -95,9 +100,10 @@ export class Reader {
       r.setAttribute('gap', '6%')
       r.setAttribute('max-column-count', '1')
       if (!position) { await view.init({}); return }
-      // A position that no longer resolves (e.g. the file changed) falls back to the start (C-009 refinement: M3).
+      // A position that no longer resolves exactly (the file changed in place) lands on the nearest valid place in its
+      // chapter (C-009); only a position whose chapter is gone falls back to the start.
       this.seeking = true
-      try { await view.init({ lastLocation: position }) } catch { if (!stale()) await view.init({}) }
+      try { if (!(await goToTarget(view, position, true))) await view.init({}) } catch { if (!stale()) await view.init({}) }
       if (stale()) return
       this.seeking = false
       if (view.lastLocation) this.onRelocate(view, sessionId, view.lastLocation)
@@ -141,7 +147,7 @@ export class Reader {
           continue
         }
         this.seeking = true
-        try { await view.goTo(c.target) } catch (e) { console.warn('goTo failed', e) }
+        try { await goToTarget(view, c.target) } catch (e) { console.warn('goTo failed', e) }
         if (this.token !== token || this.view !== view) break
         this.seeking = false
         // One relocate where it landed (or, if the target did not resolve, where it stayed), then the answer.
@@ -165,7 +171,7 @@ export class Reader {
     if (position && position !== warm.view.lastLocation?.cfi) {
       // A position that no longer resolves stays where the view is (foliate's goTo logs and resolves undefined, or throws).
       this.seeking = true
-      try { await warm.view.goTo(position) } catch (e) { console.warn('goTo failed', e) }
+      try { await goToTarget(warm.view, position) } catch (e) { console.warn('goTo failed', e) }
       if (stale()) return
       this.seeking = false
     }
@@ -238,6 +244,21 @@ export class Reader {
 const MAX_TURNS = 3
 
 type Cmd = { kind: 'turn'; dir: 'next' | 'prev' } | { kind: 'goTo'; target: string; id?: number }
+
+const IS_CFI = /^epubcfi\(.*\)$/
+
+/**
+ * Navigates to an href or a CFI. A CFI goes through [resolveSaved] (C-009 nearest valid position). Returns false if
+ * the target's section does not resolve (nothing moved).
+ */
+async function goToTarget(view: any, target: string, initial = false): Promise<boolean> {
+  if (!IS_CFI.test(target)) { await (initial ? view.init({ lastLocation: target }) : view.goTo(target)); return true }
+  const resolved = resolveSaved(view.book, target)
+  if (!resolved) return false
+  await view.renderer.goTo(resolved)
+  if (initial) view.history?.pushState?.(target)
+  return true
+}
 
 function destroyView(view: any) {
   try { view.close?.() } catch { /* already broken */ }
