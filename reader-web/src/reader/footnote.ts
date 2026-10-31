@@ -70,7 +70,7 @@ function ensureStyle(doc: Document) {
   // Material-like sheet: 28 px corners, 24 px padding, scrim over the page; the panel scrolls for long notes.
   style.textContent = [
     '#er-footnote { position: fixed; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center; background: var(--er-fn-scrim); padding: 24px; box-sizing: border-box; }',
-    '#er-footnote > [role="dialog"] { box-sizing: border-box; width: 100%; max-width: 560px; max-height: 60vh; overflow-y: auto; overscroll-behavior: contain; padding: 20px 24px; border-radius: 28px; background: var(--er-fn-bg); color: var(--er-fn-fg); box-shadow: 0 6px 24px rgba(0,0,0,0.3); font-family: Georgia, serif; overflow-wrap: break-word; -webkit-user-select: text; user-select: text; }',
+    '#er-footnote > [role="dialog"] { box-sizing: border-box; width: 100%; max-width: 560px; max-height: 60vh; overflow-y: auto; overscroll-behavior: contain; padding: 20px 24px; border-radius: 28px; background: var(--er-fn-bg); color: var(--er-fn-fg); box-shadow: 0 6px 24px rgba(0,0,0,0.3); font-family: inherit; overflow-wrap: break-word; -webkit-user-select: text; user-select: text; }',
     '#er-footnote [role="dialog"] > :first-child { margin-top: 0; }',
     '#er-footnote [role="dialog"] > :last-child { margin-bottom: 0; }',
     '#er-footnote [data-er-href] { color: var(--er-fn-link); text-decoration: underline; cursor: pointer; }',
