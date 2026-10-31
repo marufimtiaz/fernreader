@@ -52,7 +52,7 @@ class ControlActions(
  * meets the page; floats over the page (it never changes the page's size).
  */
 @Composable
-fun ReaderTopBar(chapter: String, bookTitle: String, tocEnabled: Boolean, bookmarked: Boolean, a: ControlActions, modifier: Modifier = Modifier) {
+fun ReaderTopBar(chapter: String, bookTitle: String, bookmarked: Boolean, a: ControlActions, modifier: Modifier = Modifier) {
     Surface(
         modifier.fillMaxWidth(),
         shape = RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp),
@@ -72,7 +72,8 @@ fun ReaderTopBar(chapter: String, bookTitle: String, tocEnabled: Boolean, bookma
             IconButton(onClick = a.bookmark) {
                 if (bookmarked) Icon(BookmarkFilledIcon, Copy.removeBookmark, tint = MaterialTheme.colorScheme.primary) else Icon(BookmarkIcon, Copy.addBookmark)
             }
-            IconButton(onClick = a.contents, enabled = tocEnabled) { Icon(Icons.AutoMirrored.Filled.List, Copy.contents) }
+            // Always enabled: the panel also holds the bookmarks and highlights, which a book without a TOC has too.
+            IconButton(onClick = a.contents) { Icon(Icons.AutoMirrored.Filled.List, Copy.contents) }
         }
     }
 }

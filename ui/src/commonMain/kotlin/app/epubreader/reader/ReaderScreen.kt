@@ -95,7 +95,7 @@ fun ReaderScreen(
             display = c::showDisplay, settings = c::showSettings, seek = c::seek,
         )
         if (s.chromeVisible && s.error == null) {
-            ReaderTopBar(chapterTitle(s.toc, s.currentTocHref, s.title), s.title, s.toc.isNotEmpty(), s.bookmarked, actions, Modifier.align(Alignment.TopStart))
+            ReaderTopBar(chapterTitle(s.toc, s.currentTocHref, s.title), s.title, s.bookmarked, actions, Modifier.align(Alignment.TopStart))
         }
         // F-041: the page marker, over the page's top-right corner; visible without the controls, never moves the text.
         if (s.bookmarked && !s.chromeVisible && !s.loading && s.error == null) {
@@ -125,7 +125,7 @@ fun ReaderScreen(
         }
         if (s.settingsVisible && s.error == null) ReaderSettingsSheet(settings, onChange = c::updateSettings, modifier = Modifier.align(Alignment.BottomCenter))
         if (s.tocVisible) ContentsPanel(
-            s.contentsTab, c::selectContentsTab, s.toc, s.currentTocHref, c::onTocSelected,
+            s.title, s.contentsTab, c::selectContentsTab, s.toc, s.currentTocHref, c::onTocSelected,
             s.bookmarks, page, formatDate, c::onBookmarkSelected, c::removeBookmark, c::hideToc, probe,
             highlights = { HighlightsList(s.annotations, c::onAnnotationSelected) { a -> c.removeAnnotation(a.id) } },
         )

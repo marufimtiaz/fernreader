@@ -54,10 +54,11 @@ class ReaderHarness(val sc: ActivityScenario<MainActivity>, scope: CoroutineScop
         next(10_000) { e -> (e as? FromWeb.Seeked)?.takeIf { it.id == id } }
         return at!!
     }
-    suspend fun open(f: File): FromWeb.Relocate {
+    /** Opens [f] and waits until its first page settled ([withToc]: and its contents list arrived). */
+    suspend fun open(f: File, withToc: Boolean = true): FromWeb.Relocate {
         sc.onActivity { it.openBook(SourceRef.File(f.path)) }
         relocate(15_000); painted()
-        withTimeout(10_000) { a.controller.state.first { !it.loading && it.toc.isNotEmpty() } }
+        withTimeout(10_000) { a.controller.state.first { !it.loading && (!withToc || it.toc.isNotEmpty()) } }
         return settle()
     }
     suspend fun tocJump(label: String): FromWeb.Relocate {

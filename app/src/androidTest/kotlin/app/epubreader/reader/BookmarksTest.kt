@@ -102,4 +102,32 @@ class BookmarksTest {
             h.stop()
         }
     }
+
+    /** I1 (review): a book without a table of contents still reaches its bookmarks; the panel has a title row. */
+    @Test fun a_book_without_a_toc_lists_its_bookmarks(): Unit = runBlocking {
+        val title = "No Contents Book"
+        val f = TestBooks.write(inst.targetContext, "notoc-${System.nanoTime()}.epub", TestBooks.epub(id = "urn:uuid:notoc-${System.nanoTime()}", title = title, chapters = 2, paragraphs = 30, noToc = true))
+        ActivityScenario.launch(MainActivity::class.java).use { sc ->
+            val h = ReaderHarness(sc, this)
+            h.ready()
+            h.open(f, withToc = false)
+            val c = h.a.controller
+            assertEquals(emptyList<Any>(), c.state.value.toc)
+            showControls(h)
+            dev.findObject(By.desc(Copy.addBookmark)).click()
+            withTimeout(5_000) { c.state.first { it.bookmarks.size == 1 } }
+            dev.findObject(By.desc(Copy.contents)).click() // the controls are still shown
+            assertTrue("panel opens", dev.wait(Until.hasObject(By.text(Copy.bookmarksTab)), 3_000))
+            assertTrue("empty contents tab says so", dev.wait(Until.hasObject(By.text(Copy.noContents)), 3_000))
+            assertTrue("title row names the book", dev.hasObject(By.text(title)))
+            assertTrue(dev.hasObject(By.text(Copy.close)))
+            dev.findObject(By.text(Copy.bookmarksTab)).click()
+            assertTrue("bookmark row", dev.wait(Until.hasObject(By.desc(Copy.removeBookmark)), 5_000))
+            dev.findObject(By.desc(Copy.removeBookmark)).click()
+            withTimeout(5_000) { c.state.first { it.bookmarks.isEmpty() } }
+            dev.findObject(By.text(Copy.close)).click()
+            withTimeout(3_000) { c.state.first { !it.tocVisible } }
+            h.stop()
+        }
+    }
 }

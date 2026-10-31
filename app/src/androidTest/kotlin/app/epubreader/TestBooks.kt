@@ -15,6 +15,8 @@ object TestBooks {
         chapters: Int = 3,
         paragraphs: Int = 40,
         missingTocTarget: Boolean = false,
+        /** The nav document's toc is empty (a book without a table of contents). */
+        noToc: Boolean = false,
     ): ByteArray {
         val out = ByteArrayOutputStream()
         ZipOutputStream(out).use { z ->
@@ -27,7 +29,7 @@ object TestBooks {
             val items = (1..chapters).joinToString("") { """<item id="c$it" href="c$it.xhtml" media-type="application/xhtml+xml"/>""" }
             val spine = (1..chapters).joinToString("") { """<itemref idref="c$it"/>""" }
             put("OEBPS/content.opf", """<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="uid">$id</dc:identifier><dc:title>$title</dc:title><dc:creator>Test Author</dc:creator><dc:language>en</dc:language></metadata><manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>$items</manifest><spine>$spine</spine></package>""")
-            val toc = (1..chapters).joinToString("") { """<li><a href="c$it.xhtml">Chapter $it</a></li>""" } +
+            val toc = if (noToc) "" else (1..chapters).joinToString("") { """<li><a href="c$it.xhtml">Chapter $it</a></li>""" } +
                 (if (missingTocTarget) """<li><a href="gone.xhtml">Missing chapter</a></li>""" else "")
             put("OEBPS/nav.xhtml", """<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>Contents</title></head><body><nav epub:type="toc"><ol>$toc</ol></nav></body></html>""")
             for (c in 1..chapters) {

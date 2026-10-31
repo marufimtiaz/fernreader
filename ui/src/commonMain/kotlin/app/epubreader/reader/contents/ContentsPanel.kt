@@ -1,6 +1,5 @@
 package app.epubreader.reader.contents
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -18,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.epubreader.core.data.Bookmark
 import app.epubreader.reader.ContentsTab
@@ -31,9 +31,12 @@ import app.epubreader.ui.Copy
  * Full-screen panel behind the reader's contents button (F-041, F-062): tabs Contents | Bookmarks | Highlights. The
  * Contents tab is the default and the only one composed until another is picked (the contents list builds its tree on
  * composition, P-031). [highlights] is the slot the annotations list fills in (Task 8); empty, it shows a short hint.
+ * A title row (the book's title, else "Contents") with Close sits above the tabs, like the search and display panels. A
+ * book without a table of contents still opens the panel (its bookmarks and highlights are here); its Contents tab says so.
  */
 @Composable
 fun ContentsPanel(
+    title: String,
     tab: ContentsTab, onTab: (ContentsTab) -> Unit,
     toc: List<TocItem>, currentHref: String?, onSelect: (TocItem) -> Unit,
     bookmarks: List<Bookmark>, indicator: PageIndicator, formatDate: (Long) -> String,
@@ -43,7 +46,11 @@ fun ContentsPanel(
 ) {
     Surface(Modifier.fillMaxSize()) {
         Column(Modifier.safeDrawingPadding()) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), horizontalArrangement = Arrangement.End) {
+            Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    title.ifBlank { Copy.contents }, Modifier.weight(1f).padding(start = 8.dp),
+                    style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
                 TextButton(onClick = onDismiss) { Text(Copy.close) }
             }
             TabRow(selectedTabIndex = tab.ordinal) {
@@ -54,7 +61,7 @@ fun ContentsPanel(
             }
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 when (tab) {
-                    ContentsTab.Contents -> TocList(toc, currentHref, onSelect, probe)
+                    ContentsTab.Contents -> if (toc.isEmpty()) EmptyTab(Copy.noContents) else TocList(toc, currentHref, onSelect, probe)
                     ContentsTab.Bookmarks -> BookmarksList(bookmarks, indicator, formatDate, onOpenBookmark, onRemoveBookmark)
                     ContentsTab.Highlights -> highlights()
                 }

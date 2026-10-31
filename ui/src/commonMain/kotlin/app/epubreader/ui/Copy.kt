@@ -225,6 +225,7 @@ object Copy {
     const val bookmarksTab = "Bookmarks"
     const val highlightsTab = "Highlights"
     const val noBookmarks = "No bookmarks yet. Tap the bookmark button in the reader's top bar to keep your place."
+    const val noContents = "This book has no table of contents."
     const val noHighlights = "No highlights yet. Select text on a page to highlight it."
     /** The list's page estimate comes from the bookmark's place in the book, so it is approximate. */
     fun bookmarkPage(n: Int) = "Page ≈ $n"
