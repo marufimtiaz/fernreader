@@ -36,7 +36,8 @@ import app.epubreader.library.releaseCoverMemory
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.android.awaitFrame
 import app.epubreader.library.FileWatch
@@ -212,6 +213,10 @@ class MainActivity : ComponentActivity() {
                 if (!goBack()) { isEnabled = false; onBackPressedDispatcher.onBackPressed(); isEnabled = true }
             }
         })
+        // Only what the window depends on (a StateFlow drops equal values): a page turn (new location) neither recomposes
+        // the root below nor touches the window (I2, P-026).
+        val windowInputs = controller.state.map(ReaderWindowInputs::of)
+            .stateIn(lifecycleScope, SharingStarted.Eagerly, ReaderWindowInputs.of(controller.state.value))
         setContent {
             val rs by controller.settings.collectAsState()
             val theme = ReadingTheme.of(rs.theme)
@@ -224,9 +229,7 @@ class MainActivity : ComponentActivity() {
             androidx.compose.runtime.LaunchedEffect(mode) { withContext(Dispatchers.IO) { app.epubreader.settings.AppThemeCache.write(this@MainActivity, mode) } }
             val dateFormat = androidx.compose.runtime.remember { java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT) } // bookmark dates (F-041)
             val inReader = nav.top == Route.Reader
-            // Only what the window depends on: a page turn (new location) neither recomposes here nor touches the window (P-026).
-            val winInputs by androidx.compose.runtime.remember { controller.state.map(ReaderWindowInputs::of).distinctUntilChanged() }
-                .collectAsState(ReaderWindowInputs.of(controller.state.value))
+            val winInputs by windowInputs.collectAsState()
             val win = readerWindowState(inReader, winInputs, rs)
             val brightness = if (inReader) rs.brightness?.toFloat() ?: WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
             SideEffect { windowLook.update(WindowLook(brightness, lightBars = if (inReader) theme.isLight else !dark, win)) }
