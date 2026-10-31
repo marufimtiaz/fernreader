@@ -20,7 +20,11 @@ class CoverExtractorTest {
 
     @Before fun access() {
         inst.uiAutomation.executeShellCommand("appops set ${inst.targetContext.packageName} MANAGE_EXTERNAL_STORAGE allow").close()
-        assumeTrue("corpus not on the device", File("/sdcard/Books/gutenberg/war-and-peace-epub3.epub").exists())
+        val wp = File("/sdcard/Books/gutenberg/war-and-peace-epub3.epub")
+        assumeTrue("corpus not on the device", wp.exists())
+        // The grant reaches this (already running) process's storage view a moment later.
+        val until = System.currentTimeMillis() + 3_000
+        while (!runCatching { wp.inputStream().close() }.isSuccess && System.currentTimeMillis() < until) Thread.sleep(50)
     }
 
     @Test fun war_and_peace_thumbnail_is_small() {

@@ -20,8 +20,13 @@ import java.io.File
  * (P-063 prerequisite). Decoding is downsampled (R-006). Returns null when the book has no usable cover image.
  */
 class CoverExtractor(private val dir: File) {
+    /** Thrown for a failure worth retrying on a later pass (the file could not be read right now). */
+    class Retry(cause: Throwable) : Exception(cause)
+
+    /** The thumbnail path, or null when the book has no usable cover. Throws [Retry] on an I/O failure. */
     fun extract(bookId: String, path: String): String? = try {
-        val bytes = openFileSource(path).use { src ->
+        val source = try { openFileSource(path) } catch (e: java.io.IOException) { throw Retry(e) } // not readable right now
+        val bytes = source.use { src ->
             val (zip, r) = PackageLoader.open(src)
             val cover = (r as? LoadResult.Ok)?.pkg?.coverPath ?: return null
             zip!!.readBytes(zip.entry(cover) ?: return null, 20L shl 20)
@@ -29,8 +34,10 @@ class CoverExtractor(private val dir: File) {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null // not a bitmap (e.g. an SVG cover)
+        // R-006: bounded by both sides, so a very tall image never decodes at full size.
         var sample = 1
-        while (bounds.outWidth / (sample * 2) >= MAX_WIDTH) sample *= 2
+        while (bounds.outWidth / (sample * 2) >= MAX_WIDTH || bounds.outHeight / (sample * 2) >= MAX_HEIGHT) sample *= 2
+        if (bounds.outWidth.toLong() / sample * (bounds.outHeight.toLong() / sample) > MAX_PIXELS) return null
         val decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample }) ?: return null
         val thumb = if (decoded.width > MAX_WIDTH) {
             Bitmap.createScaledBitmap(decoded, MAX_WIDTH, (decoded.height.toLong() * MAX_WIDTH / decoded.width).toInt().coerceAtLeast(1), true)
@@ -42,12 +49,21 @@ class CoverExtractor(private val dir: File) {
         tmp.outputStream().use { thumb.compress(format, 80, it) }
         if (!tmp.renameTo(out)) { tmp.delete(); return null }
         out.path
+    } catch (e: Retry) {
+        throw e
     } catch (e: Exception) { // a damaged book or image never stops the queue
         Log.w("EPR", "cover failed: $path: $e")
         null
+    } catch (e: OutOfMemoryError) {
+        Log.w("EPR", "cover too large: $path")
+        null
     }
 
-    companion object { const val MAX_WIDTH = 360 }
+    companion object {
+        const val MAX_WIDTH = 360
+        const val MAX_HEIGHT = 1080
+        const val MAX_PIXELS = 4_000_000L
+    }
 }
 
 /**
@@ -63,7 +79,10 @@ class CoverQueue(private val repo: LibraryRepository, private val extractor: Cov
         scope.launch {
             for (r in requests) runCatching {
                 kotlinx.coroutines.coroutineScope {
-                    for (job in repo.coverJobs()) launch(work) { repo.setCover(job.bookId, extractor.extract(job.bookId, job.path) ?: "") }
+                    for (job in repo.coverJobs()) launch(work) {
+                        // One book at a time: a failure skips that book only. I/O failures are retried after the next scan.
+                        try { repo.setCover(job.bookId, extractor.extract(job.bookId, job.path) ?: "") } catch (e: CoverExtractor.Retry) { Log.w("EPR", "cover later: ${job.path}") }
+                    }
                 }
             }.onFailure { Log.w("EPR", "cover queue: $it") }
         }

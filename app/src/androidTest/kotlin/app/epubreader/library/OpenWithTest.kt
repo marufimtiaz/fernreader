@@ -73,4 +73,21 @@ class OpenWithTest {
             }
         }
     }
+
+    // Final review I4: open-with while the app runs reuses the one activity (one reader engine, one opener); Back
+    // returns to the library and moves the app behind the calling app.
+    @Test fun whileRunning_reusesTheActivity(): Unit = runBlocking {
+        val a1 = TestBooks.write(ctx, "ow-a.epub", TestBooks.epub(id = "urn:uuid:ow-a"))
+        TestBooks.write(ctx, "ow-b.epub", TestBooks.epub(id = "urn:uuid:ow-b", title = "Book B"))
+        // Not closed through the scenario: it cannot follow an activity moved behind another app's task.
+        val sc = ActivityScenario.launch(MainActivity::class.java)
+        lateinit var first: MainActivity
+        sc.onActivity { first = it; it.openBook(app.epubreader.core.data.SourceRef.File(a1.path)) }
+        withTimeout(20_000) { first.controller.state.first { it.open && !it.loading && it.error == null } }
+        ctx.startActivity(view(Uri.parse("content://app.epubreader.test.books/ow-b.epub")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        withTimeout(20_000) { first.controller.state.first { it.title == "Book B" && !it.loading } }
+        inst.runOnMainSync { assertEquals(Route.Reader, first.nav.top); first.goBack() }
+        inst.runOnMainSync { assertTrue(first.nav.top != Route.Reader); assertTrue(!first.isFinishing); first.finish() }
+        withTimeout(5_000) { while (!first.isDestroyed) kotlinx.coroutines.delay(20) }
+    }
 }

@@ -50,8 +50,13 @@ class MainActivity : ComponentActivity() {
     /** Access was just granted: the first full scan starts (F-003). Tests replace it. */
     var onAccessGranted: () -> Unit = {}
     private var resumedOnce = false
-    /** Started by an open-with intent: leaving the reader finishes the activity (back to the calling app). */
-    private var viewIntent = false
+    /**
+     * How the open book came from another app (F-013). One activity instance only (singleTask: one reader engine, one
+     * opener). COLD: this activity was started for it, so Back finishes it. WARM: the app was already running, so Back
+     * returns to the library and moves the app to the back, revealing the calling app.
+     */
+    private enum class View { NONE, COLD, WARM }
+    private var view = View.NONE
     private var watch: FileWatch? = null
     private val probe = EventProbe { n, x -> Probe.ev(n, x) }
     private var webViewTooOld by mutableStateOf(false)
@@ -95,7 +100,7 @@ class MainActivity : ComponentActivity() {
                 if (Probe.enabled) BenchMarker.Draw()
             }
         }
-        if (savedInstanceState == null) openFromIntent(intent)
+        if (savedInstanceState == null) openFromIntent(intent, cold = true)
         if (Probe.enabled) {
             BenchCommands.register("openPath") { openBook(SourceRef.File(it)) }
             BenchCommands.register("back") { goBack() }
@@ -135,7 +140,7 @@ class MainActivity : ComponentActivity() {
     }
 
     /** F-013: an EPUB opened from another app (file manager, browser, mail). Back returns to that app. */
-    private fun openFromIntent(intent: Intent?): Boolean {
+    private fun openFromIntent(intent: Intent?, cold: Boolean): Boolean {
         if (intent?.action != Intent.ACTION_VIEW) return false
         val uri = intent.data ?: return false
         val ref = when (uri.scheme) {
@@ -146,7 +151,7 @@ class MainActivity : ComponentActivity() {
             }
             else -> null
         } ?: return false
-        viewIntent = true
+        view = if (cold) View.COLD else View.WARM
         openBook(ref)
         return true
     }
@@ -157,11 +162,21 @@ class MainActivity : ComponentActivity() {
             if (!controller.backInside()) {
                 watch?.stop(); watch = null
                 controller.close()
-                if (viewIntent) finish() else { nav.pop(); Probe.ev("home_shown") }
+                when (view) {
+                    View.COLD -> finish()
+                    View.WARM -> { view = View.NONE; nav.pop(); moveTaskToBack(true) }
+                    View.NONE -> { nav.pop(); Probe.ev("home_shown") }
+                }
             }
             true
         }
         Route.Library, Route.Onboarding -> false
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        openFromIntent(intent, cold = false)
     }
 
     override fun onResume() {
