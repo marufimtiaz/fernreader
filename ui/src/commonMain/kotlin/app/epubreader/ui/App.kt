@@ -11,6 +11,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import app.epubreader.core.data.SourceRef
+import app.epubreader.library.LibraryActions
 import app.epubreader.library.LibraryScreen
 import app.epubreader.library.LibraryState
 import app.epubreader.onboarding.OnboardingScreen
@@ -51,7 +52,11 @@ fun App(
         readerSurface()
         when (nav.top) {
             Route.Onboarding -> OnboardingScreen(onGrant = onGrantAccess, onOpenPicker = onOpenPicker, onLeave = onLeave)
-            Route.Library -> LibraryScreen(library, onOpen = { b -> library.open(b) { onOpen(SourceRef.fromKey(it)) } }, onOpenPicker = onOpenPicker, onRescan = onRescan, probe = probe)
+            Route.Library -> LibraryScreen(
+                library,
+                LibraryActions(onOpen = { b -> library.open(b) { onOpen(SourceRef.fromKey(it)) } }, onOpenPicker = onOpenPicker, onRescan = onRescan),
+                probe = probe,
+            )
             Route.Reader -> ReaderScreen(reader, onBack = onBack, onForget = onForget, probe = probe, fonts = fonts)
         }
     }

@@ -75,6 +75,29 @@ class MigrationTest {
         migrated.close()
     }
 
+    @Test fun v5_to_v6_keeps_everything_and_adds_collections() {
+        val dbPath = Files.createTempDirectory("mig").resolve("m.db")
+        val helper = MigrationTestHelper(
+            schemaDirectoryPath = Path.of("schemas"), databasePath = dbPath,
+            driver = BundledSQLiteDriver(), databaseClass = AppDatabase::class,
+        )
+        helper.createDatabase(5).also {
+            insertM2Book(it)
+            it.execSQL("INSERT INTO book_cache (bookId, kind, digest, json) VALUES ('b1', 'section-stats.v1', 'd', '[]')")
+            it.execSQL("INSERT INTO search_history (bookId, query, usedAt) VALUES ('b1', 'prince', 5)")
+        }.close()
+        val migrated = helper.runMigrationsAndValidate(6)
+        migrated.prepare("SELECT cfi, updatedAt FROM reading_position WHERE bookId = 'b1'").use {
+            assertEquals(true, it.step()); assertEquals("epubcfi(/6/4!/4/2/1:0)", it.getText(0)); assertEquals(300L, it.getLong(1))
+        }
+        migrated.prepare("SELECT json FROM book_cache WHERE bookId = 'b1'").use { assertEquals(true, it.step()) }
+        migrated.prepare("SELECT COUNT(*) FROM search_history").use { assertEquals(true, it.step()); assertEquals(1L, it.getLong(0)) }
+        migrated.prepare("SELECT hidden, hiddenUpdatedAt FROM book WHERE id = 'b1'").use { assertEquals(true, it.step()); assertEquals(0L, it.getLong(1)) }
+        migrated.execSQL("INSERT INTO collection (id, name, createdAt, updatedAt, deleted) VALUES ('c1', 'Classics', 1, 1, 0)")
+        migrated.execSQL("INSERT INTO collection_book (id, collectionId, bookId, updatedAt, deleted) VALUES ('m1', 'c1', 'b1', 1, 0)")
+        migrated.close()
+    }
+
     companion object {
         /** A book as M2 recorded it after a picker open: identity from foliate, a content:// file row, a position. */
         fun insertM2Book(c: androidx.sqlite.SQLiteConnection, identityKey: String = "k", uri: String = "content://com.android.providers.downloads.documents/document/42") {

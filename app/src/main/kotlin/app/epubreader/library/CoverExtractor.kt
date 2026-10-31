@@ -61,6 +61,8 @@ class CoverExtractor(private val dir: File) {
         null
     }
 
+    fun drop(bookId: String) { File(dir, "$bookId.webp").delete() }
+
     companion object {
         const val MAX_WIDTH = 360
         const val MAX_HEIGHT = 1080
@@ -96,4 +98,7 @@ class CoverQueue(private val repo: LibraryRepository, private val extractor: Cov
     }
 
     fun fillMissing() { requests.trySend(Unit) }
+
+    /** The book's files were deleted (F-025): its thumbnail goes too. */
+    fun dropThumb(bookId: String) { extractor.drop(bookId) }
 }

@@ -16,7 +16,12 @@ data class LibraryBook(
     val sortAuthor: String,
     val path: String,
     val paths: List<String>,
-)
+    /** Live collections the book is in (F-026). */
+    val collectionIds: List<String> = emptyList(),
+) {
+    /** Folders that directly contain a local file of this book (F-017). */
+    val folders: List<String> get() = paths.filter { it.startsWith("/") }.map { it.substringBeforeLast('/').ifEmpty { "/" } }.distinct()
+}
 
 /** What the scanner learned about one file; recorded by [LibraryDao.recordScanned]. */
 data class ScannedBook(

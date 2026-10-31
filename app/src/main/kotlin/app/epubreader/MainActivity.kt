@@ -55,6 +55,7 @@ class MainActivity : ComponentActivity() {
         private set
     lateinit var nav: Navigator
         private set
+    private lateinit var library: LibraryState
     private val access = StorageAccess(this) { onAccessMaybeGranted() }
     /** Access was just granted: the first full scan starts (F-003). Tests replace it. */
     var onAccessGranted: () -> Unit = {}
@@ -92,7 +93,8 @@ class MainActivity : ComponentActivity() {
             closeScope = graph.appScope, // onDestroy's close-out must not run on the already-cancelled lifecycleScope
         )
         val library = LibraryState(graph.library.libraryLive(graph.scans.state.map { it.found }), graph.library.failures(), graph.scans.state, graph.settings, BookRemoval(graph.library::removeBook, graph.searchHistory, { graph.search.delete(it) })::remove, lifecycleScope,
-            exists = { withContext(Dispatchers.IO) { java.io.File(it).exists() } })
+            exists = { withContext(Dispatchers.IO) { java.io.File(it).exists() } }, ops = graph.library, folderView = graph.prefs.folderView)
+        this.library = library
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (!goBack()) { isEnabled = false; onBackPressedDispatcher.onBackPressed(); isEnabled = true }
@@ -233,7 +235,8 @@ class MainActivity : ComponentActivity() {
             }
             true
         }
-        Route.Library, Route.Onboarding -> false
+        Route.Library -> library.back()
+        Route.Onboarding -> false
     }
 
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {

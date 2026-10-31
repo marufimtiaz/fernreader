@@ -22,6 +22,8 @@ import app.epubreader.bench.Probe
 import app.epubreader.library.CoverExtractor
 import app.epubreader.library.CoverQueue
 import app.epubreader.library.StorageAccess
+import app.epubreader.settings.AppPrefs
+import app.epubreader.settings.AppThemeCache
 import android.os.Environment
 import app.epubreader.core.data.androidDatabaseBuilder
 import app.epubreader.core.data.buildDatabase
@@ -45,7 +47,10 @@ class AppGraph(app: Application) {
     val appScope: CoroutineScope get() = io
     val db = buildDatabase(androidDatabaseBuilder(app))
     val clock = HybridClock(System::currentTimeMillis)
-    val library = LibraryRepository(db, clock)
+    val library = LibraryRepository(
+        db, clock, deleteFile = { java.io.File(it).delete() }, // F-025 "also delete the file"
+        onBookFilesDeleted = { covers.dropThumb(it) },
+    )
     /** Created on IO when first awaited: PositionWriter.create seeds the clock from the stored positions. */
     val positions: Deferred<PositionWriter> = io.async(start = CoroutineStart.LAZY) { PositionWriter.create(db, clock, io) }
     val server = BookContentServer()
@@ -66,6 +71,8 @@ class AppGraph(app: Application) {
         // WorkManager initialises on first use (on demand, see EpubReaderApp): keep that off the main thread.
         BookSearch(search, opener) { io.launch { SearchIndexWorker.enqueue(app) } }
     }
+    /** F-074/F-017 app settings; the theme starts from a small preferences copy so the first frame is right. */
+    val prefs = AppPrefs(settings, io, initialTheme = AppThemeCache.read(app))
     val scanner = Scanner(db, clock, FileStorageWalker(Environment.getExternalStorageDirectory().path))
     /** F-003/F-012: scans run on IO, never before the first frame (MainActivity calls onAppStart after it). */
     val scans = ScanController(

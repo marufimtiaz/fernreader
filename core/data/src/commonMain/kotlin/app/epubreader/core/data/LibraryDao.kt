@@ -120,6 +120,13 @@ abstract class LibraryDao {
     }
 
     @Query(LIBRARY_QUERY) abstract fun library(): Flow<List<LibraryRow>>
+    /** F-025: books removed from the library only (Settings → Hidden books). */
+    @Query(HIDDEN_QUERY) abstract fun hiddenLibrary(): Flow<List<LibraryRow>>
+    @Query("UPDATE book SET hidden = :hidden, updatedAt = :now WHERE id IN (:ids) AND hidden != :hidden")
+    abstract suspend fun setHidden(ids: List<String>, hidden: Boolean, now: Long)
+    @Query("SELECT * FROM book_file WHERE bookId = :bookId") abstract suspend fun filesOf(bookId: String): List<BookFileEntity>
+    @Query("DELETE FROM book_file WHERE path = :path") abstract suspend fun deleteFile(path: String)
+    @Query("DELETE FROM book_cache WHERE bookId = :bookId") abstract suspend fun deleteCache(bookId: String)
     /** The same rows read once (a reader connection): used while a scan holds the writer, see LibraryRepository. */
     @Query(LIBRARY_QUERY) abstract suspend fun librarySnapshot(): List<LibraryRow>
 
@@ -142,16 +149,22 @@ abstract class LibraryDao {
 /** The identity-key half of a book with no package identifier. */
 private val NO_IDENTIFIER_HASH = app.epubreader.core.epub.meta.BookIdentity.of(null, "").substringBefore('-')
 
-private const val LIBRARY_QUERY =
+private const val LIBRARY_COLUMNS =
     "SELECT b.id AS id, b.title AS title, b.authors AS authors, b.titleDirection AS titleDirection, b.coverThumb AS coverThumb, " +
         "b.addedAt AS addedAt, b.lastOpenedAt AS lastOpenedAt, b.sortTitle AS sortTitle, b.sortAuthor AS sortAuthor, " +
         "(SELECT f.path FROM book_file f WHERE f.bookId = b.id ORDER BY f.source = 'scan' DESC, f.path LIMIT 1) AS path, " +
-        "(SELECT GROUP_CONCAT(f.path, char(10)) FROM book_file f WHERE f.bookId = b.id) AS paths " +
-        "FROM book b WHERE b.deleted = 0 AND b.hidden = 0 AND EXISTS (SELECT 1 FROM book_file f WHERE f.bookId = b.id)"
+        "(SELECT GROUP_CONCAT(f.path, char(10)) FROM book_file f WHERE f.bookId = b.id) AS paths, " +
+        "(SELECT GROUP_CONCAT(m.collectionId, char(10)) FROM collection_book m JOIN collection c ON c.id = m.collectionId " +
+        "WHERE m.bookId = b.id AND m.deleted = 0 AND c.deleted = 0) AS collectionIds " +
+        "FROM book b WHERE b.deleted = 0 AND EXISTS (SELECT 1 FROM book_file f WHERE f.bookId = b.id) "
+
+private const val LIBRARY_QUERY = LIBRARY_COLUMNS + "AND b.hidden = 0"
+private const val HIDDEN_QUERY = LIBRARY_COLUMNS + "AND b.hidden = 1 ORDER BY b.sortTitle"
 
 data class LibraryRow(
     val id: String, val title: String, val authors: String, val titleDirection: String, val coverThumb: String?,
     val addedAt: Long, val lastOpenedAt: Long?, val sortTitle: String, val sortAuthor: String, val path: String, val paths: String,
+    val collectionIds: String?,
 )
 
 data class CoverJob(val bookId: String, val path: String)
