@@ -38,8 +38,34 @@ export function planBatch(metas: { index: number; key: string | null }[]): { key
   }
 }
 
-const attrs = (el: Element | null | undefined) =>
-  el ? [...el.attributes].filter(a => !a.name.startsWith('xmlns')).map(a => `${a.name}="${a.value.replace(/"/g, '&quot;')}"`).join(' ') : ''
+/**
+ * Pages of one column box from its content's bounding rect: columns run right for left-to-right text and left for
+ * right-to-left text, so the content extends past the box on that side (same count as foliate's View.expand).
+ */
+export function boxPages(content: { left: number; right: number }, box: { left: number; right: number }, width: number): number {
+  const extent = Math.max(content.right - box.left, box.right - content.left)
+  return Math.max(1, Math.ceil(extent / width))
+}
+
+/** Attribute text of a start tag, without namespace declarations, normalised to single spaces. */
+const tagAttrs = (raw: string) => raw.replace(/\/\s*$/, '').trim().split(/\s+(?=[\w:-]+\s*=|[\w:-]+(?:\s|$))/)
+  .filter(a => a && !/^xmlns(:|=|$)/.test(a)).join(' ')
+
+export type Source = { head: string[]; htmlAttrs: string; bodyAttrs: string; body: string }
+
+/**
+ * The parts of a section's markup the batch document needs, cut from the text (no DOM is built: the batch document
+ * parses the markup once, and the counter stays light on memory, P-060). Null without a body element.
+ */
+export function splitSource(text: string): Source | null {
+  const body = /<body\b([^>]*)>([\s\S]*)<\/body\s*>/i.exec(text)
+  if (!body) return null
+  const html = /<html\b([^>]*)>/i.exec(text)
+  const headText = /<head\b[^>]*>([\s\S]*?)<\/head\s*>/i.exec(text)?.[1] ?? ''
+  const head = [...headText.matchAll(/<link\b[^>]*>|<style\b[\s\S]*?<\/style\s*>/gi)].map(m => m[0])
+    .filter(t => !/^<link/i.test(t) || /\brel\s*=\s*["'][^"']*\bstylesheet\b/i.test(t))
+  return { head, htmlAttrs: tagAttrs(html?.[1] ?? ''), bodyAttrs: tagAttrs(body[1]), body: body[2] }
+}
 
 export type Layout = { width: number; height: number; gap: number; columnWidth: number; margin: number }
 export type CountMessage = { gen: number; linear?: number[]; counts: [number, number][]; sample: boolean; done: boolean }
@@ -105,6 +131,7 @@ export class PageCounter {
       if (!counts || !live()) return
       at += size
       this.send({ gen, counts, sample: at === sample.length && sample.length > 0, done: at >= order.length })
+      if (at >= order.length) { this.host?.remove(); this.host = null} // the last batch document goes too
       await sleep(0) // let input and painting run between batches
     }
   }
@@ -116,28 +143,15 @@ export class PageCounter {
     const layout = r.pagedLayout
     if (!layout || !(layout.width > 0 && layout.height > 0)) return null // no viewport yet: nothing to count
     const docs = await Promise.all(batch.map(async i => {
-      try {
-        const url = await this.sections[i].load()
-        const res = await fetch(url)
-        const type = res.headers.get('content-type') || 'application/xhtml+xml'
-        const text = await res.text()
-        let d = new DOMParser().parseFromString(text, /xml/.test(type) ? 'application/xhtml+xml' : 'text/html')
-        if (d.querySelector('parsererror')) d = new DOMParser().parseFromString(text, 'text/html')
-        return d
-      } catch { return null }
+      try { return splitSource(await (await fetch(await this.sections[i].load())).text()) } catch { return null }
     }))
     if (!live()) { batch.forEach(i => this.sections[i].unload?.()); return null }
-    const heads = (d: Document) => [...d.querySelectorAll('head link[rel~=stylesheet], head style')].map(el => el.outerHTML)
-    const metas = docs.map((d, k) => ({
-      index: batch[k],
-      key: d?.body ? JSON.stringify([heads(d), attrs(d.documentElement), attrs(d.body)]) : null,
-    }))
+    const metas = docs.map((d, k) => ({ index: batch[k], key: d ? JSON.stringify([d.head, d.htmlAttrs, d.bodyAttrs]) : null }))
     const plan = planBatch(metas)
     const out: [number, number][] = []
     try {
       if (plan.batched.length) {
-        const first = docs[batch.indexOf(plan.batched[0])]!
-        const counted = await this.layoutBatch(plan.batched.map(i => [i, docs[batch.indexOf(i)]!] as const), first, heads(first), r, live)
+        const counted = await this.layoutBatch(plan.batched.map(i => [i, docs[batch.indexOf(i)]!] as const), r, live)
         if (!counted) return null
         out.push(...counted)
       }
@@ -152,13 +166,14 @@ export class PageCounter {
   }
 
   /** Sections that share head style sheets and html/body attributes, each in a column box of one hidden document. */
-  private async layoutBatch(items: (readonly [number, Document])[], first: Document, head: string[], r: Renderer, live: () => boolean): Promise<[number, number][] | null> {
+  private async layoutBatch(items: (readonly [number, Source])[], r: Renderer, live: () => boolean): Promise<[number, number][] | null> {
+    const first = items[0][1]
     const { width, height, gap, columnWidth, margin } = r.pagedLayout
     const styles = Array.isArray(r.styles) ? r.styles : ['', r.styles ?? '']
-    const htmlAttrs = attrs(first.documentElement) || `lang="${this.lang}" dir="${this.dir}"`
-    const boxes = items.map(([i, d]) => `<div class="er-box" data-i="${i}">${d.body?.innerHTML ?? ''}</div>`)
+    const htmlAttrs = first.htmlAttrs || `lang="${this.lang}" dir="${this.dir}"`
+    const boxes = items.map(([i, d]) => `<div class="er-box" data-i="${i}">${d.body}</div>`)
     const html = `<!doctype html><html ${htmlAttrs}><head><meta charset="utf-8">
-<style>${styles[0]}</style>${head.join('')}<style>${styles[1]}</style><style>
+<style>${styles[0]}</style>${first.head.join('')}<style>${styles[1]}</style><style>
 html,body{margin:0!important;padding:0!important}
 .er-box{box-sizing:border-box!important;width:${width}px!important;height:${height}px!important;
  column-width:${Math.trunc(columnWidth)}px!important;column-gap:${gap}px!important;column-fill:auto!important;
@@ -166,7 +181,7 @@ html,body{margin:0!important;padding:0!important}
  -webkit-line-box-contain:block glyphs replaced}
 .er-box :is(img,svg,video){max-height:${height - margin * 2}px!important;max-width:100%;object-fit:contain!important;
  break-inside:avoid!important;box-sizing:border-box!important}
-</style></head><body ${attrs(first.body)}>${boxes.join('')}</body></html>`
+</style></head><body ${first.bodyAttrs}>${boxes.join('')}</body></html>`
     const frame = this.frame(width, height)
     const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }))
     try {
@@ -182,7 +197,7 @@ html,body{margin:0!important;padding:0!important}
         range.selectNodeContents(box)
         const c = range.getBoundingClientRect()
         const b = box.getBoundingClientRect()
-        out.push([Number(box.dataset.i), Math.max(1, Math.ceil((c.right - b.left) / width))])
+        out.push([Number(box.dataset.i), boxPages(c, b, width)])
       }
       return out
     } finally {
@@ -226,7 +241,10 @@ html,body{margin:0!important;padding:0!important}
     }
   }
 
+  /** One hidden frame per count, navigated per batch: each navigation tears the previous batch document down. */
   private frame(width: number, height: number): HTMLIFrameElement {
+    const old = this.host?.querySelector('iframe')
+    if (old && this.host!.style.width === `${width}px` && this.host!.style.height === `${height}px`) return old
     this.host?.remove()
     const host = document.createElement('div')
     Object.assign(host.style, {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { planBatch, readingOrder, stratifiedSample } from '../src/reader/counter'
+import { boxPages, splitSource, planBatch, readingOrder, stratifiedSample } from '../src/reader/counter'
 
 describe('stratifiedSample (S1: 12 sections spread over the book)', () => {
   const linear = Array.from({ length: 368 }, (_, i) => i)
@@ -47,5 +47,34 @@ describe('planBatch (S1 risks: only sections the batch box reproduces exactly sh
   })
   it('a section whose document could not be read is counted alone', () => {
     expect(planBatch([{ index: 1, key: 'A' }, { index: 2, key: null }]).alone).toEqual([2])
+  })
+})
+
+describe('boxPages (pages of one column box, as foliate View.expand counts them)', () => {
+  const box = { left: 0, right: 370 }
+  it('left-to-right columns grow to the right', () => {
+    expect(boxPages({ left: 20, right: 3600 }, box, 370)).toBe(10)
+  })
+  it('right-to-left columns grow to the left (F-081)', () => {
+    expect(boxPages({ left: 370 - 3600, right: 350 }, box, 370)).toBe(10)
+  })
+  it('never less than one page', () => {
+    expect(boxPages({ left: 0, right: 0 }, box, 370)).toBe(1)
+  })
+})
+
+describe('splitSource (a section cut into what the batch document needs, without building a DOM)', () => {
+  const src = `<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><title>t</title>
+<link rel="stylesheet" href="blob:a"/><link rel="icon" href="x"/><style>p{margin:0}</style></head>
+<body class="x-ebookmaker"><p>One</p><p>Two</p></body></html>`
+  it('keeps style sheets, html and body attributes and the body markup', () => {
+    const x = splitSource(src)!
+    expect(x.head).toEqual(['<link rel="stylesheet" href="blob:a"/>', '<style>p{margin:0}</style>'])
+    expect(x.htmlAttrs).toBe('lang="en"')
+    expect(x.bodyAttrs).toBe('class="x-ebookmaker"')
+    expect(x.body).toBe('<p>One</p><p>Two</p>')
+  })
+  it('no body: null (counted alone)', () => {
+    expect(splitSource('<html><p>x</p></html>')).toBeNull()
   })
 })

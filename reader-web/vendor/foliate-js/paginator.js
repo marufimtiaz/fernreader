@@ -567,6 +567,7 @@ export class Paginator extends HTMLElement {
         const entry = this.#newEntry(index, false)
         entry.ready = (async () => {
             const src = await this.sections[index].load()
+            if (this.#cache.get(index) !== entry) return // evicted meanwhile (its unload released the section)
             if (!src) throw new Error(`no src for ${index}`)
             // Same layout as the current view; a different writing mode would need its own layout: not preloaded.
             await entry.view.load(src, this.#afterLoadFor(index), ({ vertical, rtl }) => {

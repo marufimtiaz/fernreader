@@ -6,6 +6,7 @@ import { makeLoader } from './loader'
 import { flattenToc } from './toc'
 import { resolveSaved } from './position'
 import { PageCounter } from './counter'
+import { shareSections } from './sections'
 import { applySettings, DEFAULT_SETTINGS, readerCss, THEMES, type WebSettings } from './styles'
 
 /* foliate-js is untyped JS; keep `any` at this boundary only. */
@@ -129,6 +130,7 @@ export class Reader {
       } else {
         const loader = await makeLoader(`/book/${encodeURIComponent(sessionId)}`, missingPart)
         const book = await new EPUB(loader as any).init()
+        shareSections((book.sections ?? []).filter(Boolean) as any[]) // the paginator and the page counter share each section's resources
         if (stale()) return
         this.book = book
         this.has = loader.has
