@@ -26,23 +26,55 @@ import org.junit.runner.RunWith
 class ReaderFlowTest {
     private val ctx = InstrumentationRegistry.getInstrumentation().targetContext
 
-    /** Reader events in arrival order, with the helpers the tests share. */
-    private class Events(private val ch: Channel<FromWeb>) {
+    /**
+     * Reader events in arrival order, with the helpers the tests share.
+     *
+     * Where the reader is is never inferred from timing: foliate re-reports (and refines) the opening page after its
+     * first paint, later on a loaded host, and such a report must not be taken for the answer to a turn. Two barriers
+     * order things instead: [settle] queues a jump with an id to the current location behind everything sent before (the
+     * web side runs turns and jumps one at a time, after the open has settled) and waits for its `seeked`; [flush] waits for a `pong`,
+     * which the web side answers at once, after every event it sent before.
+     */
+    private class Events(private val ch: Channel<FromWeb>, private val send: (ToWeb) -> Unit) {
         var at: FromWeb.Relocate? = null // latest location seen
+        private var ids = 1_000 // the controller's own jump ids are small; it ignores a `seeked` that is not its own
         private fun see(e: FromWeb) { if (e is FromWeb.Relocate) at = e }
         fun drain() { while (true) see(ch.tryReceive().getOrNull() ?: return) }
         suspend fun relocate(ms: Long, accept: (FromWeb.Relocate) -> Boolean = { true }): FromWeb.Relocate = withTimeout(ms) {
             while (true) { val e = ch.receive(); see(e); if (e is FromWeb.Relocate && accept(e)) return@withTimeout e }
             error("unreachable")
         }
+        private suspend fun until(ms: Long, done: (FromWeb) -> Boolean) = withTimeout(ms) { while (true) { val e = ch.receive(); see(e); if (done(e)) break } }
         /** The next `painted` in arrival order, i.e. after everything already received. */
-        suspend fun painted() = withTimeout(10_000) { while (true) { val e = ch.receive(); see(e); if (e is FromWeb.Painted) break } }
-        /** Open → first page painted; [at] is then the settled opening location (foliate may repeat it meanwhile). */
-        suspend fun opened(): FromWeb.Relocate { relocate(10_000); painted(); drain(); return at!! }
-        /** One turn: anything received before the command is consumed first, so the move and its paint come after it. */
-        suspend fun turn(send: () -> Unit): FromWeb.Relocate {
-            drain(); val from = at!!; send()
-            return relocate(5_000) { it.cfi != from.cfi || it.fraction != from.fraction }.also { painted() }
+        suspend fun painted() = until(10_000) { it is FromWeb.Painted }
+        /**
+         * Call only when nothing else is pending (the jump goes to the location seen last). Everything sent before has
+         * been applied once the jump to the current location has landed. Returns that location (the landing relocate
+         * comes right before `seeked`), after its paint.
+         */
+        suspend fun settle(): FromWeb.Relocate {
+            val id = ++ids
+            send(ToWeb.GoTo(target = at!!.cfi, id = id))
+            until(10_000) { it is FromWeb.Seeked && it.id == id }
+            return at!!.also { painted() }
+        }
+        /** Every event the web side sent before now has been received (after a close: the last location of the book). */
+        suspend fun flush(): FromWeb.Relocate? {
+            val id = ++ids
+            send(ToWeb.Ping(id = id))
+            until(5_000) { it is FromWeb.Pong && it.id == id }
+            return at
+        }
+        /** Open → first page painted and the open settled; returns the opening location. */
+        suspend fun opened(): FromWeb.Relocate { relocate(10_000); painted(); return settle() }
+        /**
+         * One turn from a settled location: the first relocate at another page (a new CFI; foliate may still refine the
+         * fraction under the same one), then settled there, so the next command starts from where this one ended.
+         */
+        suspend fun turn(cmd: ToWeb): FromWeb.Relocate {
+            val from = at!!; send(cmd)
+            relocate(5_000) { it.cfi != from.cfi }
+            return settle()
         }
     }
 
@@ -55,19 +87,19 @@ class ReaderFlowTest {
             withTimeout(15_000) { a.reader.isReady.first { it } }
             val ch = Channel<FromWeb>(Channel.UNLIMITED)
             val job = launch(start = CoroutineStart.UNDISPATCHED) { a.reader.events.collect { ch.send(it) } }
-            val ev = Events(ch)
+            val ev = Events(ch) { m -> sc.onActivity { it.reader.send(m) } }
 
             sc.onActivity { it.openBook(ref) }
             val first = ev.opened()
             var last = first
-            repeat(5) { last = ev.turn { sc.onActivity { it.reader.send(ToWeb.Next()) } } }
+            repeat(5) { last = ev.turn(ToWeb.Next()) }
             assertNotEquals(first.cfi, last.cfi)
 
             sc.onActivity { it.goBack() }
+            last = ev.flush()!! // the last location the reader reported before the close
             val graph = (a.application as EpubReaderApp).graph
             val bookId = graph.library.knownBookId(ref)!!
             withTimeout(3_000) { while (graph.library.position(bookId)?.cfi != last.cfi) delay(20) } // R-009
-            ev.drain() // events of the first visit
 
             sc.onActivity { it.openBook(ref) } // warm reopen (same session id)
             assertEquals(last.cfi, ev.relocate(10_000).cfi)
@@ -87,12 +119,12 @@ class ReaderFlowTest {
             withTimeout(15_000) { a.reader.isReady.first { it } }
             val ch = Channel<FromWeb>(Channel.UNLIMITED)
             val job = launch(start = CoroutineStart.UNDISPATCHED) { a.reader.events.collect { ch.send(it) } }
-            val ev = Events(ch)
+            val ev = Events(ch) { m -> sc.onActivity { it.reader.send(m) } }
 
             sc.onActivity { it.openBook(SourceRef.File(one.path)) }
             val start = ev.opened()
             var third = start
-            repeat(3) { third = ev.turn { sc.onActivity { it.reader.send(ToWeb.Next()) } } }
+            repeat(3) { third = ev.turn(ToWeb.Next()) }
             assertNotEquals(start.cfi, third.cfi)
             sc.onActivity { it.goBack() }
             ev.drain()

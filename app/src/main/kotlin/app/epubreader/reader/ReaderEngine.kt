@@ -18,8 +18,6 @@ import app.epubreader.reader.bridge.FromWeb
 import app.epubreader.reader.bridge.ToWeb
 import app.epubreader.reader.bridge.decodeFromWeb
 import app.epubreader.reader.bridge.encodeToWeb
-import kotlinx.coroutines.channels.BufferOverflow
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -36,8 +34,8 @@ import java.nio.channels.ClosedChannelException
 class ReaderEngine(private val context: Context, private val server: BookContentServer) : ReaderPort {
     private var view: WebView? = null
     private val main = Handler(Looper.getMainLooper())
-    private val _events = MutableSharedFlow<FromWeb>(extraBufferCapacity = 256, onBufferOverflow = BufferOverflow.DROP_OLDEST)
-    override val events: SharedFlow<FromWeb> = _events
+    private val _events = ReaderEvents()
+    override val events: SharedFlow<FromWeb> = _events.flow
     private val _ready = MutableStateFlow(false)
     /** True once the host page sent `ready` (events has no replay, so late subscribers wait on this). */
     override val isReady: StateFlow<Boolean> = _ready
@@ -82,7 +80,7 @@ class ReaderEngine(private val context: Context, private val server: BookContent
                 Log.w("EPR", "bridge: dropped ${text.take(200)}"); Probe.ev("bridge_unknown", text.take(80)); return@addWebMessageListener
             }
             if (m is FromWeb.Ready) { _ready.value = true; Probe.ev("reader_ready") }
-            _events.tryEmit(m)
+            _events.emit(m)
         }
         Probe.ev("webview_created")
         w.loadUrl(HOST_URL)

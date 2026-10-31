@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
 import kotlin.test.AfterTest
@@ -38,9 +39,15 @@ class ReaderControllerTest {
         override val isReady = MutableStateFlow(true)
         override fun send(m: ToWeb) { sent += m }
     }
-    private class FakeOpener(var next: OpenResult = OpenResult.Ok("s-1", "d".repeat(64), 100)) : BookOpenerPort {
+    /** With [suspendOpen], open() waits until [finishOpen] (an open still in flight when Back is pressed). */
+    private class FakeOpener(
+        var next: OpenResult = OpenResult.Ok("s-1", "d".repeat(64), 100),
+        private val suspendOpen: Boolean = false,
+    ) : BookOpenerPort {
         val closed = mutableListOf<String>()
-        override suspend fun open(ref: SourceRef) = next
+        private val pending = CompletableDeferred<OpenResult>()
+        fun finishOpen(r: OpenResult) { pending.complete(r) }
+        override suspend fun open(ref: SourceRef) = if (suspendOpen) pending.await() else next
         override suspend fun close(sessionId: String) { closed += sessionId }
     }
 
@@ -63,7 +70,7 @@ class ReaderControllerTest {
     /** Stands in for the app-scoped IO scope that close-out runs on (survives the activity's lifecycleScope). */
     private val appScope = CoroutineScope(dispatcher + SupervisorJob() + CoroutineExceptionHandler { _, e -> crashes += e })
     @AfterTest fun cancelScope() { scope.cancel(); appScope.cancel(); assertEquals(emptyList(), crashes) }
-    private suspend fun controller(controllerScope: CoroutineScope = scope) = ReaderController(
+    private suspend fun controller(controllerScope: CoroutineScope = scope, opener: FakeOpener = this.opener) = ReaderController(
         reader, opener, library, CompletableDeferred(PositionWriter.create(db, clock, appScope)), controllerScope, WebTexts("missing"),
         closeScope = appScope,
     )
@@ -225,5 +232,18 @@ class ReaderControllerTest {
         c.close(); advanceUntilIdle()
         assertEquals(listOf("s-1"), opener.closed)
         assertEquals("epubcfi(/6/6!/4/4)", library.position(library.knownBookId(ref)!!)!!.cfi)
+    }
+
+    // Back while the opener is still working: the session it then produces is released at once, not left registered
+    // until the next open retires it.
+    @Test fun back_while_opening_closes_the_session_that_was_being_opened() = runTest(dispatcher) {
+        val opener = FakeOpener(suspendOpen = true)
+        val c = controller(opener = opener)
+        c.open(SourceRef.File("/b.epub")); runCurrent()
+        c.close()                                   // Back before the opener returned
+        opener.finishOpen(OpenResult.Ok("s1", "cd", 10)); advanceUntilIdle()
+        assertEquals(listOf("s1"), opener.closed)
+        assertTrue(reader.sent.none { it is ToWeb.Open })
+        assertFalse(c.state.value.open)
     }
 }

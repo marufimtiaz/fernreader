@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -122,13 +123,21 @@ class ReaderController(
                 failed("open: reading the library", e, showIfOpen = true)
                 return@launch
             }
+            // Not cancellable: a session the opener produced must be seen here, so a Back during the open (which
+            // cancels this job) releases it at once instead of leaving it registered until the next open.
+            var produced: OpenResult? = null
             val r = try {
-                opener.open(ref)
+                withContext(NonCancellable) { opener.open(ref).also { produced = it } }
             } catch (e: CancellationException) {
+                (produced as? OpenResult.Ok)?.let { release(it.sessionId) }
                 throw e
             } catch (e: Exception) { // BookOpener maps its own failures; this is the last guard (R-002)
                 failed("open: opening the file", e, showIfOpen = false)
                 OpenResult.Failed(OpenFailure.NO_ACCESS)
+            }
+            if (!isActive) { // closed (Back) while the opener was working
+                if (r is OpenResult.Ok) release(r.sessionId)
+                return@launch
             }
             when (r) {
                 is OpenResult.Failed -> _state.update { it.copy(loading = false, error = ReaderError.Open(r.reason)) }
@@ -139,10 +148,19 @@ class ReaderController(
                     probe.ev("open_sent", ref.key)
                     reader.send(ToWeb.Open(sessionId = s.id, position = saved?.cfi?.let(s.map::cfiToVirtual), texts = texts))
                 } catch (e: CancellationException) {
-                    withContext(NonCancellable) { opener.close(r.sessionId) }
+                    release(r.sessionId)
                     throw e
                 }
             }
+        }
+    }
+
+    /** Releases a session that never became [session] (the open was cancelled); never throws. */
+    private suspend fun release(sessionId: String) = withContext(NonCancellable) {
+        try {
+            opener.close(sessionId)
+        } catch (e: Exception) {
+            failed("open: releasing a cancelled session", e, showIfOpen = false)
         }
     }
 
