@@ -28,14 +28,17 @@ regression rule, no jank/frame-time groups.
 
 | Group | Spec IDs | Since |
 |-------|----------|-------|
-| `start` | P-001, P-002 | M1 |
+| `start` | P-001, P-002, P-003 (M3) | M1 |
 | `open` | P-010..P-013, P-015, P-016 (P-014 with `--release`) | M2 |
 | `action` | P-030, P-031 | M2 |
 | `mem` | P-060 | M2 |
+| `scan` | P-050 (+ first book visible), P-051, P-052 | M3 |
 
 `bench/check_resume.sh` is a functional check (F-037/R-009), not a gate group.
 
-Planned: `scan` (M3), `pagetotal` (M4), `search` (M5).
+Planned: `pagetotal` (M4), `search` (M5).
+
+`scan` clears the app's data (`pm clear`) before each run: it measures a first scan of the pushed corpus + folder set.
 
 ## Method deviations
 - **P-030** uses the event delta `cmd` -> first `painted` (logcat, tag EPR), not the spec's screen-recording method. A TOC jump
