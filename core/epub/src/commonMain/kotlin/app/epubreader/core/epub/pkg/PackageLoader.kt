@@ -3,6 +3,8 @@ package app.epubreader.core.epub.pkg
 import app.epubreader.core.epub.markup.Paths
 import app.epubreader.core.epub.markup.TextDecoding
 import app.epubreader.core.epub.markup.XmlTree
+import app.epubreader.core.epub.meta.CoverLocator
+import app.epubreader.core.epub.meta.MetadataReader
 import app.epubreader.core.epub.zip.RandomAccessSource
 import app.epubreader.core.epub.zip.ZipError
 import app.epubreader.core.epub.zip.ZipFormatException
@@ -73,7 +75,7 @@ object PackageLoader {
             opfPath = opfPath,
             version = root.attr("version") ?: "",
             uniqueId = uniqueId,
-            metadata = BookMetadata(root.first("metadata")?.first("title")?.text()?.trim(), emptyList(), null, false),
+            metadata = MetadataReader.read(root),
             manifest = manifest,
             spine = spine,
             pageProgression = spineEl?.attr("page-progression-direction"),
@@ -81,7 +83,9 @@ object PackageLoader {
             coverPath = null,
             opf = root,
         )
-        return LoadResult.Ok(pkg, warnings)
+        val cover = CoverLocator.locate(zip, pkg)
+        cover.danglingReference?.let { warnings += PackageWarning(WarningKind.DANGLING_COVER, it) }
+        return LoadResult.Ok(pkg.copy(coverPath = cover.path), warnings)
     }
 }
 

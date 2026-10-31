@@ -1,5 +1,10 @@
 package app.epubreader.core.epub.meta
 
+import app.epubreader.core.epub.Corpus
+import app.epubreader.core.epub.openFileSource
+import app.epubreader.core.epub.pkg.LoadResult
+import app.epubreader.core.epub.pkg.PackageLoader
+import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
@@ -18,4 +23,22 @@ class IdentityTest {
 
     /** foliate reports a missing identifier as "" or null; both must give the same identity. */
     @Test fun null_and_empty_identifier_are_equal() = assertEquals(BookIdentity.of(null, d1), BookIdentity.of("", d1))
+
+    private fun id(f: File) = openFileSource(f.path).use { src ->
+        val (zip, r) = PackageLoader.open(src)
+        BookIdentity.of((r as LoadResult.Ok).pkg.uniqueId, zip!!.centralDirectoryDigest)
+    }
+
+    @Test fun byte_identical_copies_have_equal_identity() {
+        val a = Corpus.folder("dup.epub"); val b = File.createTempFile("dup-copy", ".epub").also { a.copyTo(it, overwrite = true); it.deleteOnExit() }
+        assertEquals(id(a), id(b))
+    }
+
+    @Test fun different_books_differ() = assertNotEquals(id(Corpus.folder("download.epub")), id(Corpus.folder("documents.epub")))
+
+    // F-015: two editions with the same title stay two books (downloaded corpus only).
+    @Test fun pp_epub2_vs_epub3_are_two_books() {
+        val full = Corpus.full ?: return println("SKIP: downloaded corpus not present")
+        assertNotEquals(id(File(full, "gutenberg/pride-and-prejudice-epub3-images.epub")), id(File(full, "gutenberg/pride-and-prejudice-epub2-noimages.epub")))
+    }
 }
