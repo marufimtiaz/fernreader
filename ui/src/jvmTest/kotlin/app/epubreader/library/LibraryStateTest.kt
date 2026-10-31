@@ -5,6 +5,7 @@ import app.epubreader.core.data.ScanFailureEntity
 import app.epubreader.core.data.SettingsPort
 import app.epubreader.core.library.ScanEvent
 import app.epubreader.core.library.ScanState
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runCurrent
@@ -49,9 +50,9 @@ class LibraryStateTest {
     @Test fun layout_and_sort_persist() = runTest {
         val settings = FakeSettings()
         val scan = MutableStateFlow(ScanState())
-        val a = LibraryState(MutableStateFlow(books), MutableStateFlow(emptyList()), scan, settings, {}, backgroundScope)
+        val a = LibraryState(MutableStateFlow(books), MutableStateFlow(emptyList()), scan, settings, {}, backgroundScope, compute = Dispatchers.Unconfined)
         a.setLayout(LibraryLayout.LIST); a.setSort(LibrarySort.TITLE); runCurrent()
-        val b = LibraryState(MutableStateFlow(books), MutableStateFlow(emptyList()), scan, settings, {}, backgroundScope)
+        val b = LibraryState(MutableStateFlow(books), MutableStateFlow(emptyList()), scan, settings, {}, backgroundScope, compute = Dispatchers.Unconfined)
         runCurrent()
         assertEquals(LibraryLayout.LIST, b.ui.value.layout); assertEquals(LibrarySort.TITLE, b.ui.value.sort)
     }
@@ -73,7 +74,7 @@ class LibraryStateTest {
         val done = ScanEvent.Complete(1, 0, 1, 2, 5)
         val scan = MutableStateFlow(ScanState(lastComplete = done))
         val fails = MutableStateFlow(listOf(ScanFailureEntity("/d/fake.epub", "/d", "fake.epub", "NOT_A_ZIP", 19, 1, 1)))
-        val s = LibraryState(MutableStateFlow(books), fails, scan, FakeSettings(), {}, backgroundScope)
+        val s = LibraryState(MutableStateFlow(books), fails, scan, FakeSettings(), {}, backgroundScope, compute = Dispatchers.Unconfined)
         assertTrue(s.ui.first { it.loaded }.failureNoticeVisible)
         s.dismissFailures(); runCurrent()
         assertFalse(s.ui.value.failureNoticeVisible)
@@ -84,7 +85,7 @@ class LibraryStateTest {
     @Test fun missing_file_shows_dialog_and_remove_deletes() = runTest {
         val removed = mutableListOf<String>()
         val s = LibraryState(MutableStateFlow(books), MutableStateFlow(emptyList()), MutableStateFlow(ScanState()), FakeSettings(),
-            { removed += it }, backgroundScope, exists = { false })
+            { removed += it }, backgroundScope, exists = { false }, compute = Dispatchers.Unconfined)
         var opened: String? = null
         s.open(books[0]) { opened = it }; runCurrent()
         assertEquals(null, opened); assertEquals("moby", s.ui.value.missing?.id)
@@ -95,7 +96,7 @@ class LibraryStateTest {
     @Test fun open_uses_a_remaining_duplicate() = runTest {
         val dup = books[0].copy(path = "/gone/a.epub", paths = listOf("/gone/a.epub", "/kept/b.epub"))
         val s = LibraryState(MutableStateFlow(books), MutableStateFlow(emptyList()), MutableStateFlow(ScanState()), FakeSettings(),
-            {}, backgroundScope, exists = { it.startsWith("/kept") })
+            {}, backgroundScope, exists = { it.startsWith("/kept") }, compute = Dispatchers.Unconfined)
         var opened: String? = null
         s.open(dup) { opened = it }; runCurrent()
         assertEquals("/kept/b.epub", opened)

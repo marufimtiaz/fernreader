@@ -12,6 +12,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -45,6 +48,8 @@ class LibraryState(
     private val scope: CoroutineScope,
     /** Whether a local file exists (one stat, off the main thread); content:// sources are not checked here. */
     private val exists: suspend (String) -> Boolean = { true },
+    /** Where search and sort run (R-005: not the main thread). */
+    compute: CoroutineDispatcher = Dispatchers.Default,
 ) {
     private data class Prefs(val query: String = "", val layout: LibraryLayout = LibraryLayout.GRID, val sort: LibrarySort = LibrarySort.RECENT,
                              val dismissed: ScanEvent.Complete? = null, val missing: LibraryBook? = null)
@@ -57,7 +62,10 @@ class LibraryState(
             failureNoticeVisible = fails.isNotEmpty() && !s.running && s.lastComplete != null && s.lastComplete !== p.dismissed,
             loaded = true, missing = p.missing,
         )
-    }.stateIn(scope, SharingStarted.Eagerly, LibraryUi())
+    }.flowOn(compute).stateIn(scope, SharingStarted.Eagerly, LibraryUi()) // R-005: sorting off the main thread
+
+    /** True once the screen has composed a non-empty library (the app waits for it before heavy main-thread work). */
+    val shown = MutableStateFlow(false)
 
     init {
         scope.launch {
@@ -91,7 +99,7 @@ class LibraryState(
         fun arrange(books: List<LibraryBook>, query: String, sort: LibrarySort): List<LibraryBook> {
             val q = query.trim()
             val hits = if (q.isEmpty()) books else books.filter { b -> b.title.contains(q, ignoreCase = true) || b.authors.any { it.contains(q, ignoreCase = true) } }
-            val byTitle = compareBy<LibraryBook> { it.sortTitle.lowercase() }.thenBy { it.id }
+            val byTitle = compareBy<LibraryBook> { it.sortTitle }.thenBy { it.id } // sort keys are stored lowercase
             return hits.sortedWith(
                 when (sort) {
                     LibrarySort.RECENT -> compareByDescending<LibraryBook> { it.lastOpenedAt ?: Long.MIN_VALUE }.thenByDescending { it.addedAt }.then(byTitle)

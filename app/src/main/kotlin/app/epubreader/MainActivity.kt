@@ -20,6 +20,10 @@ import app.epubreader.bench.Probe
 import app.epubreader.core.data.SourceRef
 import app.epubreader.library.LibraryState
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.android.awaitFrame
 import app.epubreader.library.FileWatch
 import app.epubreader.library.StorageAccess
 import kotlinx.coroutines.Dispatchers
@@ -71,7 +75,7 @@ class MainActivity : ComponentActivity() {
             reader, graph.opener, graph.library, graph.positions, lifecycleScope, WebTexts(Copy.missingPart), probe,
             closeScope = graph.appScope, // onDestroy's close-out must not run on the already-cancelled lifecycleScope
         )
-        val library = LibraryState(graph.library.library(), graph.library.failures(), graph.scans.state, graph.settings, graph.library::removeBook, lifecycleScope,
+        val library = LibraryState(graph.library.libraryLive(graph.scans.state.map { it.found }), graph.library.failures(), graph.scans.state, graph.settings, graph.library::removeBook, lifecycleScope,
             exists = { withContext(Dispatchers.IO) { java.io.File(it).exists() } })
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -103,11 +107,18 @@ class MainActivity : ComponentActivity() {
                 controller.state.value.toc.firstOrNull { it.label.contains(label, ignoreCase = true) }?.let(controller::onTocSelected)
             }
         }
-        // Pre-warm after the first frame so it never delays the home screen (P-001).
+        // Pre-warm after the first frame so it never delays the library (P-001). Creating the WebView blocks the main
+        // thread for ~0.3-0.5 s, so on the library it waits until the books are on screen (or a first scan found
+        // none, P-050 "first book visible"), at most 2 s. On the reader route (open-with) it starts at once.
         window.decorView.post {
             Probe.ev("first_frame")
             graph.scans.onAppStart() // incremental scan, after the first frame (P-001)
-            window.decorView.post {
+            lifecycleScope.launch {
+                if (nav.top == Route.Library) withTimeoutOrNull(2_000) {
+                    library.ui.first { it.loaded && (it.total > 0 || it.scan.lastComplete != null) }
+                    library.shown.first { it || library.ui.value.total == 0 } // composed (LibraryScreen sets it)
+                    awaitFrame(); awaitFrame() // and drawn
+                }
                 // WEBVIEW_TOO_OLD (or no WebView at all): show a full-screen message instead of crashing (R16).
                 runCatching { reader.prewarm() }.onFailure { webViewTooOld = true }
             }

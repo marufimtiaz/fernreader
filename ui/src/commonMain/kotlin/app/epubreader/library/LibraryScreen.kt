@@ -76,7 +76,10 @@ private fun Modifier.firstEntry(index: Int, probe: EventProbe): Modifier {
 fun LibraryScreen(state: LibraryState, onOpen: (LibraryBook) -> Unit, onOpenPicker: () -> Unit, onRescan: () -> Unit, probe: EventProbe) {
     val ui by state.ui.collectAsState()
     var failuresOpen by remember { mutableStateOf(false) }
-    if (ui.books.isNotEmpty() && !firstBookLogged) LaunchedEffect(Unit) { firstBookLogged = true; probe.ev("library_first_book", "") }
+    if (ui.books.isNotEmpty()) LaunchedEffect(Unit) {
+        state.shown.value = true
+        if (!firstBookLogged) { firstBookLogged = true; probe.ev("library_first_book", "") }
+    }
     Surface(Modifier.fillMaxSize()) {
         Column(Modifier.safeDrawingPadding()) {
             Header(ui, state, onOpenPicker, onRescan)
