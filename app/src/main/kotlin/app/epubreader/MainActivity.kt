@@ -9,10 +9,13 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
+import app.epubreader.bench.BenchCommands
+import app.epubreader.bench.BenchMarker
 import app.epubreader.bench.Probe
 import app.epubreader.core.data.SourceRef
 import app.epubreader.home.HomeState
@@ -20,6 +23,7 @@ import app.epubreader.reader.EventProbe
 import app.epubreader.reader.ReaderController
 import app.epubreader.reader.ReaderEngine
 import app.epubreader.reader.ReaderSurface
+import app.epubreader.reader.bridge.ToWeb
 import app.epubreader.reader.bridge.WebTexts
 import app.epubreader.ui.App
 import app.epubreader.ui.Copy
@@ -55,12 +59,25 @@ class MainActivity : ComponentActivity() {
             }
         })
         setContent {
-            App(
-                dark = isSystemInDarkTheme(), webViewTooOld = webViewTooOld, nav = nav, home = home, reader = controller, probe = probe,
-                readerSurface = { ReaderSurface(reader) },
-                onOpenPicker = { pick.launch(arrayOf("application/epub+zip", "application/octet-stream")) },
-                onOpen = ::openBook, onBack = { goBack() },
-            )
+            Box {
+                App(
+                    dark = isSystemInDarkTheme(), webViewTooOld = webViewTooOld, nav = nav, home = home, reader = controller, probe = probe,
+                    readerSurface = { ReaderSurface(reader) },
+                    onOpenPicker = { pick.launch(arrayOf("application/epub+zip", "application/octet-stream")) },
+                    onOpen = ::openBook, onBack = { goBack() },
+                )
+                if (Probe.enabled) BenchMarker.Draw()
+            }
+        }
+        if (Probe.enabled) {
+            BenchCommands.register("openPath") { openBook(SourceRef.File(it)) }
+            BenchCommands.register("back") { goBack() }
+            BenchCommands.register("next") { reader.send(ToWeb.Next()) }
+            BenchCommands.register("prev") { reader.send(ToWeb.Prev()) }
+            BenchCommands.register("toc") { controller.showToc() }
+            BenchCommands.register("tocJump") { label ->
+                controller.state.value.toc.firstOrNull { it.label.contains(label, ignoreCase = true) }?.let(controller::onTocSelected)
+            }
         }
         // Pre-warm after the first frame so it never delays the home screen (P-001).
         window.decorView.post {

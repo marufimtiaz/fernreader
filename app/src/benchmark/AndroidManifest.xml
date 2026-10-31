@@ -1,0 +1,10 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+    <!-- Harness only: open corpus books by path after `appops set app.epubreader MANAGE_EXTERNAL_STORAGE allow`.
+         The main manifest gets storage access in M3 (onboarding). -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
+    <application>
+        <receiver android:name=".bench.BenchCommandReceiver" android:exported="true">
+            <intent-filter><action android:name="app.epubreader.BENCH" /></intent-filter>
+        </receiver>
+    </application>
+</manifest>

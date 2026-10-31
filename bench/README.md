@@ -26,8 +26,13 @@ regression rule, no jank/frame-time groups.
 | Group | Spec IDs | Since |
 |-------|----------|-------|
 | `start` | P-001, P-002 | M1 |
+| `open` | P-010..P-013, P-015, P-016 (P-014 with `--release`) | M2 |
+| `action` | P-030, P-031 | M2 |
+| `mem` | P-060 | M2 |
 
-Planned: `open action mem` (M2), `scan` (M3), `pagetotal` (M4), `search` (M5).
+`bench/check_resume.sh` is a functional check (F-037/R-009), not a gate group.
+
+Planned: `scan` (M3), `pagetotal` (M4), `search` (M5).
 
 ## Not in the harness
 Checked once in M9, on a real device or by eye: P-025, P-027, the scroll clause of P-031, and P-063.

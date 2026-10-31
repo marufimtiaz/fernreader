@@ -27,3 +27,7 @@ ev_delta() {
     index($0, a) && s=="" { s=t() } index($0, b) && s!="" && e=="" { e=t() }
     END { if (s!="" && e!="") print e-s; else print "NA" }'
 }
+bench_cmd() { $A shell am broadcast -a app.epubreader.BENCH -n "$PKG/.bench.BenchCommandReceiver" --es cmd "$1" --es arg "'${2:-}'" >/dev/null; }
+video_ms() { bash "$SPEC_TOOLS/summarize_open.sh" "$1" | sed 's/.*open_ms=//'; }
+B=/sdcard/Books
+WP=$B/gutenberg/war-and-peace-epub3.epub
