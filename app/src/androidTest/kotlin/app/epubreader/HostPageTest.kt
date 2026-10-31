@@ -2,6 +2,7 @@ package app.epubreader
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import app.epubreader.reader.BookContentServer
 import app.epubreader.reader.ReaderEngine
 import app.epubreader.reader.bridge.FromWeb
 import app.epubreader.reader.bridge.ToWeb
@@ -20,7 +21,7 @@ class HostPageTest {
     @Test fun host_page_loads_and_answers_ping() = runBlocking {
         val inst = InstrumentationRegistry.getInstrumentation()
         lateinit var engine: ReaderEngine
-        inst.runOnMainSync { engine = ReaderEngine(inst.targetContext).also { it.prewarm() } }
+        inst.runOnMainSync { engine = ReaderEngine(inst.targetContext, BookContentServer()).also { it.prewarm() } }
         withTimeout(10_000) { engine.isReady.first { it } }
         // Subscribe before sending: events has no replay.
         val pong = async(start = CoroutineStart.UNDISPATCHED) {

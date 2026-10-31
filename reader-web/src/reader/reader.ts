@@ -94,7 +94,8 @@ export class Reader {
   private onRelocate(sessionId: string, d: any) {
     if (this.sessionId !== sessionId) return
     this.bridge.send({
-      v: 1, type: 'relocate', sessionId, cfi: d.cfi ?? '', fraction: d.fraction ?? 0,
+      // foliate reports NaN while a section has no layout yet; JSON turns NaN into null, which Kotlin rejects.
+      v: 1, type: 'relocate', sessionId, cfi: d.cfi ?? '', fraction: Number.isFinite(d.fraction) ? d.fraction : 0,
       sectionIndex: d.section?.current ?? 0, tocHref: d.tocItem?.href ?? null,
     })
     requestAnimationFrame(() => requestAnimationFrame(() => {

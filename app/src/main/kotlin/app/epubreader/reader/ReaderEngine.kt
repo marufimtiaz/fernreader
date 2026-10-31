@@ -5,6 +5,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
@@ -23,29 +24,36 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import org.json.JSONObject
+import java.io.ByteArrayInputStream
+import java.io.IOException
+import java.io.InputStream
+import java.nio.channels.ClosedChannelException
 
 /**
  * Owns the single reader WebView for the activity's lifetime. Created and loaded before any book is chosen
  * (pre-warm), so opening a book does not pay for WebView start-up or JS module loading.
  */
-class ReaderEngine(private val context: Context) {
+class ReaderEngine(private val context: Context, private val server: BookContentServer) : ReaderPort {
     private var view: WebView? = null
     private val main = Handler(Looper.getMainLooper())
     private val _events = MutableSharedFlow<FromWeb>(extraBufferCapacity = 256, onBufferOverflow = BufferOverflow.DROP_OLDEST)
-    val events: SharedFlow<FromWeb> = _events
+    override val events: SharedFlow<FromWeb> = _events
     private val _ready = MutableStateFlow(false)
     /** True once the host page sent `ready` (events has no replay, so late subscribers wait on this). */
-    val isReady: StateFlow<Boolean> = _ready
+    override val isReady: StateFlow<Boolean> = _ready
+    private val _created = MutableStateFlow(false)
+    /** True once the WebView exists; MainActivity attaches the surface only then (never during the first frame). */
+    val created: StateFlow<Boolean> = _created
 
     val webView: WebView get() = view ?: create().also { view = it }
 
-    /** Call after the first library frame has been drawn. Main thread. */
-    fun prewarm() { webView }
+    /** Call after the first library frame has been drawn. Main thread. Throws if the WebView is too old. */
+    fun prewarm() { webView; _created.value = true }
 
-    fun send(m: ToWeb) {
+    override fun send(m: ToWeb) {
         val js = "window.__reader && window.__reader.receive(${JSONObject.quote(encodeToWeb(m))})"
         // Not View.post: a detached WebView (pre-warm, tests) would queue the runnable until attach.
-        main.post { webView.evaluateJavascript(js, null) }
+        main.post { evaluate(js) }
     }
 
     fun destroy() { view?.destroy(); view = null }
@@ -55,6 +63,7 @@ class ReaderEngine(private val context: Context) {
         check(WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) { "WEBVIEW_TOO_OLD" }
         val assets = WebViewAssetLoader.Builder()
             .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(context))
+            .addPathHandler("/book/", BookPathHandler(server))
             .build()
         val w = WebView(context)
         w.settings.javaScriptEnabled = true
@@ -63,11 +72,16 @@ class ReaderEngine(private val context: Context) {
         w.webViewClient = object : WebViewClient() {
             override fun shouldInterceptRequest(v: WebView, r: WebResourceRequest): WebResourceResponse? =
                 assets.shouldInterceptRequest(r.url)
-            override fun shouldOverrideUrlLoading(v: WebView, r: WebResourceRequest) = r.url.host != ORIGIN_HOST
+            // Book sections render in blob: subframes (foliate); everything else must stay on our origin.
+            override fun shouldOverrideUrlLoading(v: WebView, r: WebResourceRequest) =
+                !(r.url.host == ORIGIN_HOST || (!r.isForMainFrame && r.url.scheme == "blob"))
         }
         WebViewCompat.addWebMessageListener(w, "ReaderBridge", setOf("https://$ORIGIN_HOST")) { _, msg, _, _, _ ->
             val text = msg.data ?: return@addWebMessageListener
-            val m = decodeFromWeb(text) ?: run { Probe.ev("bridge_unknown", text.take(80)); return@addWebMessageListener }
+            val m = decodeFromWeb(text) ?: run {
+                // A dropped message (unknown type or wrong shape) would otherwise fail silently, e.g. a lost relocate.
+                Log.w("EPR", "bridge: dropped ${text.take(200)}"); Probe.ev("bridge_unknown", text.take(80)); return@addWebMessageListener
+            }
             if (m is FromWeb.Ready) { _ready.value = true; Probe.ev("reader_ready") }
             _events.tryEmit(m)
         }
@@ -76,8 +90,47 @@ class ReaderEngine(private val context: Context) {
         return w
     }
 
+    /** Main thread only (the Handler posts to it); a no-op once destroyed. */
+    private fun evaluate(js: String) { view?.evaluateJavascript(js, null) }
+
     companion object {
         const val ORIGIN_HOST = "appassets.androidplatform.net"
         val HOST_URL: String = Uri.parse("https://$ORIGIN_HOST/assets/reader/index.html").toString()
     }
+}
+
+/**
+ * Serves "/book/<sessionId>/<entry>" on WebView I/O threads. Nothing may escape from here or from the body stream:
+ * an exception on those threads would crash the WebView (and the app). A session closed under a running request
+ * (ClosedChannelException) answers 410; damaged entries (ZipFormatException) and other read failures answer 500.
+ */
+private class BookPathHandler(private val server: BookContentServer) : WebViewAssetLoader.PathHandler {
+    override fun handle(path: String): WebResourceResponse = try {
+        val r = server.serve(path)
+        val body = if (r.status == 200) GuardedStream(r.body()) else ByteArrayInputStream(ByteArray(0))
+        response(r.status, r.reason, r.mime, body)
+    } catch (e: ClosedChannelException) {
+        response(410, "Gone", "text/plain", ByteArrayInputStream(ByteArray(0)))
+    } catch (e: Exception) {
+        Log.w("EPR", "book request failed: $path: $e")
+        response(500, "Internal Server Error", "text/plain", ByteArrayInputStream(ByteArray(0)))
+    }
+
+    private fun response(status: Int, reason: String, mime: String, body: InputStream) =
+        WebResourceResponse(mime, null, status, reason, mapOf("Cache-Control" to "no-store"), body)
+}
+
+/** Reads happen later, inside WebView; only IOException is handled there, so every failure is reported as one. */
+internal class GuardedStream(private val inner: InputStream) : InputStream() {
+    private inline fun <T> guard(block: () -> T): T = try {
+        block()
+    } catch (e: IOException) {
+        throw e
+    } catch (e: Exception) {
+        throw IOException(e)
+    }
+    override fun read(): Int = guard { inner.read() }
+    override fun read(b: ByteArray, off: Int, len: Int): Int = guard { inner.read(b, off, len) }
+    override fun available(): Int = guard { inner.available() }
+    override fun close() = guard { inner.close() }
 }
