@@ -38,6 +38,8 @@ current session.
 | app to web | `back` | none (M6, F-042: back to where the last followed link was tapped; sent only while `history.depth` > 0) |
 | app to web | `closeFootnote` | none (M6, F-043: closes the footnote popup) |
 | app to web | `setBookmarks` | `sessionId`, `cfis[]` (M6, F-041: the book's bookmarks as virtual CFIs; sent after `opened` and whenever the list changes) |
+| app to web | `addAnnotation` | `sessionId`, `id`, `cfi` (virtual range CFI), `color` (`yellow`\|`green`\|`blue`\|`pink`\|`orange`\|`purple`), `style` (`highlight`\|`underline`) (M6, F-060: draw a user annotation; the same `id` again redraws it) |
+| app to web | `clearSelection` | none (M6, F-060: remove the text selection after a selection menu action) |
 | web to app | `ready`, `pong` | `engine` / `id` |
 | web to app | `opened` | `sessionId`, `identifier` (unique-identifier text or null), `title`, `authors[]`, `dir`, `fixedLayout`, `sections`, `toc[] {label, href, depth, missing, index}` (`index`: spine section of the target, -1 if none; M5) |
 | web to app | `relocate` | `sessionId`, `cfi`, `fraction`, `sectionIndex`, `tocHref`, `page`/`pages` (paged: 1-based text page in the section and its text pages; 0/0 scrolled), `sectionFraction` (M4), `bookmarks[]` (M6, optional: the `setBookmarks` entries on the visible page, same strings; omitted when none) |
@@ -48,6 +50,7 @@ current session.
 | web to app | `footnote` | `sessionId`, `open` (M6, F-043: the popup opened, or closed on the web side or by `closeFootnote`) |
 | web to app | `pageBookmarks` | `sessionId`, `cfis[]` (M6, F-041: answer to `setBookmarks`, the entries on the page showing now; empty while a seek is running) |
 | web to app | `externalLink` | `sessionId`, `href` (M6, F-044: a tapped http, https or mailto link, normalised; other schemes are never sent) |
+| web to app | `selection` | `sessionId`, `text`, `cfi` (virtual range CFI, or null), `sectionIndex` (M6, F-060: the selection settled; cleared = `text` "", `cfi` null, `sectionIndex` -1) |
 | web to app | `error` | `sessionId` (or null), `kind` (`open_failed`, `nothing_readable`, or `hit_not_found`: not fatal, see below), `message` |
 
 Ordering: `opened` is sent after the package is parsed and before the first page is displayed, so the app records
@@ -128,6 +131,27 @@ foliate's `animated` attribute (instant turns).
   same rule puts the bookmark on whatever page now holds its position. O(bookmarks) per relocate; no layout work.
 - The app stores the page's `relocate` CFI as it is (a range). A jump to it lands on that page; a bare point at a line
   break would resolve to the end of the previous line, one page early (a collapsed range has upstream affinity).
+
+### Selection menu and annotations (M6, F-060, F-051)
+
+- The browser's own selection is used: long-press selects a word with the WebView's native handles. The web side
+  listens to `selectionchange` in every section document and, 120 ms after the last change, reads the first loaded
+  section holding a non-collapsed selection: `text` = exactly `Selection.toString()` of that document (no trimming),
+  `cfi` = `view.getCFI(index, range)`. It sends `selection` only when that differs from the last report; a collapse
+  after a selection is sent once as cleared. Reset by every `open` and `close`.
+- A tap that only dismisses a selection (it was there at `pointerdown`; the browser collapses it before the `click`)
+  is not a `tap`, so it neither toggles the controls nor turns a page. A swipe while text is selected turns nothing.
+- The menu is the WebView's floating action mode, wrapped in the app (`ReaderWebView.startActionMode`): Highlight,
+  Underline, Search in book, Copy, Share first, then the system's text actions (PROCESS_TEXT activities, the smart
+  text-assist item); the WebView's own Copy, Share, Select all and Web search are hidden. Each of our items acts on
+  the app's last `selection`, then the app sends `clearSelection` and finishes the action mode.
+- Copy puts `text` on the clipboard unchanged (leading/trailing whitespace as the browser selection gives it). Search
+  in book runs F-050 with `text` trimmed, whitespace runs collapsed, at most 200 characters.
+- Highlight/Underline: the app stores the annotation (original CFI, original spine index, quoted text with whitespace
+  collapsed, current chapter label, last-used colour) and sends `addAnnotation`. The web side keeps the session's
+  annotations by CFI and draws them through foliate's overlayer (`Overlayer.highlight`, 0.3 opacity; or
+  `Overlayer.underline`, 2 px), again whenever their section gets a new overlayer. A colour row then lets one more tap
+  recolour it (same `id`, new `addAnnotation`); the chosen colour becomes the default (`ReaderSettings.highlightColor`).
 
 ### Display settings (M4)
 
