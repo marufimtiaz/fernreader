@@ -465,6 +465,12 @@ class MainActivity : ComponentActivity() {
         onAccessGranted()
     }
 
+    /** R-009: the process may be killed in the background without onDestroy, so a note being typed is stored now. */
+    override fun onStop() {
+        controller.flushNote()
+        super.onStop()
+    }
+
     override fun onDestroy() {
         watch?.stop()
         controller.close()

@@ -129,7 +129,10 @@ class ReaderControllerTest {
         }
         override suspend fun add(bookId: String, cfi: String, spineIndex: Int, fraction: Double, chapter: String) =
             Bookmark("b${++n}", bookId, cfi, spineIndex, fraction, chapter, 1_000L + n, 1_000L + n).also { all.value = all.value + it }
-        override suspend fun remove(id: String) { all.value = all.value.filter { it.id != id } }
+        /** Ids of each remove call (one list per write). */
+        val removeCalls = mutableListOf<List<String>>()
+        override suspend fun remove(id: String) { removeCalls += listOf(id); all.value = all.value.filter { it.id != id } }
+        override suspend fun removeAll(ids: List<String>) { removeCalls += ids; all.value = all.value.filter { it.id !in ids } }
     }
     private val bookmarkPort = FakeBookmarks()
     /** In-memory annotations (F-060); records adds and updates. */
@@ -150,7 +153,15 @@ class ReaderControllerTest {
                 if (it.id == id) it.copy(color = color ?: it.color, style = style ?: it.style, note = if (note != null) note.takeIf { n -> n.isNotBlank() } else it.note) else it
             }
         }
-        override suspend fun remove(id: String) { removed += id; all.value = all.value.filter { it.id != id } }
+        /** Tombstoned rows (restore brings them back). */
+        private val gone = mutableMapOf<String, Annotation>()
+        val restores = mutableListOf<Pair<String, String?>>()
+        val adds get() = n
+        override suspend fun remove(id: String) { removed += id; all.value.firstOrNull { it.id == id }?.let { gone[id] = it }; all.value = all.value.filter { it.id != id } }
+        override suspend fun restore(id: String, note: String?): Annotation? {
+            restores += id to note
+            return gone.remove(id)?.copy(note = note?.takeIf { it.isNotBlank() }, updatedAt = 2L)?.also { all.value = all.value + it }
+        }
     }
     private val annotationPort = FakeAnnotations()
     private class FakeTextActions : TextActions {
@@ -788,8 +799,10 @@ class ReaderControllerTest {
         val id = library.knownBookId(ref)!!
         bookmarkPort.add(id, pointCfi, 2, 0.3, "One"); bookmarkPort.add(id, "epubcfi(/6/4!/4/4/1:3)", 2, 0.31, "One"); advanceUntilIdle()
         reader.events.emit(FromWeb.PageBookmarks(sessionId = "s-1", cfis = listOf(pointCfi, "epubcfi(/6/4!/4/4/1:3)"))); advanceUntilIdle()
+        bookmarkPort.removeCalls.clear()
         c.toggleBookmark(); advanceUntilIdle()
         assertEquals(emptyList(), bookmarkPort.all.value)
+        assertEquals(1, bookmarkPort.removeCalls.size, "one write for both: ${bookmarkPort.removeCalls}") // M8 (review)
     }
 
     @Test fun the_marker_follows_the_relocates_and_page_bookmark_answers() = runTest(dispatcher) {
@@ -1131,6 +1144,9 @@ class ReaderControllerTest {
         reader.sent.clear()
         c.undoRemoveAnnotation(); advanceUntilIdle()
         val back = annotationPort.all.value.single()
+        assertEquals(a.id, back.id) // M8 (review): the same row comes back (sync keeps one id), not a new one
+        assertEquals(listOf<Pair<String, String?>>(a.id to "keep me"), annotationPort.restores) // one write, note included
+        assertEquals(1, annotationPort.adds)
         assertEquals(listOf(a.cfi, a.spineIndex, a.text, a.chapter, a.color, a.style, a.note), listOf(back.cfi, back.spineIndex, back.text, back.chapter, back.color, back.style, back.note))
         assertEquals(listOf<ToWeb>(ToWeb.AddAnnotation(sessionId = "s-1", id = back.id, cfi = "v:$cfiA", color = "green", style = "underline")), reader.sent)
         assertNull(c.state.value.notice)
@@ -1148,5 +1164,71 @@ class ReaderControllerTest {
         assertFalse(c.state.value.tocVisible)
         c.removeAnnotation(a.id); advanceUntilIdle() // the list's remove button
         assertEquals(emptyList(), c.state.value.annotations)
+    }
+
+    // ---- M6 whole-branch review fixes ----
+
+    /** I3: a note being typed survives the process being killed in the background (the activity flushes it on stop). */
+    @Test fun flush_note_stores_the_draft_and_keeps_the_sheet_open() = runTest(dispatcher) {
+        val c = controller(); openedAt(c)
+        val a = stored(cfiA, 1)
+        painted(c)
+        reader.events.emit(FromWeb.AnnotationTapped(sessionId = "s-1", id = a.id)); advanceUntilIdle()
+        c.editNote("half a thought ")
+        c.flushNote(); advanceUntilIdle()
+        assertEquals(listOf(a.id to "half a thought"), annotationPort.notes)
+        assertEquals("half a thought ", c.state.value.annotationSheet?.note) // still typing: the sheet and the draft stay
+        c.flushNote(); advanceUntilIdle()
+        c.closeAnnotationSheet(); advanceUntilIdle()
+        assertEquals(1, annotationPort.notes.size) // nothing new to store
+        c.flushNote(); advanceUntilIdle() // no sheet: nothing
+        assertEquals(1, annotationPort.notes.size)
+    }
+
+    /** I4: Back while text is selected dismisses the selection first; the book stays open. */
+    @Test fun back_with_a_selection_clears_it_before_the_link_history_or_leaving() = runTest(dispatcher) {
+        val c = controller(); selected(c)
+        reader.events.emit(FromWeb.History(sessionId = "s-1", depth = 1)); advanceUntilIdle(); reader.sent.clear()
+        assertTrue(c.backInside())
+        assertEquals(listOf<ToWeb>(ToWeb.ClearSelection()), reader.sent)
+        c.copySelection(); advanceUntilIdle()
+        assertEquals(emptyList(), textActions.copied) // the selection is gone
+        assertTrue(c.backInside()) // then the link history
+        assertEquals(ToWeb.Back(), reader.sent.last())
+        reader.events.emit(selection()); advanceUntilIdle()
+        assertTrue(c.backInside()) // a new selection: cleared again, the book still open
+        assertFalse(c.backInside())
+        c.showToc()
+        reader.events.emit(selection()); advanceUntilIdle()
+        assertTrue(c.backInside()); assertTrue(c.state.value.tocVisible) // the selection first, the panel next
+    }
+
+    /** M1: a bookmark's section and a stored position's section are in original coordinates (M8 chunking). */
+    @Test fun bookmark_and_position_sections_are_mapped_to_the_original_spine() = runTest(dispatcher) {
+        val c = controller(map = markedMap)
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
+        reader.events.emit(FromWeb.Relocate(sessionId = "s-1", cfi = "v:$rangeCfi", fraction = 0.3, sectionIndex = 12, tocHref = "c1.xhtml")); advanceUntilIdle()
+        c.toggleBookmark(); advanceUntilIdle()
+        val b = bookmarkPort.all.value.single()
+        assertEquals(rangeCfi, b.cfi)
+        assertEquals(2, b.spineIndex) // virtual 12 -> original 2
+        val id = library.knownBookId(ref)!!
+        c.close(); advanceUntilIdle()
+        val p = library.position(id)!!
+        assertEquals(rangeCfi, p.cfi)
+        assertEquals(2, p.spineIndex)
+    }
+
+    /** I1: the contents panel opens in a book without a table of contents (its bookmarks and highlights live there). */
+    @Test fun the_contents_panel_opens_in_a_book_without_a_toc() = runTest(dispatcher) {
+        val c = controller()
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened().copy(toc = emptyList())); advanceUntilIdle()
+        reader.events.emit(relocate(rangeCfi)); advanceUntilIdle()
+        c.toggleBookmark(); advanceUntilIdle()
+        assertEquals(emptyList(), c.state.value.toc)
+        c.showToc()
+        assertTrue(c.state.value.tocVisible)
+        c.selectContentsTab(ContentsTab.Bookmarks)
+        assertEquals(1, c.state.value.bookmarks.size)
     }
 }

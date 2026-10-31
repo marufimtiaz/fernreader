@@ -426,7 +426,7 @@ class ReaderController(
 
     /**
      * Handles Back inside the reader. Returns false if Back should leave the reader. Order: the external-link dialog,
-     * the footnote popup, panels and sheets, then the followed-links history (F-042: back to where the link was tapped),
+     * a text selection, the footnote popup, panels and sheets, then the followed-links history (F-042: back to where the link was tapped),
      * then leave. Decided from state already here, never waiting for the web side (R-005).
      */
     fun backInside(): Boolean {
@@ -434,6 +434,8 @@ class ReaderController(
         val s = session
         return when {
             st.externalLink != null -> { cancelExternalLink(); true }
+            // A selection first: Back never reaches the WebView (OnBackInvokedCallback), so it is dismissed here.
+            s?.selection != null -> { s.selection = null; reader.send(ToWeb.ClearSelection()); true }
             st.highlightPicker != null -> { dismissHighlightPicker(); true }
             st.annotationSheet != null -> { closeAnnotationSheet(); true }
             st.footnoteOpen -> { _state.update { it.copy(footnoteOpen = false) }; reader.send(ToWeb.CloseFootnote()); true }
@@ -502,13 +504,13 @@ class ReaderController(
         scope.launch {
             try {
                 if (here.isNotEmpty()) {
-                    here.forEach { port.remove(it.id) }
+                    port.removeAll(here.map { it.id }) // one write (R-009)
                     if (session !== s) return@launch
                     s.bookmarkList = s.bookmarkList.filter { b -> here.none { it.id == b.id } }
                     s.marks = s.marks - here.map { s.map.cfiToVirtual(it.cfi) }.toSet()
                     publishBookmarks(s, Notice.BookmarkRemoved)
                 } else {
-                    val b = port.add(bookId, s.map.cfiToOriginal(at.cfi), at.sectionIndex, at.fraction, chapter)
+                    val b = port.add(bookId, s.map.cfiToOriginal(at.cfi), s.map.textToOriginal(TextPos(at.sectionIndex, 0)).spineIndex, at.fraction, chapter)
                     if (session !== s) return@launch
                     s.bookmarkList = s.bookmarkList + b
                     s.marks = s.marks + s.map.cfiToVirtual(b.cfi)
@@ -749,6 +751,12 @@ class ReaderController(
         _state.update { it.copy(annotationSheet = null) }
     }
 
+    /**
+     * Stores the open sheet's draft note now, keeping the sheet open (R-009): the activity calls it when it stops, as the
+     * process may be killed in the background without onDestroy.
+     */
+    fun flushNote() { session?.let(::saveNote) }
+
     /** Stores the open sheet's note if it changed; never throws. */
     private fun saveNote(s: Session) {
         val sh = _state.value.annotationSheet ?: return
@@ -777,7 +785,7 @@ class ReaderController(
         }
     }
 
-    /** Undo in the removal confirmation: the highlight comes back (a new row: same range, text, colour, style, note). */
+    /** Undo in the removal confirmation: the same row comes back (same id, F-115) with its note, in one write (R-009). */
     fun undoRemoveAnnotation() {
         val s = session ?: return
         val port = annotations ?: return
@@ -786,8 +794,7 @@ class ReaderController(
         _state.update { it.copy(notice = null) }
         scope.launch {
             try {
-                val back = port.add(a.bookId, a.cfi, a.spineIndex, a.text, a.chapter, a.color, a.style)
-                a.note?.let { port.update(back.id, note = it) }
+                val back = port.restore(a.id, a.note) ?: return@launch
                 if (session !== s) return@launch
                 drawAnnotation(s, back)
             } catch (e: CancellationException) {
@@ -872,7 +879,7 @@ class ReaderController(
             is FromWeb.Relocate -> if (m.sessionId == s.id) {
                 probe.ev("relocate", m.cfi)
                 if (s.seek == null) s.bookId?.let { id ->
-                    val u = PositionWriter.Update(id, s.map.cfiToOriginal(m.cfi), m.fraction, m.sectionIndex)
+                    val u = PositionWriter.Update(id, s.map.cfiToOriginal(m.cfi), m.fraction, s.map.textToOriginal(TextPos(m.sectionIndex, 0)).spineIndex)
                     s.last = u
                     positions.await().submit(u)
                 }

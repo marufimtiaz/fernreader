@@ -11,6 +11,7 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -116,6 +117,33 @@ class BookmarkAnnotationTest {
         val row = db.annotationDao().anyRow(a.id)!!
         assertTrue(row.deleted); assertNotEquals(a.updatedAt, row.updatedAt)
         c.stop()
+    }
+
+    /** M8 (review): toggling off a page with several bookmarks tombstones them all in one write. */
+    @Test fun removing_several_bookmarks_tombstones_all_of_them() = runTest {
+        val a = bookmarks.add("b1", "epubcfi(/6/4!/4/2/1:0)", 1, 0.1, "Ch")
+        val b = bookmarks.add("b1", "epubcfi(/6/4!/4/4/1:0)", 1, 0.11, "Ch")
+        val keep = bookmarks.add("b1", "epubcfi(/6/8!/4/2/1:0)", 3, 0.5, "Ch")
+        bookmarks.removeAll(listOf(a.id, b.id, "unknown"))
+        assertEquals(listOf(keep.id), bookmarks.bookmarks("b1").first().map { it.id })
+        for (id in listOf(a.id, b.id)) { val row = db.bookmarkDao().anyRow(id)!!; assertTrue(row.deleted); assertTrue(row.updatedAt > a.updatedAt) }
+        assertNull(db.bookmarkDao().anyRow("unknown"))
+    }
+
+    /** M8 (review): Undo brings the same row back (same id for sync, F-115) with its note, in one write. */
+    @Test fun restoring_an_annotation_un_tombstones_the_same_row_with_its_note() = runTest {
+        val a = annotations.add("b1", "epubcfi(/6/4!/4/2,/1:1,/1:5)", 1, "t", "Ch", "green", "underline")
+        annotations.remove(a.id)
+        val removedAt = db.annotationDao().anyRow(a.id)!!.updatedAt
+        val back = annotations.restore(a.id, note = "kept note")!!
+        assertEquals(a.id, back.id)
+        assertEquals(listOf(a.cfi, a.spineIndex, a.text, a.chapter, a.color, a.style, "kept note"), listOf(back.cfi, back.spineIndex, back.text, back.chapter, back.color, back.style, back.note))
+        val row = db.annotationDao().anyRow(a.id)!!
+        assertFalse(row.deleted); assertTrue(row.updatedAt > removedAt); assertEquals(a.createdAt, row.createdAt)
+        assertEquals(listOf(back), annotations.annotations("b1").first())
+        assertNull(annotations.restore("unknown", note = null))
+        annotations.remove(a.id)
+        assertNull(annotations.restore(a.id, note = "  ")!!.note) // a blank note is no note
     }
 
     @Test fun palette_has_at_least_six_distinct_ids() {

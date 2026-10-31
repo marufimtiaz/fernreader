@@ -40,6 +40,12 @@ abstract class BookmarkDao {
         val cur = anyRow(id) ?: return
         upsert(cur.copy(deleted = true, updatedAt = at))
     }
+
+    /** Several bookmarks in one transaction (R-009); unknown ids are skipped. */
+    @Transaction
+    open suspend fun tombstoneAll(ids: List<String>, at: Long) {
+        for (id in ids) { val cur = anyRow(id) ?: continue; upsert(cur.copy(deleted = true, updatedAt = at)) }
+    }
 }
 
 data class Bookmark(
@@ -60,6 +66,8 @@ interface BookmarkPort {
     suspend fun add(bookId: String, cfi: String, spineIndex: Int, fraction: Double, chapter: String): Bookmark
     /** Tombstones the row (the row stays for sync). */
     suspend fun remove(id: String)
+    /** Tombstones several rows in one write (all or none). */
+    suspend fun removeAll(ids: List<String>)
 }
 
 class BookmarkStore(private val db: AppDatabase, private val clock: HybridClock) : BookmarkPort {
@@ -76,6 +84,8 @@ class BookmarkStore(private val db: AppDatabase, private val clock: HybridClock)
     }
 
     override suspend fun remove(id: String) = db.bookmarkDao().tombstone(id, clock.now())
+
+    override suspend fun removeAll(ids: List<String>) = db.bookmarkDao().tombstoneAll(ids, clock.now())
 
     private fun BookmarkEntity.toDomain() = Bookmark(id, bookId, cfi, spineIndex, fraction, chapter, createdAt, updatedAt)
 }

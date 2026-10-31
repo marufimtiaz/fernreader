@@ -71,6 +71,13 @@ abstract class AnnotationDao {
         val cur = anyRow(id) ?: return
         upsert(cur.copy(deleted = true, updatedAt = at))
     }
+
+    /** One transaction (R-009): the row is live again with [note]; null if there is no such row. */
+    @Transaction
+    open suspend fun restore(id: String, at: Long, note: String?): AnnotationEntity? {
+        val cur = anyRow(id) ?: return null
+        return cur.copy(deleted = false, note = note, updatedAt = at).also { upsert(it) }
+    }
 }
 
 data class Annotation(
@@ -97,6 +104,11 @@ interface AnnotationPort {
     suspend fun update(id: String, color: String? = null, style: String? = null, note: String? = null)
     /** Tombstones the row (the row stays for sync). */
     suspend fun remove(id: String)
+    /**
+     * Undo of [remove]: the same row (same id, F-115) is live again with [note] (blank = none), in one write. Null if
+     * there is no such row.
+     */
+    suspend fun restore(id: String, note: String?): Annotation?
 }
 
 class AnnotationStore(private val db: AppDatabase, private val clock: HybridClock) : AnnotationPort {
@@ -116,6 +128,9 @@ class AnnotationStore(private val db: AppDatabase, private val clock: HybridCloc
         db.annotationDao().change(id, clock.now(), color, style, note?.takeIf { it.isNotBlank() }, setNote = note != null)
 
     override suspend fun remove(id: String) = db.annotationDao().tombstone(id, clock.now())
+
+    override suspend fun restore(id: String, note: String?): Annotation? =
+        db.annotationDao().restore(id, clock.now(), note?.takeIf { it.isNotBlank() })?.toDomain()
 
     private fun AnnotationEntity.toDomain() = Annotation(id, bookId, cfi, spineIndex, text, chapter, color, style, note, createdAt, updatedAt)
 }
