@@ -5,6 +5,7 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 
 /** Last reading position of a book (synced row). `cfi` is always against the original documents. */
+@kotlinx.serialization.Serializable
 @Entity(tableName = "reading_position", indices = [Index(value = ["bookId"], unique = true)])
 data class ReadingPositionEntity(
     @PrimaryKey val id: String,

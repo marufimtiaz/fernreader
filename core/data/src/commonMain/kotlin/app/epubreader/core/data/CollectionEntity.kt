@@ -10,6 +10,7 @@ import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
 /** A user collection (F-026). Synced row (F-115): stable id, change timestamp, tombstone. */
+@kotlinx.serialization.Serializable
 @Entity(tableName = "collection")
 data class CollectionEntity(
     @PrimaryKey val id: String,
@@ -20,6 +21,7 @@ data class CollectionEntity(
 )
 
 /** A book in a collection. Synced row; removing a book tombstones the row, re-adding revives it (same id). */
+@kotlinx.serialization.Serializable
 @Entity(tableName = "collection_book", indices = [Index(value = ["collectionId", "bookId"], unique = true), Index("bookId")])
 data class CollectionBookEntity(
     @PrimaryKey val id: String,

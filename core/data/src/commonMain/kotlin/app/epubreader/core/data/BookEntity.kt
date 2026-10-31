@@ -1,5 +1,6 @@
 package app.epubreader.core.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -21,4 +22,6 @@ data class BookEntity(
     val hidden: Boolean,
     val updatedAt: Long,
     val deleted: Boolean,
+    /** When [hidden] last changed (F-025): restore merges the user's hide/un-hide by it, not by [updatedAt], which scans bump. */
+    @ColumnInfo(defaultValue = "0") val hiddenUpdatedAt: Long = 0,
 )

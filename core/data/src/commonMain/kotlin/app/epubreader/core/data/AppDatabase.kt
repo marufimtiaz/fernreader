@@ -20,6 +20,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun bookCacheDao(): BookCacheDao
     abstract fun searchHistoryDao(): SearchHistoryDao
     abstract fun collectionDao(): CollectionDao
+    abstract fun backupDao(): BackupDao
 }
 
 @Suppress("NO_ACTUAL_FOR_EXPECT", "KotlinNoActualForExpect")

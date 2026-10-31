@@ -122,7 +122,7 @@ abstract class LibraryDao {
     @Query(LIBRARY_QUERY) abstract fun library(): Flow<List<LibraryRow>>
     /** F-025: books removed from the library only (Settings → Hidden books). */
     @Query(HIDDEN_QUERY) abstract fun hiddenLibrary(): Flow<List<LibraryRow>>
-    @Query("UPDATE book SET hidden = :hidden, updatedAt = :now WHERE id IN (:ids) AND hidden != :hidden")
+    @Query("UPDATE book SET hidden = :hidden, hiddenUpdatedAt = :now, updatedAt = :now WHERE id IN (:ids) AND hidden != :hidden")
     abstract suspend fun setHidden(ids: List<String>, hidden: Boolean, now: Long)
     @Query("SELECT * FROM book_file WHERE bookId = :bookId") abstract suspend fun filesOf(bookId: String): List<BookFileEntity>
     @Query("DELETE FROM book_file WHERE path = :path") abstract suspend fun deleteFile(path: String)
