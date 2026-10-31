@@ -6,6 +6,7 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -19,11 +20,16 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
 
 /**
- * All books' search indexes under [dir] (`<bookId>.db`): builds them in the background on [io] and streams queries.
- * Pass a low-priority single-thread dispatcher so a build never competes with reading; queries use [io] too and
+ * All books' search indexes under [dir] (`<bookId>.db`): builds them in the background on [io] and streams queries on [queries].
+ * Pass a low-priority single-thread dispatcher as [io] so a build never competes with reading; queries run on [queries] and
  * interleave with the build between its sections.
  */
-class SearchIndexes(private val dir: String, private val io: CoroutineDispatcher) {
+class SearchIndexes(
+    private val dir: String,
+    private val io: CoroutineDispatcher,
+    /** Where queries run: normal priority, so a search never waits behind (or at the priority of) a section being indexed. */
+    private val queries: CoroutineDispatcher = Dispatchers.IO,
+) {
     private val scope = CoroutineScope(SupervisorJob() + io)
     private val lock = Any()
     private val builds = HashMap<String, Job>()
@@ -113,7 +119,7 @@ class SearchIndexes(private val dir: String, private val io: CoroutineDispatcher
         } finally {
             reader?.close()
         }
-    }.flowOn(io)
+    }.flowOn(queries)
 
     /** Cancels a running build of [bookId] and removes its index. */
     suspend fun delete(bookId: String) {

@@ -3,6 +3,7 @@ package app.epubreader.core.search
 import java.nio.file.Files
 import java.util.concurrent.Semaphore
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.toList
@@ -195,6 +196,24 @@ class SearchIndexesTest {
     private fun built2(id: String, book: BookText, digest: String) {
         indexes.ensureBuilt(id, digest) { book }
         runBlocking { withTimeout(60_000) { indexes.progress(id).first { it.complete && !it.running } } }
+    }
+
+    @Test fun a_search_makes_progress_while_the_single_build_thread_is_blocked_inside_a_section() {
+        val buildThread = java.util.concurrent.Executors.newSingleThreadExecutor()
+        val idx = SearchIndexes(Files.createTempDirectory("searchidx2").toString(), buildThread.asCoroutineDispatcher())
+        val gate = Semaphore(0)
+        try {
+            val secs = (0 until 4).map { i -> "<p>" + (if (i == 1) "alpha " else "") + "pad ".repeat(80) + "</p>" }
+            idx.ensureBuilt("blocked", "d") { ListBookText(secs) { if (it >= 2) gate.acquire() } }
+            runBlocking {
+                withTimeout(30_000) { idx.progress("blocked").first { it.sectionsDone >= 2 } }
+                // the build thread now sits in section 2; the query must still run (on its own dispatcher)
+                val first = withTimeout(10_000) { idx.search("blocked", "d", SearchQuery("alpha", wholeWord = true)).first() }
+                assertEquals(listOf(1), first.hits.map { it.spineIndex })
+            }
+        } finally {
+            gate.release(10); idx.close(); buildThread.shutdownNow()
+        }
     }
 
     @Test fun ensureBuilt_is_idempotent_and_one_build_at_a_time() {

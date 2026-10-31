@@ -99,10 +99,12 @@ class SearchFlowTest {
                 }
             }
             assertTrue("section $next preloaded", preloaded)
-            val results = h.searchDone("the")
-            val hit = results.firstOrNull { it.hit.spineIndex == next }
-            assertNotNull("a hit in section $next", hit)
-            h.select(hit!!) // S2: the decoration must be drawn in the section that was preloaded
+            // Do not wait for the whole (up to 5000) list: take the first hit in the next section as soon as it arrives.
+            sc.onActivity { it.controller.searchFor("the") }
+            val hit = withTimeout(10_000) {
+                h.a.controller.searcher.state.first { st -> st.submitted == "the" && st.results.any { it.hit.spineIndex == next } }
+            }.results.first { it.hit.spineIndex == next }
+            h.select(hit) // S2: the decoration must be drawn in the section that was preloaded
             h.stop()
         }
     }

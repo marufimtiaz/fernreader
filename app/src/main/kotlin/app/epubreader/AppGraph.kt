@@ -53,8 +53,8 @@ class AppGraph(app: Application) {
     val settings = SettingsStore(db, clock)
     val searchHistory = SearchHistoryStore(db, clock)
     /**
-     * F-050 indexes. One thread at background priority is the plan's "Dispatchers.IO at low priority": builds and
-     * queries never compete with reading for CPU.
+     * F-050 indexes. Builds run on one thread at background priority (the plan's "Dispatchers.IO at low priority"), so
+     * they never compete with reading for CPU; queries run on Dispatchers.IO at normal priority.
      */
     val search: SearchIndexes by lazy {
         val thread = Executors.newSingleThreadExecutor { r ->
