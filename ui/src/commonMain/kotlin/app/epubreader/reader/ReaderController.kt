@@ -377,6 +377,7 @@ class ReaderController(
                 val rec = library.recordOpened(OpenedBookInfo(identity, m.title, m.authors, s.ref, s.size))
                 s.bookId = rec.bookId
                 if (session !== s) return // closed (or another book opened) while recording
+                searcher.bookKnown()
                 // Same book reached through a new source (e.g. picked again): resume where it was left. Positions are
                 // stored again once the jump has landed (`seeked`); the web side holds the jump until its open settled.
                 if (!s.hadPosition) rec.position?.let {

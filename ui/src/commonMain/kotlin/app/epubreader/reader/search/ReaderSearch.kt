@@ -56,6 +56,8 @@ class ReaderSearch(
     private val _state = MutableStateFlow(SearchState())
     val state: StateFlow<SearchState> = _state
     private var job: Job? = null
+    /** A query submitted before the book's id was known: runs from [bookKnown]. */
+    private var pending: String? = null
     private var firstReported = 0
     private var doneReported = 0
     private var clears = 0
@@ -83,6 +85,15 @@ class ReaderSearch(
         _state.update { it.copy(query = q, history = (listOf(q) + it.history.filter { h -> h != q }).take(SearchHistoryStore.LIMIT)) }
         book()?.bookId?.let { id -> scope.launch { guarded("storing search history") { history?.add(id, q) } } }
         probe.ev("search_cmd", "")
+        run(q)
+    }
+
+    /** The open book's id became known (the controller recorded it): runs a query that was submitted before. */
+    fun bookKnown() {
+        val q = pending ?: return
+        val id = book()?.bookId ?: return
+        pending = null
+        scope.launch { guarded("storing search history") { history?.add(id, q) } }
         run(q)
     }
 
@@ -119,7 +130,7 @@ class ReaderSearch(
 
     /** A different book opened (or this one closed): nothing carries over. */
     fun reset() {
-        job?.cancel(); job = null
+        job?.cancel(); job = null; pending = null
         firstReported = 0; doneReported = 0; lastShownRun = 0; scrollIndex = 0; scrollOffset = 0; clears++
         _state.value = SearchState()
     }
@@ -139,7 +150,7 @@ class ReaderSearch(
     }
 
     private fun stop(clearResults: Boolean) {
-        job?.cancel(); job = null
+        job?.cancel(); job = null; pending = null
         _state.update {
             if (clearResults) it.copy(results = emptyList(), total = 0, capped = false, running = false, done = false, submitted = null)
             else it.copy(running = false)
@@ -147,11 +158,16 @@ class ReaderSearch(
     }
 
     private fun run(q: String) {
-        job?.cancel(); job = null
+        job?.cancel(); job = null; pending = null
         val ref = book()
         val p = port
         val whole = _state.value.wholeWord
         val run = _state.value.runId + 1
+        if (ref == null && p != null) { // the book is still opening: wait for its id instead of reporting "no results"
+            pending = q
+            _state.update { it.copy(runId = run, submitted = q, results = emptyList(), total = 0, capped = false, running = true, done = false) }
+            return
+        }
         if (ref == null || p == null) {
             _state.update { it.copy(runId = run, submitted = q, results = emptyList(), total = 0, capped = false, running = false, done = true) }
             return

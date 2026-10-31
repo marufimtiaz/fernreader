@@ -190,16 +190,35 @@ class ReaderSearchTest {
         assertEquals(2, events.count { it.first == "search_first" })
     }
 
-    @Test fun without_a_book_or_port_nothing_runs() = runTest(dispatcher) {
-        book = null
-        val s = search()
-        s.submit("a"); advanceUntilIdle()
-        assertTrue(port.searches.isEmpty())
-        assertFalse(s.state.value.running)
+    @Test fun without_a_port_nothing_runs() = runTest(dispatcher) {
         val s2 = search(port = null)
-        book = SearchBookRef("b1", "d", "s")
         s2.submit("a"); advanceUntilIdle()
         assertFalse(s2.state.value.running)
+        assertTrue(s2.state.value.done)
+    }
+
+    @Test fun a_query_submitted_before_the_book_id_is_known_waits_and_runs_once_it_is() = runTest(dispatcher) {
+        book = null
+        val s = search()
+        s.submit("alpha"); advanceUntilIdle()
+        assertTrue(s.state.value.running && !s.state.value.done, "not a finished 'no results'")
+        assertTrue(port.searches.isEmpty())
+        book = SearchBookRef("b1", "dig", "s-1")
+        s.bookKnown(); advanceUntilIdle()
+        assertEquals(listOf(SearchQuery("alpha")), port.searches)
+        assertTrue(s.state.value.done && !s.state.value.running)
+        assertEquals(listOf("alpha"), history.rows["b1"].orEmpty().toList())
+        s.bookKnown(); advanceUntilIdle()
+        assertEquals(1, port.searches.size) // nothing pending any more
+    }
+
+    @Test fun a_pending_query_is_dropped_by_reset() = runTest(dispatcher) {
+        book = null
+        val s = search()
+        s.submit("alpha"); s.reset()
+        book = SearchBookRef("b2", "d", "s-2")
+        s.bookKnown(); advanceUntilIdle()
+        assertTrue(port.searches.isEmpty())
     }
 
     @Test fun a_failing_search_ends_as_done_with_what_arrived() = runTest(dispatcher) {
