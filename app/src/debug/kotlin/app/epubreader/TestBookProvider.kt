@@ -8,15 +8,24 @@ import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.provider.OpenableColumns
 import java.io.File
+import java.io.FileNotFoundException
 import kotlin.concurrent.thread
 
 /**
  * Debug-only. Serves files from the app's cache dir as content://app.epubreader.test.books/<name>[?pipe=1].
  * pipe=1 returns a non-seekable pipe (like many cloud providers). Lives in the debug build (not the test APK)
  * because test-APK components run in the test package's own process. Also used by M3's OpenWithTest.
+ * Not exported (only this app's process uses it); names with a path part are rejected.
  */
 class TestBookProvider : ContentProvider() {
-    private fun file(uri: Uri) = File(context!!.cacheDir, "testbooks/${uri.lastPathSegment}")
+    /** Plain file names only: lastPathSegment is percent-decoded, so "..%2F" would otherwise leave testbooks/. */
+    private fun file(uri: Uri): File {
+        val name = uri.lastPathSegment
+        if (name.isNullOrEmpty() || name == "." || name == ".." || File(name).name != name) {
+            throw FileNotFoundException("not a test book name: $name")
+        }
+        return File(context!!.cacheDir, "testbooks/$name")
+    }
     override fun onCreate() = true
     override fun getType(uri: Uri) = "application/epub+zip"
     override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor {

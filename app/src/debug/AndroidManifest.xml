@@ -1,7 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
-        <!-- Debug-only test content provider (see TestBookProvider) -->
+        <!-- Debug-only test content provider (see TestBookProvider). Not exported: instrumented tests run in this
+             app's process and uid, other apps must not reach it. -->
         <provider android:name="app.epubreader.TestBookProvider" android:authorities="app.epubreader.test.books"
-            android:exported="true" />
+            android:exported="false" />
     </application>
 </manifest>

@@ -42,4 +42,23 @@ class BookSourcesTest {
         assertEquals(first.sessionId, again.sessionId)            // warm reuse
         assertEquals(200, server.serve("${again.sessionId}/entries.json").status)
     }
+
+    // I4: the debug provider serves only plain names from cache/testbooks, never a path out of it.
+    @Test fun test_provider_rejects_path_escapes_and_opener_maps_them() = runBlocking {
+        TestBooks.write(ctx, "e.epub")
+        val opener = BookOpener(sources, BookContentServer())
+        for (uri in listOf(
+            "content://app.epubreader.test.books/..%2F..%2Fdatabases%2Flibrary.db",
+            "content://app.epubreader.test.books/..%2Ftestbooks%2Fe.epub",
+            "content://app.epubreader.test.books/..",
+        )) {
+            assertEquals(uri, OpenResult.Failed(OpenFailure.NO_ACCESS), opener.open(SourceRef.Content(uri)))
+        }
+        assertTrue(opener.open(SourceRef.Content("content://app.epubreader.test.books/e.epub")) is OpenResult.Ok)
+    }
+
+    @Test fun test_provider_is_not_exported() {
+        val info = ctx.packageManager.resolveContentProvider("app.epubreader.test.books", 0)!!
+        assertEquals(false, info.exported)
+    }
 }
