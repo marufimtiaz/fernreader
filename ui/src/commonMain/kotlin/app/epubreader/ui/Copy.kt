@@ -10,6 +10,7 @@ object Copy {
     const val back = "Back"
     const val contents = "Contents"
     const val close = "Close"
+    const val untitledEntry = "Untitled"
     const val removeFromRecent = "Remove from list"
     const val missingTarget = "This entry points to a part that is missing from the book."
     const val missingPart = "This part of the book is missing from the file, so it can't be shown. You can keep reading."

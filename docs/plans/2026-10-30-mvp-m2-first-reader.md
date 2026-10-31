@@ -3083,7 +3083,7 @@ Take `device_screenshot`s of the home list and of a page for the milestone note.
 **Interfaces:**
 - Produces: `class TocTreeState(items: List<TocItem>) { fun visibleRows(): List<Int>; fun toggle(i: Int); fun hasChildren(i: Int): Boolean; fun isExpanded(i: Int): Boolean; fun indexOfHref(href: String?): Int?; fun reveal(i: Int) }`;
   `@Composable fun TocPanel(items, currentHref, onSelect, onDismiss, probe)`.
-- The tree comes from `opened.toc` (flattened with depth, Task 2.4); built once per open book, not per panel open
+- The tree comes from `opened.toc` (flattened with depth, Task 2.4); built when the panel opens (O(n) over the flattened list, R17), not on every recomposition
   (P-031). Bench events `toc_cmd` (controller) → `toc_shown` (first frame of the panel).
 
 - [ ] **Step 1: Failing tests**
