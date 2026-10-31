@@ -380,8 +380,9 @@ describe('goToText (F-050)', () => {
     expect(draw).not.toHaveBeenCalled()
     v.dispatchEvent(new CustomEvent('draw-annotation', { detail: { draw, annotation: { value: 'cfi-hit:Borodinó' } } }))
     expect(draw).toHaveBeenCalledTimes(1)
-    expect(draw.mock.calls[0][0]).toBeTypeOf('function')
-    expect(draw.mock.calls[0][1]).toEqual({ color: '#ff9800' }) // opaque: foliate applies its own 0.3 opacity
+    const { Overlayer } = await import('../vendor/foliate-js/overlayer.js')
+    // An outline, so a hit never looks like a user highlight (the user's orange is a fill), on every theme.
+    expect(draw.mock.calls[0]).toEqual([Overlayer.outline, { color: '#ff9800', width: 2, radius: 3 }])
   })
 
   it('a hit whose CFI does not resolve is treated as not found', async () => {
@@ -714,6 +715,11 @@ describe('selection and annotations (F-060)', () => {
     d.dispatchEvent(new Event('selectionchange'))
   }
   const wait = (ms: number) => new Promise(r => setTimeout(r, ms))
+  /** What a draw-annotation call draws: the annotation id it is tagged with, fill (highlight) or underline, options. */
+  const look = ([f, o]: any[]) => {
+    const g = f([{ left: 0, top: 0, right: 10, bottom: 10, width: 10, height: 10 }], o) as SVGElement
+    return [g.getAttribute('data-er-id'), g.style.opacity ? 'highlight' : 'underline', o]
+  }
   const ofType = <T extends FromWeb['type']>(t: T) => sent.filter(m => m.type === t) as Extract<FromWeb, { type: T }>[]
   const opened = async () => { open('s1', null); await settle(); sent = []; return FakeView.all[0] }
 
@@ -765,7 +771,8 @@ describe('selection and annotations (F-060)', () => {
     const draw = vi.fn()
     v.dispatchEvent(new CustomEvent('draw-annotation', { detail: { draw, annotation: { value: 'cfi-a' } } }))
     v.dispatchEvent(new CustomEvent('draw-annotation', { detail: { draw, annotation: { value: 'cfi-b' } } }))
-    expect(draw.mock.calls).toEqual([[Overlayer.highlight, { color: '#66bb6a' }], [Overlayer.underline, { color: '#42a5f5', width: 2 }]])
+    expect(draw.mock.calls.map(look)).toEqual([['a1', 'highlight', { color: '#66bb6a' }], ['a2', 'underline', { color: '#42a5f5', width: 2 }]])
+    expect(draw.mock.calls[0][0]).not.toBe(Overlayer.highlight) // tagged with the id (test probes find its drawing)
   })
 
   it('the same id again changes the drawing; annotations are drawn again on a new overlayer and dropped on close', async () => {
@@ -786,5 +793,92 @@ describe('selection and annotations (F-060)', () => {
     draw.mockClear()
     FakeView.all[0].dispatchEvent(new CustomEvent('draw-annotation', { detail: { draw, annotation: { value: 'cfi-a' } } }))
     expect(draw).not.toHaveBeenCalled()
+  })
+  // F-061: the book's annotations, drawn lazily per section; test CFIs "s<index>:<rest>" resolve to that section.
+  const annotated = async () => {
+    h.epubInit.mockImplementation(async () => ({ ...book(), resolveCFI: (c: string) => ({ index: Number(/^s(\d+):/.exec(c)?.[1] ?? -1) }) }))
+    return opened()
+  }
+  const items = (...l: [string, string, string?, ('highlight' | 'underline')?][]) =>
+    l.map(([id, cfi, color = 'yellow', style = 'highlight']) => ({ id, cfi, color, style }))
+  const setAnnotations = (sessionId: string, l: ReturnType<typeof items>) => send({ v: 1, type: 'setAnnotations', sessionId, items: l })
+  const values = (f: ReturnType<typeof vi.fn>) => f.mock.calls.map(c => (c[0] as { value: string }).value)
+  const fakeRange = (d: Document, rects: { left: number; top: number; right: number; bottom: number }[]) =>
+    ({ startContainer: d.body, getClientRects: () => rects }) as unknown as Range
+
+  it('setAnnotations draws the loaded sections now and the others when their overlayer is made; other sessions are ignored', async () => {
+    const v = await annotated()
+    section(v, 1, '<p>One</p>')
+    setAnnotations('other', items(['x', 's1:x']))
+    setAnnotations('s1', items(['a', 's1:a', 'green'], ['b', 's2:b', 'blue', 'underline']))
+    await settle()
+    expect(values(v.addAnnotation)).toEqual(['s1:a']) // section 2 is not loaded: nothing resolved or drawn for it yet
+    v.dispatchEvent(new CustomEvent('create-overlay', { detail: { index: 2 } }))
+    expect(values(v.addAnnotation)).toEqual(['s1:a', 's2:b'])
+    const { Overlayer } = await import('../vendor/foliate-js/overlayer.js')
+    const draw = vi.fn()
+    v.dispatchEvent(new CustomEvent('draw-annotation', { detail: { draw, annotation: { value: 's2:b' } } }))
+    v.dispatchEvent(new CustomEvent('draw-annotation', { detail: { draw, annotation: { value: 's1:x' } } }))
+    expect(draw.mock.calls.map(look)).toEqual([['b', 'underline', { color: '#42a5f5', width: 2 }]])
+  })
+
+  it('setAnnotations again changes only what changed: recoloured drawn again, removed erased, unchanged left alone', async () => {
+    const v = await annotated()
+    section(v, 1, '<p>One</p>')
+    setAnnotations('s1', items(['a', 's1:a'], ['b', 's1:b'], ['c', 's1:c'])); await settle()
+    v.addAnnotation.mockClear()
+    setAnnotations('s1', items(['a', 's1:a', 'pink'], ['c', 's1:c'])); await settle()
+    expect(values(v.addAnnotation)).toEqual(['s1:a'])
+    expect(values(v.deleteAnnotation)).toEqual(['s1:b'])
+    const draw = vi.fn()
+    v.dispatchEvent(new CustomEvent('draw-annotation', { detail: { draw, annotation: { value: 's1:a' } } }))
+    expect(draw.mock.calls[0][1]).toEqual({ color: '#f06292' })
+  })
+
+  it('removeAnnotation erases it from foliate before anything else is drawn, and it is never drawn again', async () => {
+    const v = await annotated()
+    section(v, 1, '<p>One</p>')
+    setAnnotations('s1', items(['a', 's1:a'], ['b', 's1:b'])); await settle()
+    send({ v: 1, type: 'removeAnnotation', sessionId: 'other', id: 'a' })
+    send({ v: 1, type: 'removeAnnotation', sessionId: 's1', id: 'a' }); await settle()
+    expect(values(v.deleteAnnotation)).toEqual(['s1:a'])
+    v.addAnnotation.mockClear()
+    v.dispatchEvent(new CustomEvent('create-overlay', { detail: { index: 1 } }))
+    expect(values(v.addAnnotation)).toEqual(['s1:b'])
+    const draw = vi.fn()
+    v.dispatchEvent(new CustomEvent('draw-annotation', { detail: { draw, annotation: { value: 's1:a' } } }))
+    expect(draw).not.toHaveBeenCalled()
+  })
+
+  it('a tap on an annotation is annotationTapped, not a tap; elsewhere it is a tap; a link inside it stays a link', async () => {
+    const v = await annotated()
+    const d = section(v, 1, '<p>Some <a href="#n">note</a> words</p>')
+    setAnnotations('s1', items(['a', 's1:a'], ['b', 's1:b'])); await settle()
+    const draw = vi.fn()
+    v.dispatchEvent(new CustomEvent('draw-annotation', { detail: { draw, annotation: { value: 's1:a' }, doc: d, range: fakeRange(d, [{ left: 0, top: 0, right: 100, bottom: 20 }]) } }))
+    v.dispatchEvent(new CustomEvent('draw-annotation', { detail: { draw, annotation: { value: 's1:b' }, doc: d, range: fakeRange(d, [{ left: 0, top: 40, right: 100, bottom: 60 }]) } }))
+    d.body.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 10, clientY: 50 }))
+    expect(ofType('annotationTapped')).toEqual([{ v: 1, type: 'annotationTapped', sessionId: 's1', id: 'b' }])
+    expect(ofType('tap')).toEqual([])
+    d.body.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 10, clientY: 30 }))
+    expect(ofType('tap').length).toBe(1)
+    d.querySelector('a')!.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 10, clientY: 10 }))
+    expect(ofType('annotationTapped').length).toBe(1) // the link wins (foliate follows it)
+    send({ v: 1, type: 'removeAnnotation', sessionId: 's1', id: 'b' }); await settle()
+    d.body.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 10, clientY: 50 }))
+    expect(ofType('annotationTapped').length).toBe(1)
+    expect(ofType('tap').length).toBe(2) // a removed one is plain page again
+  })
+
+  it('a new open starts with no annotations', async () => {
+    const v = await annotated()
+    section(v, 1, '<p>One</p>')
+    setAnnotations('s1', items(['a', 's1:a'])); await settle()
+    send({ v: 1, type: 'close' })
+    open('s2', null); await settle()
+    const w = FakeView.all.at(-1)!
+    w.addAnnotation.mockClear()
+    w.dispatchEvent(new CustomEvent('create-overlay', { detail: { index: 1 } }))
+    expect(w.addAnnotation).not.toHaveBeenCalled()
   })
 })

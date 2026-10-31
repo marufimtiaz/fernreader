@@ -30,8 +30,12 @@ export type ToWeb =
   | { v: 1; type: 'addAnnotation'; sessionId: string; id: string; cfi: string; color: string; style: 'highlight' | 'underline' }
   /** F-060: remove the text selection (after a selection menu action). */
   | { v: 1; type: 'clearSelection' }
+  /** F-061: the book's annotations (virtual CFIs), replacing the session's set; sent once the first page is painted. */
+  | { v: 1; type: 'setAnnotations'; sessionId: string; items: { id: string; cfi: string; color: string; style: 'highlight' | 'underline' }[] }
+  /** F-061: the annotation [id] was removed: its drawing goes at once. */
+  | { v: 1; type: 'removeAnnotation'; sessionId: string; id: string }
 
-export const TO_WEB_TYPES: ReadonlyArray<ToWeb['type']> = ['ping', 'open', 'close', 'next', 'prev', 'goTo', 'setSettings', 'goToFraction', 'goToText', 'clearSearchHighlight', 'back', 'closeFootnote', 'setBookmarks', 'addAnnotation', 'clearSelection']
+export const TO_WEB_TYPES: ReadonlyArray<ToWeb['type']> = ['ping', 'open', 'close', 'next', 'prev', 'goTo', 'setSettings', 'goToFraction', 'goToText', 'clearSearchHighlight', 'back', 'closeFootnote', 'setBookmarks', 'addAnnotation', 'clearSelection', 'setAnnotations', 'removeAnnotation']
 
 export type FromWeb =
   | { v: 1; type: 'ready'; engine: string }
@@ -61,3 +65,5 @@ export type FromWeb =
    * [sectionIndex] its section. Cleared (collapsed, or gone): text '', cfi null, sectionIndex -1.
    */
   | { v: 1; type: 'selection'; sessionId: string; text: string; cfi: string | null; sectionIndex: number }
+  /** F-061: a tap landed on the user annotation [id] (not on a link inside it); it is not a `tap`. */
+  | { v: 1; type: 'annotationTapped'; sessionId: string; id: string }

@@ -13,7 +13,7 @@ import { externalHref, isNoteTarget, noteElement, noteRef, sanitizeNote } from '
 import { FootnotePopup } from './footnote'
 import { visibleBookmarks } from './bookmarks'
 import { readSelection, SelectionReporter } from './selection'
-import { annotationDraw, type AnnotationStyle, type DrawnAnnotation } from './annotations'
+import { AnnotationStore, annotationDraw, taggedDraw, type AnnotationChange, type AnnotationItem } from './annotations'
 import { applySettings as applyStyles, DEFAULT_SETTINGS, readerCss, THEMES, type WebSettings } from './styles'
 
 /* foliate-js is untyped JS; keep `any` at this boundary only. */
@@ -76,10 +76,14 @@ export class Reader {
     },
   )
   /**
-   * F-060/F-061: the user annotations sent by the app this session, by CFI (foliate's annotation key), drawn by the
-   * view's overlayer and drawn again whenever their section gets a new one. Task 8 builds the full list on this.
+   * F-060/F-061: the book's user annotations as the app sent them this session (`setAnnotations` + changes), per
+   * section; drawn by the view's overlayer when their section has one (loaded now, or its `create-overlay` later).
+   * foliate's overlayer keeps each drawn range and redraws it on every re-layout, so it stays on the same words.
    */
-  private annotations = new Map<string, DrawnAnnotation>()
+  private readonly annotations = new AnnotationStore(cfi => {
+    const i = this.book?.resolveCFI?.(cfi)?.index
+    return typeof i === 'number' ? i : -1
+  })
 
   constructor(private bridge: Bridge) {
     // Read-only probes for the app's instrumented tests (evaluateJavascript); nothing in the app calls them.
@@ -176,6 +180,30 @@ export class Reader {
         }
         return null
       },
+      /**
+       * F-061: annotation [id] as drawn: the text of its range, the range's union rectangle and the union of its overlay
+       * drawing (host-viewport CSS px, with dpr), or null when it is not drawn in any loaded section.
+       */
+      annotation: (id: string) => {
+        for (const c of this.view?.renderer?.getContents?.() ?? []) {
+          const el = c.overlayer?.element?.querySelector?.(`[data-er-id="${CSS.escape(id)}"]`) as SVGGraphicsElement | null
+          if (!el) continue
+          const a = this.annotations.inSection(c.index).find(x => x.id === id)
+          const box = (c.doc?.defaultView?.frameElement as HTMLElement | null)?.getBoundingClientRect()
+          const union = (rs: Iterable<DOMRect>, dx: number, dy: number) => {
+            let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity
+            for (const x of rs) { if (!x.width && !x.height) continue; l = Math.min(l, x.left); t = Math.min(t, x.top); r = Math.max(r, x.right); b = Math.max(b, x.bottom) }
+            return l === Infinity ? null : { x: l + dx, y: t + dy, w: r - l, h: b - t }
+          }
+          return {
+            index: c.index, text: a?.range?.toString() ?? null,
+            range: a?.range ? union(Array.from(a.range.getClientRects()), box?.left ?? 0, box?.top ?? 0) : null,
+            overlay: union([...el.querySelectorAll('rect, path')].map(x => x.getBoundingClientRect()), 0, 0),
+            dpr: window.devicePixelRatio, vw: window.innerWidth, vh: window.innerHeight,
+          }
+        }
+        return null
+      },
       overlayCount: (index: number) => this.view?.renderer?.getContents?.().find((x: any) => x.index === index)?.overlayer?.element?.childElementCount ?? -1,
     }
     // A new viewport (rotation, window size) is a new layout: count again (F-034, P-022).
@@ -196,7 +224,9 @@ export class Reader {
         case 'back': this.back(); break
         case 'closeFootnote': if (this.popup.close()) this.sendFootnote(false); break
         case 'setBookmarks': this.setBookmarks(m.sessionId, m.cfis); break
-        case 'addAnnotation': this.addAnnotation(m.sessionId, m.id, m.cfi, m.color, m.style); break
+        case 'addAnnotation': this.changeAnnotations(m.sessionId, s => s.upsert({ id: m.id, cfi: m.cfi, color: m.color, style: m.style })); break
+        case 'setAnnotations': this.changeAnnotations(m.sessionId, s => s.replace(m.items)); break
+        case 'removeAnnotation': this.changeAnnotations(m.sessionId, s => s.remove(m.id)); break
         case 'clearSelection': this.clearSelection(); break
       }
     })
@@ -206,7 +236,7 @@ export class Reader {
     this.close()
     this.sessionId = sessionId
     this.bookmarks = []
-    this.annotations = new Map()
+    this.annotations.clear()
     this.selection.reset()
     const token = ++this.token
     const stale = () => this.token !== token
@@ -245,16 +275,17 @@ export class Reader {
       view.addEventListener('load', (e: CustomEvent) => { applySettings(e.detail.doc, this.settings); this.onLoad(sessionId, e.detail.doc) })
       view.addEventListener('draw-annotation', (e: CustomEvent) => {
         const value = e.detail.annotation?.value
-        if (value === this.search?.cfi) { e.detail.draw(Overlayer.highlight, { color: SEARCH_COLOR }); return }
-        const a = this.annotations.get(value)
+        if (value === this.search?.cfi) { e.detail.draw(Overlayer.outline, { color: SEARCH_COLOR, width: 2, radius: 3 }); return }
+        const a = this.annotations.byValue(value)
         if (!a) return
+        this.annotations.drawn(value, e.detail.range ?? null)
         const d = annotationDraw(a.style, a.color)
-        if (d.kind === 'underline') e.detail.draw(Overlayer.underline, { color: d.color, width: 2 })
-        else e.detail.draw(Overlayer.highlight, { color: d.color })
+        if (d.kind === 'underline') e.detail.draw(taggedDraw(Overlayer.underline, a.id), { color: d.color, width: 2 })
+        else e.detail.draw(taggedDraw(Overlayer.highlight, a.id), { color: d.color })
       })
       view.addEventListener('create-overlay', (e: CustomEvent) => {
         if (this.search && e.detail.index === this.search.index) this.drawSearch(view)
-        for (const a of this.annotations.values()) if (a.index === e.detail.index || a.index < 0) this.drawAnnotation(view, a)
+        for (const a of this.annotations.inSection(e.detail.index)) this.drawAnnotation(view, a)
       })
       // foliate's link handling (view.js #handleLinks) finds the link and emits these; the host decides what happens.
       view.addEventListener('link', (e: CustomEvent) => { e.preventDefault(); void this.onLink(view, sessionId, e.detail?.a, e.detail?.href) })
@@ -398,6 +429,8 @@ export class Reader {
     if (s.pageAnimation === 'none') r.removeAttribute('animated') // F-032: no slide
     else set('animated', '')
     document.body.style.background = THEMES[s.theme]?.bg ?? ''
+    // F-061: highlight fills read a little stronger on the dark themes (foliate's overlayer opacity variable).
+    document.body.style.setProperty('--overlayer-highlight-opacity', THEMES[s.theme]?.dark ? '0.4' : '0.3')
   }
 
   /** Settings on every loaded document of [view]; the paginator re-expands and keeps the first visible text (F-070). */
@@ -522,20 +555,24 @@ export class Reader {
     return null
   }
 
-  /** F-060/F-061: draws (or redraws, same id) a user annotation of the open book. */
-  private addAnnotation(sessionId: string, id: string, cfi: string, color: string, style: AnnotationStyle) {
+  /**
+   * F-061: applies a change to the session's annotations: erased keys go first (no stale drawing is ever left), then
+   * the new or changed ones are drawn, but only in sections that are loaded now; the rest are drawn when their section
+   * gets its overlayer (`create-overlay`), so a book with hundreds of highlights costs nothing on open or on a turn.
+   */
+  private changeAnnotations(sessionId: string, change: (s: AnnotationStore) => AnnotationChange) {
     const view = this.view
     if (this.sessionId !== sessionId || !view) return
-    const old = [...this.annotations.values()].find(a => a.id === id)
-    if (old && old.cfi !== cfi) { this.annotations.delete(old.cfi); void view.deleteAnnotation({ value: old.cfi })?.catch?.(() => {}) }
-    const a: DrawnAnnotation = { id, cfi, color, style, index: old?.cfi === cfi ? old.index : -1 }
-    this.annotations.set(cfi, a)
-    this.drawAnnotation(view, a)
+    const { draw, erase } = change(this.annotations)
+    for (const cfi of erase) void Promise.resolve(view.deleteAnnotation({ value: cfi })).catch(() => {})
+    if (!draw.length) return
+    const loaded = new Set<number>((view.renderer?.getContents?.() ?? []).map((c: any) => c.index))
+    for (const a of draw) if (a.index < 0 || loaded.has(a.index)) this.drawAnnotation(view, a)
   }
 
-  private drawAnnotation(view: any, a: DrawnAnnotation) {
+  private drawAnnotation(view: any, a: AnnotationItem) {
     Promise.resolve(view.addAnnotation({ value: a.cfi }))
-      .then((r: { index?: number } | undefined) => { if (typeof r?.index === 'number' && this.annotations.get(a.cfi) === a) a.index = r.index })
+      .then((r: { index?: number } | undefined) => { if (typeof r?.index === 'number') this.annotations.located(a.cfi, r.index) })
       .catch((e: unknown) => console.warn('annotation not drawn', e))
   }
 
@@ -643,8 +680,12 @@ export class Reader {
     doc.addEventListener('click', (e: MouseEvent) => {
       if (this.sessionId !== sessionId) return
       if (dismissing) { dismissing = false; return }
-      if ((e.target as Element | null)?.closest?.('a[href]')) return
+      if ((e.target as Element | null)?.closest?.('a[href]')) return // links win over annotations (foliate follows them)
       if (doc.getSelection && !doc.getSelection()!.isCollapsed) return
+      // F-061: a tap on a highlight or underline opens it in the app; it neither toggles the controls nor turns a page.
+      const index = (this.view?.renderer?.getContents?.() ?? []).find((c: any) => c.doc === doc)?.index
+      const hit = typeof index === 'number' ? this.annotations.hit(index, doc, e.clientX, e.clientY) : null
+      if (hit) { this.bridge.send({ v: 1, type: 'annotationTapped', sessionId, id: hit.id }); return }
       const frame = doc.defaultView?.frameElement as HTMLElement | null
       const box = frame?.getBoundingClientRect()
       this.bridge.send({
@@ -661,7 +702,7 @@ export class Reader {
    */
   private close() {
     this.bookmarks = []
-    this.annotations = new Map()
+    this.annotations.clear()
     this.selection.reset()
     this.token++ // invalidates any open still in flight
     if (this.countTimer) { clearTimeout(this.countTimer); this.countTimer = null }
@@ -685,8 +726,8 @@ export class Reader {
 
 const MAX_TURNS = 3
 /**
- * Search hit highlight: opaque orange; Overlayer.highlight draws it at 0.3 opacity, which reads on all four reading
- * themes (user highlights get other colours).
+ * Search hit: an orange outline (2 px, rounded), which reads on all four reading themes and never looks like a user
+ * highlight (those are fills or underlines, the user's orange included).
  */
 const SEARCH_COLOR = '#ff9800'
 

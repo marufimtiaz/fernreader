@@ -12,6 +12,11 @@ function validSettings(x: unknown): boolean {
     (s.pageAnimation == null || ['slide', 'none'].includes(s.pageAnimation as string))
 }
 
+function validAnnotation(x: unknown): boolean {
+  const a = x as Record<string, unknown> | null
+  return !!a && typeof a === 'object' && isStr(a.id) && isStr(a.cfi) && isStr(a.color) && ['highlight', 'underline'].includes(a.style as string)
+}
+
 /** Per-type shape check for messages from Kotlin; a malformed message is dropped, never dispatched. */
 function validShape(m: Record<string, unknown>): boolean {
   switch (m.type) {
@@ -24,8 +29,9 @@ function validShape(m: Record<string, unknown>): boolean {
     case 'goToText': return Number.isInteger(m.sectionIndex) && (m.sectionIndex as number) >= 0 && Number.isInteger(m.offset) &&
       (m.offset as number) >= 0 && Number.isInteger(m.length) && (m.length as number) >= 0 && isStr(m.needle)
     case 'setBookmarks': return isStr(m.sessionId) && Array.isArray(m.cfis) && (m.cfis as unknown[]).every(isStr)
-    case 'addAnnotation': return isStr(m.sessionId) && isStr(m.id) && isStr(m.cfi) && isStr(m.color) &&
-      ['highlight', 'underline'].includes(m.style as string)
+    case 'addAnnotation': return isStr(m.sessionId) && validAnnotation(m)
+    case 'setAnnotations': return isStr(m.sessionId) && Array.isArray(m.items) && (m.items as unknown[]).every(validAnnotation)
+    case 'removeAnnotation': return isStr(m.sessionId) && isStr(m.id)
     case 'setSettings': return validSettings(m.settings)
     case 'goToFraction': return isNum(m.fraction) && (m.fraction as number) >= 0 && (m.fraction as number) <= 1
     default: return true
