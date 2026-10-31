@@ -217,7 +217,7 @@ export const verticalPagesRootStyles = ({ height, gap, columnWidth }) => ({
     'column-count': '1',
     'column-width': 'auto',
     'column-gap': '0px',
-    'column-height': `${Math.trunc(columnWidth)}px`,
+    'column-height': `${columnWidth}px`,
     'column-wrap': 'wrap',
     'row-gap': `${gap}px`,
     'column-fill': 'auto',
@@ -416,7 +416,7 @@ export class View {
         if (this.#vrl) { // a page is one row: as wide as the row, as tall as the page
             for (const el of doc.body.querySelectorAll('img, svg, video')) setStylesImportant(el, {
                 'max-height': `${height}px`,
-                'max-width': `${Math.trunc(this.#layout.columnWidth)}px`,
+                'max-width': `${this.#layout.columnWidth}px`,
                 'object-fit': 'contain',
                 'page-break-inside': 'avoid',
                 'break-inside': 'avoid',

@@ -38,4 +38,9 @@ describe('verticalPagesRootStyles: one column per page, pages stacked as multico
     const s = verticalPagesRootStyles({ height: 400, gap: 20, columnWidth: 380 })
     expect(s['column-height']).toBe('380px')
   })
+  it('the row is exactly the page width minus the gap (not truncated: a fraction per page adds up across a chapter)', () => {
+    const s = verticalPagesRootStyles({ height: 850.25, gap: 41.125, columnWidth: 329.25 })
+    expect(s['column-height']).toBe('329.25px')
+    expect(s['height']).toBe('850.25px')
+  })
 })
