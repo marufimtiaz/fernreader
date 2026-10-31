@@ -6,6 +6,8 @@ import app.epubreader.core.data.HybridClock
 import app.epubreader.core.data.seedClock
 import app.epubreader.core.data.LibraryRepository
 import app.epubreader.core.data.PositionWriter
+import app.epubreader.core.data.AnnotationStore
+import app.epubreader.core.data.BookmarkStore
 import app.epubreader.core.data.SearchHistoryStore
 import app.epubreader.core.data.SettingsStore
 import app.epubreader.core.search.SearchIndexes
@@ -72,6 +74,8 @@ class AppGraph(app: Application) {
     val opener = BookOpener(BookSources(app), server)
     val settings = SettingsStore(db, clock)
     val searchHistory = SearchHistoryStore(db, clock)
+    val bookmarks = BookmarkStore(db, clock)
+    val annotations = AnnotationStore(db, clock)
     /**
      * F-050 indexes. Builds run on one thread at background priority (the plan's "Dispatchers.IO at low priority"), so
      * they never compete with reading for CPU; queries run on Dispatchers.IO at normal priority.

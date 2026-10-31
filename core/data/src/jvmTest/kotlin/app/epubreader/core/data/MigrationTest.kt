@@ -98,6 +98,28 @@ class MigrationTest {
         migrated.close()
     }
 
+    @Test fun v6_to_v7_keeps_everything_and_adds_bookmark_and_annotation() {
+        val dbPath = Files.createTempDirectory("mig").resolve("m.db")
+        val helper = MigrationTestHelper(
+            schemaDirectoryPath = Path.of("schemas"), databasePath = dbPath,
+            driver = BundledSQLiteDriver(), databaseClass = AppDatabase::class,
+        )
+        helper.createDatabase(6).also {
+            insertM2Book(it)
+            it.execSQL("INSERT INTO search_history (bookId, query, usedAt) VALUES ('b1', 'prince', 5)")
+            it.execSQL("INSERT INTO collection (id, name, createdAt, updatedAt, deleted) VALUES ('c1', 'Classics', 1, 1, 0)")
+        }.close()
+        val migrated = helper.runMigrationsAndValidate(7)
+        migrated.prepare("SELECT cfi FROM reading_position WHERE bookId = 'b1'").use { assertEquals(true, it.step()); assertEquals("epubcfi(/6/4!/4/2/1:0)", it.getText(0)) }
+        migrated.prepare("SELECT query FROM search_history WHERE bookId = 'b1'").use { assertEquals(true, it.step()); assertEquals("prince", it.getText(0)) }
+        migrated.prepare("SELECT name FROM collection WHERE id = 'c1'").use { assertEquals(true, it.step()); assertEquals("Classics", it.getText(0)) }
+        migrated.execSQL("INSERT INTO bookmark (id, bookId, cfi, spineIndex, fraction, chapter, createdAt, updatedAt, deleted) VALUES ('m1', 'b1', 'epubcfi(/6/4!/4)', 1, 0.5, '', 1, 1, 0)")
+        migrated.execSQL("INSERT INTO annotation (id, bookId, cfi, spineIndex, text, chapter, color, style, note, createdAt, updatedAt, deleted) VALUES ('a1', 'b1', 'epubcfi(/6/4!/4,/1:0,/1:3)', 1, 'abc', '', 'yellow', 'highlight', NULL, 1, 1, 0)")
+        migrated.prepare("SELECT COUNT(*) FROM bookmark").use { assertEquals(true, it.step()); assertEquals(1L, it.getLong(0)) }
+        migrated.prepare("SELECT COUNT(*) FROM annotation").use { assertEquals(true, it.step()); assertEquals(1L, it.getLong(0)) }
+        migrated.close()
+    }
+
     companion object {
         /** A book as M2 recorded it after a picker open: identity from foliate, a content:// file row, a position. */
         fun insertM2Book(c: androidx.sqlite.SQLiteConnection, identityKey: String = "k", uri: String = "content://com.android.providers.downloads.documents/document/42") {
