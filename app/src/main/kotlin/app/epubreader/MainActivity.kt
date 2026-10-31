@@ -36,7 +36,6 @@ import app.epubreader.library.FileWatch
 import app.epubreader.library.StorageAccess
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import app.epubreader.reader.BookRemoval
 import app.epubreader.reader.EventProbe
 import app.epubreader.reader.ReaderController
 import app.epubreader.reader.ReaderEngine
@@ -157,7 +156,7 @@ class MainActivity : ComponentActivity() {
             search = graph.bookSearch, searchHistory = graph.searchHistory,
             closeScope = graph.appScope, // onDestroy's close-out must not run on the already-cancelled lifecycleScope
         )
-        val library = LibraryState(graph.library.libraryLive(graph.scans.state.map { it.found }), graph.library.failures(), graph.scans.state, graph.settings, BookRemoval(graph.library::removeBook, graph.searchHistory, { graph.search.delete(it) })::remove, lifecycleScope,
+        val library = LibraryState(graph.library.libraryLive(graph.scans.state.map { it.found }), graph.library.failures(), graph.scans.state, graph.settings, graph.removal::remove, lifecycleScope,
             exists = { withContext(Dispatchers.IO) { java.io.File(it).exists() } }, ops = graph.library, folderView = graph.prefs.folderView)
         this.library = library
         settingsState = app.epubreader.settings.SettingsState(

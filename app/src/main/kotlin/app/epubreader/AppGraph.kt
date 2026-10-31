@@ -9,6 +9,7 @@ import app.epubreader.core.data.PositionWriter
 import app.epubreader.core.data.SearchHistoryStore
 import app.epubreader.core.data.SettingsStore
 import app.epubreader.core.search.SearchIndexes
+import app.epubreader.reader.BookRemoval
 import app.epubreader.reader.BookSearch
 import app.epubreader.reader.SearchIndexWorker
 import android.os.Process
@@ -51,7 +52,8 @@ class AppGraph(app: Application) {
     val clock = HybridClock(System::currentTimeMillis)
     val library = LibraryRepository(
         db, clock, deleteFile = { java.io.File(it).delete() }, // F-025 "also delete the file"
-        onBookFilesDeleted = { _, thumb -> thumb?.let { java.io.File(it).delete() } },
+        // F-025 with files: the thumbnail, the search history and the search index go with the book (M5 BookRemoval).
+        onBookFilesDeleted = { id, thumb -> thumb?.let { java.io.File(it).delete() }; io.launch { removal.forgetSearch(id) } },
         grantPersisted = { uri -> app.contentResolver.persistedUriPermissions.any { it.isReadPermission && it.uri.toString() == uri } },
         beforeRecordOpened = { sessionCleanup.await() },
     )
@@ -80,6 +82,8 @@ class AppGraph(app: Application) {
         }
         SearchIndexes(File(app.filesDir, "search").path, thread.asCoroutineDispatcher())
     }
+    /** Removing a book also drops its search data (F-018 remove, F-025 delete). */
+    val removal: BookRemoval by lazy { BookRemoval(library::removeBook, searchHistory) { search.delete(it) } }
     val bookSearch: BookSearch by lazy {
         // WorkManager initialises on first use (on demand, see EpubReaderApp): keep that off the main thread.
         BookSearch(search, opener) { io.launch { SearchIndexWorker.enqueue(app) } }

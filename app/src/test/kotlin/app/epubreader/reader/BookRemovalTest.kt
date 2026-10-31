@@ -22,4 +22,10 @@ class BookRemovalTest {
         BookRemoval({ calls += "library:$it" }, history, { error("disk") }).remove("b1")
         assertEquals(listOf("library:b1", "history:b1"), calls)
     }
+
+    /** M7 delete-with-files: the library row is already gone (LibraryRepository.deleteBooks); search data goes too. */
+    @Test fun forgetting_search_data_leaves_the_library_alone() = runBlocking<Unit> {
+        BookRemoval({ calls += "library:$it" }, history, { calls += "index:$it" }).forgetSearch("b1")
+        assertEquals(listOf("history:b1", "index:b1"), calls)
+    }
 }

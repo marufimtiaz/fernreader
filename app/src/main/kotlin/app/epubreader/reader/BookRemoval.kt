@@ -14,6 +14,11 @@ class BookRemoval(
 ) {
     suspend fun remove(bookId: String) {
         removeFromLibrary(bookId)
+        forgetSearch(bookId)
+    }
+
+    /** Only the search data (M7: a book deleted with its files has already left the library). */
+    suspend fun forgetSearch(bookId: String) {
         cleanup("search history") { history.clear(bookId) }
         cleanup("search index") { deleteIndex(bookId) }
     }
