@@ -44,6 +44,9 @@ import app.epubreader.reader.EventProbe
 import app.epubreader.reader.ReaderController
 import app.epubreader.reader.ReaderEngine
 import app.epubreader.reader.ReaderSurface
+import app.epubreader.reader.SelectionAction
+import app.epubreader.reader.SelectionActionHandler
+import app.epubreader.reader.TextActions
 import app.epubreader.reader.bridge.ToWeb
 import app.epubreader.reader.bridge.WebTexts
 import app.epubreader.ui.App
@@ -160,8 +163,30 @@ class MainActivity : ComponentActivity() {
             search = graph.bookSearch, searchHistory = graph.searchHistory,
             links = ::openExternalLink,
             bookmarks = graph.bookmarks,
+            annotations = graph.annotations,
+            textActions = textActions,
             closeScope = graph.appScope, // onDestroy's close-out must not run on the already-cancelled lifecycleScope
         )
+        // F-060: our selection menu items act on the selection the controller last heard of.
+        reader.selectionLabels = { a ->
+            when (a) {
+                SelectionAction.HIGHLIGHT -> Copy.selHighlight
+                SelectionAction.UNDERLINE -> Copy.selUnderline
+                SelectionAction.SEARCH -> Copy.selSearch
+                SelectionAction.COPY -> Copy.selCopy
+                SelectionAction.SHARE -> Copy.selShare
+            }
+        }
+        reader.selectionActions = SelectionActionHandler { a ->
+            Probe.ev("selection_action", a.name)
+            when (a) {
+                SelectionAction.HIGHLIGHT -> controller.highlightSelection()
+                SelectionAction.UNDERLINE -> controller.underlineSelection()
+                SelectionAction.SEARCH -> controller.searchSelection()
+                SelectionAction.COPY -> controller.copySelection()
+                SelectionAction.SHARE -> controller.shareSelection()
+            }
+        }
         val library = LibraryState(graph.library.libraryLive(graph.scans.state.map { it.found }), graph.library.failures(), graph.scans.state, graph.settings, graph.removal::remove, lifecycleScope,
             exists = { withContext(Dispatchers.IO) { java.io.File(it).exists() } }, ops = graph.library, folderView = graph.prefs.folderView)
         this.library = library
@@ -336,6 +361,19 @@ class MainActivity : ComponentActivity() {
         false
     }
 
+    /** F-060 Copy (plain text, exactly the selected text) and Share (the system share sheet). */
+    private val textActions = object : TextActions {
+        override fun copy(text: String) {
+            val cm = getSystemService(android.content.ClipboardManager::class.java) ?: return
+            cm.setPrimaryClip(android.content.ClipData.newPlainText(Copy.selCopy, text))
+        }
+
+        override fun share(text: String) {
+            val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
+            try { startActivity(Intent.createChooser(send, null)) } catch (e: android.content.ActivityNotFoundException) { /* nothing can share */ }
+        }
+    }
+
     /** F-013: an EPUB opened from another app (file manager, browser, mail). Back returns to that app. */
     private fun openFromIntent(intent: Intent?, cold: Boolean): Boolean {
         if (intent?.action != Intent.ACTION_VIEW) return false
@@ -383,19 +421,20 @@ class MainActivity : ComponentActivity() {
 
     /**
      * F-032/C-005 volume keys: on the reader route the controller decides (book open, no panel or sheet, setting not
-     * OFF); its keys are consumed here, before the window's default handling, so the media volume does not change and
-     * no volume UI shows. Down, up and auto-repeats are all consumed; only the first down turns a page.
+     * OFF); its keys are consumed here, before the window's default handling (the volume change runs only for a key the
+     * activity did not take), so the media volume does not change and no volume UI shows. Down, up and auto-repeats
+     * are all consumed; only the first down turns a page. (onKeyDown/onKeyUp: dispatchKeyEvent is a restricted API
+     * on ComponentActivity, lint RestrictedApi.)
      */
-    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
-        val code = event.keyCode
-        if ((code == android.view.KeyEvent.KEYCODE_VOLUME_DOWN || code == android.view.KeyEvent.KEYCODE_VOLUME_UP) && nav.top == Route.Reader &&
-            controller.onVolumeKey(
-                volumeDown = code == android.view.KeyEvent.KEYCODE_VOLUME_DOWN,
-                press = event.action == android.view.KeyEvent.ACTION_DOWN && event.repeatCount == 0,
-            )
-        ) return true
-        return super.dispatchKeyEvent(event)
-    }
+    override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent): Boolean =
+        volumeKey(keyCode, press = event.repeatCount == 0) || super.onKeyDown(keyCode, event)
+
+    override fun onKeyUp(keyCode: Int, event: android.view.KeyEvent): Boolean =
+        volumeKey(keyCode, press = false) || super.onKeyUp(keyCode, event)
+
+    private fun volumeKey(code: Int, press: Boolean): Boolean =
+        (code == android.view.KeyEvent.KEYCODE_VOLUME_DOWN || code == android.view.KeyEvent.KEYCODE_VOLUME_UP) && nav.top == Route.Reader &&
+            controller.onVolumeKey(volumeDown = code == android.view.KeyEvent.KEYCODE_VOLUME_DOWN, press = press)
 
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
         super.onConfigurationChanged(newConfig)

@@ -34,7 +34,7 @@ import java.nio.channels.ClosedChannelException
  * (pre-warm), so opening a book does not pay for WebView start-up or JS module loading.
  */
 class ReaderEngine(private val context: Context, private val server: BookContentServer) : ReaderPort {
-    private var view: WebView? = null
+    private var view: ReaderWebView? = null
     private val main = Handler(Looper.getMainLooper())
     private val _events = ReaderEvents()
     override val events: SharedFlow<FromWeb> = _events.flow
@@ -46,6 +46,12 @@ class ReaderEngine(private val context: Context, private val server: BookContent
     val created: StateFlow<Boolean> = _created
 
     val webView: WebView get() = view ?: create().also { view = it }
+
+    /** F-060: what our selection menu items do, and their titles (set by the activity; may be set before creation). */
+    var selectionActions: SelectionActionHandler? = null
+        set(v) { field = v; view?.selectionActions = v }
+    var selectionLabels: (SelectionAction) -> CharSequence = { it.name }
+        set(v) { field = v; view?.selectionLabels = v }
 
     /** Call after the first library frame has been drawn. Main thread. Throws if the WebView is too old. */
     fun prewarm() { webView; _created.value = true }
@@ -59,13 +65,15 @@ class ReaderEngine(private val context: Context, private val server: BookContent
     fun destroy() { view?.destroy(); view = null }
 
     @SuppressLint("SetJavaScriptEnabled")
-    private fun create(): WebView {
+    private fun create(): ReaderWebView {
         check(WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) { "WEBVIEW_TOO_OLD" }
         val assets = WebViewAssetLoader.Builder()
             .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(context))
             .addPathHandler("/book/", BookPathHandler(server))
             .build()
-        val w = WebView(context)
+        val w = ReaderWebView(context)
+        w.selectionActions = selectionActions
+        w.selectionLabels = selectionLabels
         w.settings.javaScriptEnabled = true
         w.settings.allowFileAccess = false
         w.settings.allowContentAccess = false
