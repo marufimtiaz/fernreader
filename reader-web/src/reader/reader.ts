@@ -254,8 +254,14 @@ export class Reader {
   private applyToView(view: any) {
     const r = view?.renderer
     if (!r) return
-    for (const c of r.getContents?.() ?? []) if (c.doc) applySettings(c.doc, this.settings)
+    const [current, ...neighbours] = r.getContents?.() ?? []
+    if (current?.doc) applySettings(current.doc, this.settings)
     this.layoutAttributes(r)
+    // Preloaded neighbours reflow right after the visible page has been painted, not in the same frame (P-020).
+    const s = this.settings
+    requestAnimationFrame(() => setTimeout(() => {
+      for (const c of neighbours) if (c.doc && this.settings === s) applySettings(c.doc, s)
+    }, 0))
   }
 
   private setSettings(s: WebSettings) {
@@ -270,10 +276,15 @@ export class Reader {
   private startCounter(sessionId: string) {
     const book = this.book
     if (!book || this.sessionId !== sessionId) return
-    // The counter mirrors horizontal pagination only; vertical books show no book-wide total yet (M4 known gap).
+    // The counter mirrors horizontal pagination only. A vertical book gets its section list (so the page number can
+    // be shown from the text model, C-017) but no book-wide total yet (M4 known gap).
     const doc = this.view?.renderer?.getContents?.()[0]?.doc
     const mode = doc ? doc.defaultView?.getComputedStyle(doc.documentElement).writingMode ?? '' : ''
-    if (mode.startsWith('vertical')) return
+    if (mode.startsWith('vertical')) {
+      const linear = book.sections.map((x: any, i: number) => (x?.linear !== 'no' ? i : -1)).filter((i: number) => i >= 0)
+      this.bridge.send({ v: 1, type: 'pageCounts', sessionId, gen: ++this.countGen, linear, counts: [], sample: false, done: false })
+      return
+    }
     this.counter = new PageCounter(
       book.sections, () => this.view?.renderer ?? null, () => this.settings,
       String(book.metadata?.language ?? ''), book.dir === 'rtl' ? 'rtl' : 'ltr',
@@ -282,15 +293,17 @@ export class Reader {
     this.scheduleCount()
   }
 
-  /** Counts again 150 ms after the last layout change (a slider drag counts once). */
+  /** Counts again 400 ms after the last layout change. */
   private scheduleCount() {
     if (this.countTimer) clearTimeout(this.countTimer)
     const gen = ++this.countGen
     this.counter?.announce(gen)
+    // 400 ms: after the new layout has been painted (a batch blocks the page for ~0.2 s, P-020), and a slider drag
+    // counts once.
     this.countTimer = setTimeout(() => {
       this.countTimer = null
       void this.counter?.start(gen).catch(e => console.warn('count failed', e))
-    }, 150)
+    }, 400)
   }
 
   private sendOpened(sessionId: string) {

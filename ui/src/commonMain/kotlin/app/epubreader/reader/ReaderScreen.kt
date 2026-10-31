@@ -2,6 +2,8 @@ package app.epubreader.reader
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -83,12 +85,16 @@ fun ReaderScreen(c: ReaderController, onBack: () -> Unit, onForget: (SourceRef) 
                 }
             }
         }
-        // F-034: always visible in the page's bottom margin (32 px, kept free by the reader), never over the text.
+        // F-034: always visible, in the page's bottom margin (32 px). Paged mode keeps that margin free of text; in scroll
+        // mode text scrolls through it, so the label sits on a strip of page colour and the text passes under it.
         if (!s.loading && s.error == null) Copy.pageLabel(page)?.let { label ->
-            Text(
-                label, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 8.dp),
-                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
-            )
+            Box(
+                Modifier.align(Alignment.BottomCenter).navigationBarsPadding().fillMaxWidth().height(32.dp)
+                    .background(MaterialTheme.colorScheme.background),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f))
+            }
         }
         if (s.chromeVisible && s.error == null) {
             var drag by remember { mutableStateOf<Float?>(null) }

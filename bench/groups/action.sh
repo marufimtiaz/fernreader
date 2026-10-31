@@ -38,6 +38,7 @@ print(sum(1 for x in ink if x < lo) if ink else "NA")'
 bench_cmd resetSettings; sleep 1
 bench_cmd openPath "$WP"; sleep 6
 bench_cmd tocJump "book one"; sleep 3
+for i in 1 2 3; do bench_cmd next; sleep 1; done # a page full of text above the panel
 # P-020: text size step with the display panel open; recording from the command marker to the last large change.
 bench_cmd display; sleep 2
 for RUN in 1 2 3; do

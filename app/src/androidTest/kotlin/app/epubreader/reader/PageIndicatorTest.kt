@@ -44,5 +44,21 @@ class PageIndicatorTest {
         }
     }
 
+    /** C-017 for vertical writing (F-081): the page number shows even though the book-wide total is not counted. */
+    @Test fun vertical_book_shows_a_page_number(): Unit = runBlocking {
+        warAndPeace() // storage access
+        val book = java.io.File("/sdcard/Books/epub3-samples/kusamakura-japanese-vertical-writing.epub")
+        ActivityScenario.launch(MainActivity::class.java).use { sc ->
+            val h = ReaderHarness(sc, this)
+            try {
+                h.ready(); h.open(book)
+                repeat(3) { h.send(app.epubreader.reader.bridge.ToWeb.Next()); h.settle() }
+                withTimeout(15_000) { while (h.a.controller.sectionStats == null) delay(50) }
+                val p = withTimeout(5_000) { h.a.controller.page.first { it.page != null } }
+                assertTrue("$p", p.page!! >= 1)
+            } finally { h.stop() }
+        }
+    }
+
     private fun ReaderHarness.change(f: (ReaderSettings) -> ReaderSettings) = sc.onActivity { it.controller.updateSettings(f) }
 }

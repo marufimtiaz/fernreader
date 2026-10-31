@@ -52,4 +52,37 @@ class PageCountAgreementTest {
             } finally { sc.onActivity { it.controller.updateSettings { ReaderSettings() } }; h.stop() }
         }
     }
+
+    /** F-081 + C-003: a right-to-left book (columns run leftwards) counts the same pages as the reader shows. */
+    @Test fun rtl_book_counted_pages_equal_visible_pages(): Unit = runBlocking {
+        warAndPeace() // storage access
+        val book = java.io.File("/sdcard/Books/epub3-samples/regime-anticancer-arabic.epub")
+        ActivityScenario.launch(MainActivity::class.java).use { sc ->
+            val h = ReaderHarness(sc, this)
+            try {
+                h.ready(); h.open(book)
+                withTimeout(20_000) { h.a.controller.page.first { it.exact } }
+                val linear = JSONArray(org.json.JSONTokener(sc.js("JSON.stringify(window.__readerTest.linear())")).nextValue() as String)
+                    .let { a -> List(a.length()) { a.getInt(it) } }
+                val wrong = mutableListOf<String>()
+                for (i in linear) {
+                    h.drain()
+                    sc.js("window.__readerTest.goIndex($i)")
+                    h.relocate(5_000) { it.sectionIndex == i && it.pages > 0 }
+                    var visible = -1
+                    var tries = 0
+                    while (tries++ < 20) {
+                        delay(150)
+                        val p = org.json.JSONObject(org.json.JSONTokener(sc.js("JSON.stringify(window.__readerTest.page())")).nextValue() as String).getInt("textPages")
+                        if (p == visible) break
+                        visible = p
+                    }
+                    val counted = h.a.controller.countedPages(i)
+                    if (counted != visible) wrong += "section $i: counted $counted, visible $visible"
+                }
+                Log.i("EPR", "rtl agreement mismatches: $wrong (sections ${linear.size})")
+                assertEquals(emptyList<String>(), wrong)
+            } finally { h.stop() }
+        }
+    }
 }
