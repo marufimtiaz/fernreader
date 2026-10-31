@@ -9,7 +9,9 @@ import app.epubreader.reader.bridge.FromWeb
 import app.epubreader.reader.bridge.ToWeb
 import app.epubreader.ui.Route
 import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.async
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -41,12 +43,17 @@ class SmokeTest {
             lateinit var a: MainActivity
             sc.onActivity { a = it }
             withTimeout(15_000) { a.reader.isReady.first { it } }
-            val r1 = async(start = CoroutineStart.UNDISPATCHED) { a.reader.events.filterIsInstance<FromWeb.Relocate>().first() }
+            val relocates = Channel<FromWeb.Relocate>(Channel.UNLIMITED)
+            val job = launch(start = CoroutineStart.UNDISPATCHED) { a.reader.events.filterIsInstance<FromWeb.Relocate>().collect { relocates.send(it) } }
             sc.onActivity { it.openBook(SourceRef.File(f.path)) }
-            val first = withTimeout(10_000) { r1.await() }
-            val r2 = async(start = CoroutineStart.UNDISPATCHED) { a.reader.events.filterIsInstance<FromWeb.Relocate>().first() }
+            var at = withTimeout(10_000) { relocates.receive() }
+            // foliate repeats and refines the opening location while the first section settles, and drops a turn sent
+            // meanwhile: turn once no relocate came for 500 ms, like a reader would.
+            while (true) at = withTimeoutOrNull(500) { relocates.receive() } ?: break
             sc.onActivity { it.reader.send(ToWeb.Next()) }
-            assertNotEquals(first.cfi, withTimeout(5_000) { r2.await() }.cfi)
+            val moved = withTimeout(5_000) { var r = relocates.receive(); while (r.cfi == at.cfi && r.fraction == at.fraction) r = relocates.receive(); r }
+            assertNotEquals(at.cfi to at.fraction, moved.cfi to moved.fraction)
+            job.cancel()
             sc.onActivity { assertTrue(it.goBack()); assertEquals(Route.Home, it.nav.top) }
         }
     }
