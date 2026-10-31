@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Snackbar
@@ -109,7 +110,19 @@ fun ReaderScreen(c: ReaderController, onBack: () -> Unit, onForget: (SourceRef) 
         if (s.searchVisible && s.error == null) SearchPanel(c.searcher, onDismiss = c::hideSearch)
         s.notice?.let {
             LaunchedEffect(it) { kotlinx.coroutines.delay(3_000); c.dismissNotice() }
-            Snackbar(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(16.dp)) { Text(if (it == Notice.HitNotFound) Copy.hitNotFound else Copy.missingTarget) }
+            Snackbar(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(16.dp)) {
+                Text(when (it) { Notice.HitNotFound -> Copy.hitNotFound; Notice.NoAppForLink -> Copy.noAppForLink; Notice.MissingTarget -> Copy.missingTarget })
+            }
+        }
+        // F-044: confirmation naming the link's host; Back or a tap outside cancels.
+        s.externalLink?.let { l ->
+            AlertDialog(
+                onDismissRequest = c::cancelExternalLink,
+                title = { Text(Copy.openLinkTitle(l.label, l.mail)) },
+                text = { Text(Copy.openLinkBody(l.mail)) },
+                confirmButton = { TextButton(onClick = c::confirmExternalLink) { Text(Copy.openLink) } },
+                dismissButton = { TextButton(onClick = c::cancelExternalLink) { Text(Copy.cancel) } },
+            )
         }
     }
     }

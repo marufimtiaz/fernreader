@@ -106,9 +106,15 @@ class ReaderControllerTest {
     }
     private val searchPort = FakeSearch()
     private val searchHistory = SearchHistoryStore(db, clock)
+    /** Records the URLs handed to the browser; [works] = false stands in for "no app can open this". */
+    private class FakeLinks(var works: Boolean = true) : ExternalLinkOpener {
+        val opened = mutableListOf<String>()
+        override fun open(url: String): Boolean { opened += url; return works }
+    }
+    private val links = FakeLinks()
     private suspend fun controller(controllerScope: CoroutineScope = scope, opener: FakeOpener = this.opener) = ReaderController(
         reader, opener, library, CompletableDeferred(PositionWriter.create(db, clock, appScope)), controllerScope, WebTexts("missing"),
-        closeScope = appScope, settingsStore = settings, search = searchPort, searchHistory = searchHistory,
+        closeScope = appScope, settingsStore = settings, search = searchPort, searchHistory = searchHistory, links = links,
     )
     /** Every later library query fails (stands in for a corrupt database or a full disk). */
     private suspend fun breakDatabase() = db.useWriterConnection { it.execSQL("DROP TABLE book_file"); it.execSQL("DROP TABLE book") }
@@ -583,5 +589,117 @@ class ReaderControllerTest {
         assertTrue(c.settings.value.tapZones)
         assertEquals(app.epubreader.core.data.VolumeKeys.REVERSED, c.settings.value.volumeKeys)
         assertTrue(reader.sent.isEmpty()) // nothing for the web side changed
+    }
+
+    // F-042..F-044: links, Back history, footnote popup, external links
+
+    private suspend fun kotlinx.coroutines.test.TestScope.openBook(): ReaderController {
+        val c = controller()
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
+        reader.sent.clear()
+        return c
+    }
+
+    @Test fun back_order_is_dialog_then_footnote_then_panels_then_link_history_then_leave() = runTest(dispatcher) {
+        val c = openBook()
+        reader.events.emit(FromWeb.History(sessionId = "s-1", depth = 1))
+        reader.events.emit(FromWeb.Footnote(sessionId = "s-1", open = true))
+        reader.events.emit(FromWeb.ExternalLink(sessionId = "s-1", href = "https://www.gutenberg.org/")); advanceUntilIdle()
+        c.showToc()
+        assertTrue(c.backInside()); assertNull(c.state.value.externalLink) // the confirmation first
+        assertTrue(c.state.value.footnoteOpen)
+        assertTrue(c.backInside()); assertFalse(c.state.value.footnoteOpen)
+        assertEquals(listOf<ToWeb>(ToWeb.CloseFootnote()), reader.sent)
+        assertTrue(c.state.value.tocVisible)
+        assertTrue(c.backInside()); assertFalse(c.state.value.tocVisible)
+        reader.sent.clear()
+        assertTrue(c.backInside()) // the link history
+        assertEquals(listOf<ToWeb>(ToWeb.Back()), reader.sent)
+        assertFalse(c.backInside()) // nothing left: leave the book
+        assertEquals(listOf<ToWeb>(ToWeb.Back()), reader.sent)
+        assertTrue(links.opened.isEmpty())
+    }
+
+    /** R-005: Back decides at once from the depth it was last told; repeated Backs do not wait for the web side. */
+    @Test fun repeated_back_walks_the_history_without_waiting_then_leaves() = runTest(dispatcher) {
+        val c = openBook()
+        reader.events.emit(FromWeb.History(sessionId = "s-1", depth = 1))
+        reader.events.emit(FromWeb.History(sessionId = "s-1", depth = 2)); advanceUntilIdle()
+        assertTrue(c.backInside()); assertTrue(c.backInside()); assertFalse(c.backInside())
+        assertEquals(listOf<ToWeb>(ToWeb.Back(), ToWeb.Back()), reader.sent)
+        reader.events.emit(FromWeb.History(sessionId = "s-1", depth = 1)); reader.events.emit(FromWeb.History(sessionId = "s-1", depth = 0)); advanceUntilIdle()
+        assertFalse(c.backInside()) // the late confirmations do not bring entries back
+    }
+
+    @Test fun link_history_is_per_book_and_other_sessions_are_ignored() = runTest(dispatcher) {
+        val c = openBook()
+        reader.events.emit(FromWeb.History(sessionId = "s-old", depth = 3)); advanceUntilIdle()
+        assertFalse(c.backInside())
+        reader.events.emit(FromWeb.History(sessionId = "s-1", depth = 1)); advanceUntilIdle()
+        c.close(); advanceUntilIdle()
+        opener.next = OpenResult.Ok("s-2", "e".repeat(64), 100)
+        c.open(SourceRef.File("/books/b.epub")); advanceUntilIdle()
+        assertFalse(c.backInside())
+    }
+
+    @Test fun a_footnote_popup_hides_the_controls_and_its_close_on_the_web_side_is_followed() = runTest(dispatcher) {
+        val c = openBook()
+        c.toggleChrome()
+        reader.events.emit(FromWeb.Footnote(sessionId = "s-1", open = true)); advanceUntilIdle()
+        assertTrue(c.state.value.footnoteOpen); assertFalse(c.state.value.chromeVisible)
+        assertFalse(c.onVolumeKey(volumeDown = true, press = true)) // no page turns under the popup
+        reader.events.emit(FromWeb.Footnote(sessionId = "s-1", open = false)); advanceUntilIdle() // tapped outside
+        assertFalse(c.state.value.footnoteOpen)
+        assertFalse(c.backInside())
+        assertTrue(reader.sent.isEmpty())
+    }
+
+    @Test fun an_external_link_asks_first_naming_the_host_then_opens_the_browser() = runTest(dispatcher) {
+        val c = openBook()
+        reader.events.emit(FromWeb.ExternalLink(sessionId = "s-1", href = "https://www.gutenberg.org/ebooks/1")); advanceUntilIdle()
+        assertEquals(ExternalLink("https://www.gutenberg.org/ebooks/1", "www.gutenberg.org", mail = false), c.state.value.externalLink)
+        assertTrue(links.opened.isEmpty())
+        c.confirmExternalLink()
+        assertEquals(listOf("https://www.gutenberg.org/ebooks/1"), links.opened)
+        assertNull(c.state.value.externalLink)
+        reader.events.emit(FromWeb.ExternalLink(sessionId = "s-1", href = "mailto:someone@example.com?subject=Hi")); advanceUntilIdle()
+        assertEquals(ExternalLink("mailto:someone@example.com?subject=Hi", "someone@example.com", mail = true), c.state.value.externalLink)
+        c.cancelExternalLink()
+        assertNull(c.state.value.externalLink)
+        assertEquals(1, links.opened.size)
+    }
+
+    @Test fun with_confirmation_off_an_external_link_opens_directly() = runTest(dispatcher) {
+        val c = openBook()
+        c.updateSettings { it.copy(confirmExternalLinks = false) }
+        reader.events.emit(FromWeb.ExternalLink(sessionId = "s-1", href = "http://example.com/")); advanceUntilIdle()
+        assertNull(c.state.value.externalLink)
+        assertEquals(listOf("http://example.com/"), links.opened)
+    }
+
+    @Test fun unsafe_schemes_are_ignored() = runTest(dispatcher) {
+        val c = openBook()
+        c.updateSettings { it.copy(confirmExternalLinks = false) }
+        for (h in listOf("javascript:alert(1)", "file:///sdcard/a", "content://x/y", "intent://x#Intent;end", "https://", "mailto:"))
+            reader.events.emit(FromWeb.ExternalLink(sessionId = "s-1", href = h))
+        advanceUntilIdle()
+        assertTrue(links.opened.isEmpty())
+        assertNull(c.state.value.externalLink)
+    }
+
+    @Test fun no_app_for_a_link_shows_a_short_notice() = runTest(dispatcher) {
+        val c = openBook()
+        links.works = false
+        reader.events.emit(FromWeb.ExternalLink(sessionId = "s-1", href = "https://example.com/")); advanceUntilIdle()
+        c.confirmExternalLink()
+        assertEquals(Notice.NoAppForLink, c.state.value.notice)
+    }
+
+    @Test fun external_link_targets_are_classified() {
+        assertEquals(ExternalLink("https://a.example.org:8080/x", "a.example.org", false), externalLinkTarget("https://a.example.org:8080/x"))
+        assertEquals("example.com", externalLinkTarget("HTTP://user:pw@Example.com/")?.label)
+        assertEquals("a@b.c", externalLinkTarget("mailto:a@b.c")?.label)
+        for (h in listOf("javascript:x", "JAVASCRIPT:x", "file:///a", "content://a", "intent:#Intent;end", "data:,x", "ftp://a/", "https:///x", "nothing", ""))
+            assertNull(externalLinkTarget(h), h)
     }
 }

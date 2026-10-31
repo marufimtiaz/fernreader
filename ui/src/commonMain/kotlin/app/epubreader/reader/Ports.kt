@@ -38,6 +38,14 @@ interface SearchPort {
     fun search(bookId: String, digest: String, sessionId: String, query: app.epubreader.core.search.SearchQuery): Flow<app.epubreader.core.search.SearchUpdate>
 }
 
+/**
+ * Hands an external link to another app (implemented in app with an ACTION_VIEW intent). Returns false when no app
+ * can open it. Main thread; must not block.
+ */
+fun interface ExternalLinkOpener {
+    fun open(url: String): Boolean
+}
+
 /** [chars]: canonical text length with whitespace runs as one; [images]: img/image/svg elements. */
 @kotlinx.serialization.Serializable
 data class SectionStat(val chars: Int, val images: Int)

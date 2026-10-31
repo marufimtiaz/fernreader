@@ -158,6 +158,7 @@ class MainActivity : ComponentActivity() {
             reader, graph.opener, graph.library, graph.positions, lifecycleScope, WebTexts(Copy.missingPart), probe,
             settingsStore = graph.settings,
             search = graph.bookSearch, searchHistory = graph.searchHistory,
+            links = ::openExternalLink,
             closeScope = graph.appScope, // onDestroy's close-out must not run on the already-cancelled lifecycleScope
         )
         val library = LibraryState(graph.library.libraryLive(graph.scans.state.map { it.found }), graph.library.failures(), graph.scans.state, graph.settings, graph.removal::remove, lifecycleScope,
@@ -316,6 +317,21 @@ class MainActivity : ComponentActivity() {
         (application as EpubReaderApp).graph.covers.setPaused(true)
         releaseCoverMemory(this)
         if (nav.top != Route.Reader) nav.push(Route.Reader)
+    }
+
+    /**
+     * F-044: an external link (http, https or mailto; already checked by the controller) in the app that handles it,
+     * usually the browser. The reader's WebView never navigates (ReaderEngine.allowNavigation). False when no app can.
+     */
+    private fun openExternalLink(url: String): Boolean = try {
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+        if (!url.startsWith("mailto:")) intent.addCategory(Intent.CATEGORY_BROWSABLE) // like a link tapped in a browser
+        startActivity(intent)
+        true
+    } catch (e: android.content.ActivityNotFoundException) {
+        false
+    } catch (e: SecurityException) {
+        false
     }
 
     /** F-013: an EPUB opened from another app (file manager, browser, mail). Back returns to that app. */

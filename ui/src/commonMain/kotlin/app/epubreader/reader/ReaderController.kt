@@ -43,7 +43,7 @@ sealed interface ReaderError {
     data object FileChanged : ReaderError
 }
 
-enum class Notice { MissingTarget, HitNotFound }
+enum class Notice { MissingTarget, HitNotFound, NoAppForLink }
 
 data class ReaderUiState(
     val open: Boolean = false,
@@ -58,6 +58,10 @@ data class ReaderUiState(
     val searchVisible: Boolean = false,
     val displayVisible: Boolean = false,
     val settingsVisible: Boolean = false,
+    /** F-043: the footnote popup is shown (in the web page); Back closes it. */
+    val footnoteOpen: Boolean = false,
+    /** F-044: an external link waiting for the reader's confirmation (a dialog); Back cancels it. */
+    val externalLink: ExternalLink? = null,
     val notice: Notice? = null,
     val error: ReaderError? = null,
     val source: SourceRef? = null,
@@ -92,6 +96,8 @@ class ReaderController(
     private val search: SearchPort? = null,
     /** Where the per-book search history lives; null in tests that do not care. */
     private val searchHistory: SearchHistoryPort? = null,
+    /** Opens external links in another app (F-044); null in tests that do not care (links are then dropped). */
+    private val links: ExternalLinkOpener? = null,
 ) {
     private class Session(val id: String, val ref: SourceRef, val cdDigest: String, val size: Long, val hadPosition: Boolean) {
         var bookId: String? = null
@@ -107,6 +113,13 @@ class ReaderController(
          */
         var seek: Int? = null
         val map: PositionMap = PositionMap.Identity // M8: the book's ChunkMap
+        /**
+         * F-042: entries in the web side's followed-links history, as last reported (`history`) and lowered at once by
+         * each Back sent, so Back decides synchronously (R-005) and repeated Backs never wait for the web side.
+         */
+        var linkDepth = 0
+        /** `back` commands sent and not yet answered by a `history`. */
+        var pendingBacks = 0
     }
 
     private val _state = MutableStateFlow(ReaderUiState())
@@ -342,7 +355,8 @@ class ReaderController(
      */
     fun onVolumeKey(volumeDown: Boolean, press: Boolean): Boolean {
         val st = _state.value
-        if (session == null || st.error != null || st.tocVisible || st.searchVisible || st.displayVisible || st.settingsVisible) return false
+        if (session == null || st.error != null || st.tocVisible || st.searchVisible || st.displayVisible || st.settingsVisible ||
+            st.footnoteOpen || st.externalLink != null) return false
         val t = volumeTurn(volumeDown, _settings.value.volumeKeys) ?: return false
         if (press) { probe.ev("volume_turn", t.name); turn(t) }
         return true
@@ -355,13 +369,40 @@ class ReaderController(
         _state.value = ReaderUiState(open = true, error = ReaderError.FileChanged)
     }
 
-    /** Handles Back inside the reader (closes the TOC first). Returns false if Back should leave the reader. */
-    fun backInside(): Boolean = when {
-        _state.value.searchVisible -> { hideSearch(); true }
-        _state.value.settingsVisible -> { hideSettings(); true }
-        _state.value.displayVisible -> { hideDisplay(); true }
-        _state.value.tocVisible -> { hideToc(); true }
-        else -> false
+    /**
+     * Handles Back inside the reader. Returns false if Back should leave the reader. Order: the external-link dialog,
+     * the footnote popup, panels and sheets, then the followed-links history (F-042: back to where the link was tapped),
+     * then leave. Decided from state already here, never waiting for the web side (R-005).
+     */
+    fun backInside(): Boolean {
+        val st = _state.value
+        val s = session
+        return when {
+            st.externalLink != null -> { cancelExternalLink(); true }
+            st.footnoteOpen -> { _state.update { it.copy(footnoteOpen = false) }; reader.send(ToWeb.CloseFootnote()); true }
+            st.searchVisible -> { hideSearch(); true }
+            st.settingsVisible -> { hideSettings(); true }
+            st.displayVisible -> { hideDisplay(); true }
+            st.tocVisible -> { hideToc(); true }
+            s != null && s.linkDepth > 0 -> { s.linkDepth--; s.pendingBacks++; probe.ev("link_back", "${s.linkDepth}"); reader.send(ToWeb.Back()); true }
+            else -> false
+        }
+    }
+
+    /** F-044 dialog: Open. */
+    fun confirmExternalLink() {
+        val l = _state.value.externalLink ?: return
+        _state.update { it.copy(externalLink = null) }
+        openExternal(l)
+    }
+
+    /** F-044 dialog: Cancel (or Back, or a tap outside). */
+    fun cancelExternalLink() = _state.update { it.copy(externalLink = null) }
+
+    private fun openExternal(l: ExternalLink) {
+        probe.ev("external_open", l.label)
+        val ok = try { links?.open(l.url) ?: false } catch (e: Exception) { failed("opening a link", e, showIfOpen = false); false }
+        if (!ok) _state.update { it.copy(notice = Notice.NoAppForLink) }
     }
 
     fun toggleChrome() = _state.update { it.copy(chromeVisible = !it.chromeVisible) }
@@ -449,6 +490,18 @@ class ReaderController(
                         if (_state.value.chromeVisible) toggleChrome() else turn(if (action == TapAction.Next) PageTurn.Next else PageTurn.Prev)
                     else -> Unit
                 }
+            }
+            is FromWeb.History -> if (m.sessionId == s.id) {
+                // The web side answers every `back` with one `history`; Backs not answered yet will still pop entries.
+                if (s.pendingBacks > 0) s.pendingBacks--
+                s.linkDepth = (m.depth - s.pendingBacks).coerceAtLeast(0)
+            }
+            is FromWeb.Footnote -> if (m.sessionId == s.id) {
+                _state.update { it.copy(footnoteOpen = m.open, chromeVisible = if (m.open) false else it.chromeVisible) }
+            }
+            is FromWeb.ExternalLink -> if (m.sessionId == s.id) {
+                val l = externalLinkTarget(m.href) ?: return
+                if (_settings.value.confirmExternalLinks) _state.update { it.copy(externalLink = l) } else openExternal(l)
             }
             is FromWeb.Error -> if (m.sessionId == null || m.sessionId == s.id) {
                 if (m.kind == HIT_NOT_FOUND) _state.update { it.copy(notice = Notice.HitNotFound) }

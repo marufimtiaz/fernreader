@@ -245,6 +245,11 @@ object Copy {
     const val orientPortrait = "Portrait"
     const val orientLandscape = "Landscape"
     const val confirmLinks = "Ask before opening external links"
+    /** F-044 confirmation: names the host (or the address for an email link). */
+    fun openLinkTitle(label: String, mail: Boolean) = if (mail) "Write to $label?" else "Open $label in your browser?"
+    fun openLinkBody(mail: Boolean) = if (mail) "This opens your email app." else "This link leads outside the book."
+    const val openLink = "Open"
+    const val noAppForLink = "No app on this device can open this link."
     const val searchInBook = "Search in this book"
     const val clearSearch = "Clear search text"
     const val wholeWords = "Whole words"
