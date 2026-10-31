@@ -1,5 +1,6 @@
 package app.epubreader.reader
 
+import app.epubreader.core.epub.TextPos
 import app.epubreader.core.data.HybridClock
 import app.epubreader.core.data.LibraryRepository
 import app.epubreader.core.data.PositionWriter
@@ -202,6 +203,24 @@ class ReaderControllerTest {
         assertTrue(reader.sent.isEmpty())
         c.onTocSelected(toc[0])
         assertEquals(ToWeb.GoTo(target = "c1.xhtml"), reader.sent.single())
+    }
+
+    @Test fun go_to_text_maps_through_the_position_map_and_sends_the_hit() = runTest(dispatcher) {
+        val c = controller()
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
+        reader.sent.clear()
+        c.goToText(TextPos(2, 40), 8, "Borodinó")
+        assertEquals(ToWeb.GoToText(sectionIndex = 2, offset = 40, length = 8, needle = "Borodinó"), reader.sent.single())
+    }
+
+    @Test fun hit_not_found_is_a_notice_not_an_error_screen() = runTest(dispatcher) {
+        val c = controller()
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
+        reader.events.emit(FromWeb.Error(sessionId = "s-1", kind = "hit_not_found", message = "x")); advanceUntilIdle()
+        assertNull(c.state.value.error)
+        assertEquals(Notice.HitNotFound, c.state.value.notice)
+        reader.events.emit(FromWeb.Error(sessionId = "s-1", kind = "open_failed", message = "x")); advanceUntilIdle()
+        assertNotNull(c.state.value.error)
     }
 
     @Test fun center_tap_toggles_chrome_side_taps_do_not() = runTest(dispatcher) {

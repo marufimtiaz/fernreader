@@ -24,6 +24,9 @@ class FakeView extends HTMLElement {
   })
   goTo = vi.fn(async (t: string): Promise<object | undefined> => { await tick(); this.relocateTo(t); return {} })
   close = vi.fn()
+  getCFI = vi.fn((_index: number, range?: Range) => `cfi-hit:${range?.toString()}`)
+  addAnnotation = vi.fn(async (_a: { value: string }) => ({}))
+  deleteAnnotation = vi.fn(async (_a: { value: string }) => ({}))
   // Like foliate's paginator: a turn takes a while, and a turn asked for meanwhile is ignored (resolves at once).
   page = 0
   locked = false
@@ -36,15 +39,19 @@ class FakeView extends HTMLElement {
     await tick(); this.page += d; this.turnsMade.push(d > 0 ? 'next' : 'prev'); this.relocateTo(`p${this.page}`)
     await tick(); this.locked = false
   }
-  constructor() { super(); FakeView.all.push(this) }
+  constructor() {
+    super(); FakeView.all.push(this)
+    this.renderer.goTo = vi.fn(async ({ index }: { index: number }) => { await tick(); this.relocateTo(`start-of-${index}`) })
+  }
   relocateTo(cfi: string) {
     this.lastLocation = { cfi, fraction: 0.25, section: { current: 1, total: 3 }, tocItem: { href: 'c1.xhtml' } }
     this.dispatchEvent(new CustomEvent('relocate', { detail: this.lastLocation }))
   }
 }
 
-const book = () => ({ sections: [{ id: 'a' }, { id: 'b' }, { id: 'c' }], toc: [], metadata: { title: 'T', identifier: 'id' }, resolveHref: () => ({ index: 0 }) })
-const settle = () => new Promise(r => setTimeout(r, 20))
+const doc = (body: string) => async () => new DOMParser().parseFromString(`<html><body>${body}</body></html>`, 'text/html')
+const book = () => ({ sections: [{ id: 'a' }, { id: 'b' }, { id: 'c', createDocument: doc('<p>Battle of Borodinó began</p>') }], toc: [], metadata: { title: 'T', identifier: 'id' }, resolveHref: () => ({ index: 0 }) })
+const settle = () => new Promise(r => setTimeout(r, 40))
 
 let sent: FromWeb[]
 let bridge: Bridge
@@ -291,5 +298,86 @@ describe('stale events', () => {
     await settle()
     expect(types()).not.toContain('painted')
     expect(v.isConnected).toBe(true)
+  })
+})
+
+describe('goToText (F-050)', () => {
+  const relocates = () => sent.filter(m => m.type === 'relocate').map(m => (m as { cfi: string }).cfi)
+  const goToText = (needle: string, offset = 10) => send({ v: 1, type: 'goToText', sectionIndex: 2, offset, length: needle.length, needle })
+  const probe = () => (window as any).__readerTest.searchHighlight()
+
+  it('a hit goes to its range with one relocate and gets the temporary highlight', async () => {
+    open('s1', null); await settle()
+    const v = FakeView.all[0]; sent = []
+    goToText('borodino', 11); await settle()
+    expect(v.getCFI.mock.calls[0][0]).toBe(2)
+    expect(v.goTo).toHaveBeenCalledWith('cfi-hit:Borodinó')
+    expect(relocates()).toEqual(['cfi-hit:Borodinó'])
+    expect(v.addAnnotation).toHaveBeenCalledWith({ value: 'cfi-hit:Borodinó' })
+    expect(probe()).toBe('cfi-hit:Borodinó')
+    expect(sent.some(m => m.type === 'error')).toBe(false)
+  })
+
+  it('an unresolvable needle goes to the section start and reports hit_not_found', async () => {
+    open('s1', null); await settle()
+    const v = FakeView.all[0]; sent = []
+    goToText('zygote'); await settle()
+    expect(v.renderer.goTo).toHaveBeenCalledWith({ index: 2, anchor: 0 })
+    expect(v.goTo).not.toHaveBeenCalled()
+    expect(v.addAnnotation).not.toHaveBeenCalled()
+    expect(types()).toEqual(['relocate', 'error', 'painted'])
+    expect(sent[1]).toMatchObject({ sessionId: 's1', kind: 'hit_not_found' })
+    expect(probe()).toBeNull()
+  })
+
+  it('a section without a document is not found too', async () => {
+    open('s1', null); await settle()
+    sent = []
+    send({ v: 1, type: 'goToText', sectionIndex: 1, offset: 0, length: 1, needle: 'a' }); await settle()
+    expect(types()).toEqual(['relocate', 'error', 'painted'])
+  })
+
+  it('only one search highlight: a new hit and clearSearchHighlight remove the previous one', async () => {
+    open('s1', null); await settle()
+    const v = FakeView.all[0]
+    goToText('borodino', 11); await settle()
+    goToText('battle', 0); await settle()
+    expect(v.deleteAnnotation).toHaveBeenCalledWith({ value: 'cfi-hit:Borodinó' })
+    expect(probe()).toBe('cfi-hit:Battle')
+    send({ v: 1, type: 'clearSearchHighlight' }); await settle()
+    expect(v.deleteAnnotation).toHaveBeenLastCalledWith({ value: 'cfi-hit:Battle' })
+    expect(probe()).toBeNull()
+  })
+
+  it('draws the highlight again when its section gets an overlayer again, and only then', async () => {
+    open('s1', null); await settle()
+    const v = FakeView.all[0]
+    goToText('borodino', 11); await settle()
+    v.addAnnotation.mockClear()
+    v.dispatchEvent(new CustomEvent('create-overlay', { detail: { index: 1 } }))
+    expect(v.addAnnotation).not.toHaveBeenCalled()
+    v.dispatchEvent(new CustomEvent('create-overlay', { detail: { index: 2 } }))
+    expect(v.addAnnotation).toHaveBeenCalledWith({ value: 'cfi-hit:Borodinó' })
+  })
+
+  it('draws only the search annotation, in the search colour', async () => {
+    open('s1', null); await settle()
+    const v = FakeView.all[0]
+    goToText('borodino', 11); await settle()
+    const draw = vi.fn()
+    v.dispatchEvent(new CustomEvent('draw-annotation', { detail: { draw, annotation: { value: 'other' } } }))
+    expect(draw).not.toHaveBeenCalled()
+    v.dispatchEvent(new CustomEvent('draw-annotation', { detail: { draw, annotation: { value: 'cfi-hit:Borodinó' } } }))
+    expect(draw).toHaveBeenCalledTimes(1)
+    expect(draw.mock.calls[0][0]).toBeTypeOf('function')
+    expect(draw.mock.calls[0][1].color).toMatch(/^rgba?\(/)
+  })
+
+  it('close removes the highlight', async () => {
+    open('s1', null); await settle()
+    const v = FakeView.all[0]
+    goToText('borodino', 11); await settle()
+    send({ v: 1, type: 'close' })
+    expect(v.deleteAnnotation).toHaveBeenCalledWith({ value: 'cfi-hit:Borodinó' })
   })
 })

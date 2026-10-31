@@ -9,6 +9,7 @@ import app.epubreader.core.data.ReaderSettings
 import app.epubreader.core.data.SettingsPort
 import app.epubreader.core.data.SourceRef
 import app.epubreader.core.epub.PositionMap
+import app.epubreader.core.epub.TextPos
 import app.epubreader.core.epub.meta.BookIdentity
 import app.epubreader.reader.bridge.BridgeJson
 import app.epubreader.reader.bridge.FromWeb
@@ -37,7 +38,7 @@ sealed interface ReaderError {
     data object FileChanged : ReaderError
 }
 
-enum class Notice { MissingTarget }
+enum class Notice { MissingTarget, HitNotFound }
 
 data class ReaderUiState(
     val open: Boolean = false,
@@ -324,6 +325,13 @@ class ReaderController(
         reader.send(ToWeb.GoTo(target = item.href))
     }
 
+    /** F-050: jump to a search hit ([p] in original coordinates) and highlight it until the next jump. */
+    fun goToText(p: TextPos, length: Int, needle: String) {
+        val s = session ?: return
+        val v = s.map.textToVirtual(p)
+        reader.send(ToWeb.GoToText(sectionIndex = v.spineIndex, offset = v.offset, length = length, needle = needle))
+    }
+
     private suspend fun on(m: FromWeb) {
         val s = session ?: return
         when (m) {
@@ -365,7 +373,8 @@ class ReaderController(
                 m.x in 0.33..0.67 -> toggleChrome()
             }
             is FromWeb.Error -> if (m.sessionId == null || m.sessionId == s.id) {
-                _state.update { it.copy(loading = false, error = ReaderError.Engine(m.kind, m.message)) }
+                if (m.kind == HIT_NOT_FOUND) _state.update { it.copy(notice = Notice.HitNotFound) }
+                else _state.update { it.copy(loading = false, error = ReaderError.Engine(m.kind, m.message)) }
             }
             else -> Unit
         }
@@ -373,5 +382,6 @@ class ReaderController(
 }
 
 private const val STORAGE = "storage"
+private const val HIT_NOT_FOUND = "hit_not_found"
 private const val STATS_KIND = "section-stats.v1"
 private val STATS = kotlinx.serialization.builtins.ListSerializer(SectionStat.serializer())

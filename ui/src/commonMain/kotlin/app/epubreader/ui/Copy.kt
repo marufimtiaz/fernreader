@@ -90,6 +90,7 @@ object Copy {
     const val close = "Close"
     const val untitledEntry = "Untitled"
     const val removeFromRecent = "Remove from library"
+    const val hitNotFound = "Couldn't find this result on the page. It may have changed."
     const val missingTarget = "This entry points to a part that is missing from the book."
     const val missingPart = "This part of the book is missing from the file, so it can't be shown. You can keep reading."
     const val engineError = "This book can't be displayed."

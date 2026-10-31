@@ -33,13 +33,15 @@ current session.
 | app to web | `setSettings` | `settings {fontScale, fontFamily, lineHeight, marginPercent, align: publisher\|start\|justify, theme: light\|dark\|black\|warm, flow: paginated\|scrolled}` (M4; AUTO flow already resolved by the app) |
 | app to web | `close`, `next`, `prev` | none |
 | app to web | `goTo` | `target` (CFI or href), `id` (optional integer: ask for `seeked`) |
+| app to web | `goToText` | `sectionIndex`, `offset`, `length` (UTF-16, in the section's extracted text), `needle` (the hit text) (M5, F-050) |
+| app to web | `clearSearchHighlight` | none |
 | web to app | `ready`, `pong` | `engine` / `id` |
-| web to app | `opened` | `sessionId`, `identifier` (unique-identifier text or null), `title`, `authors[]`, `dir`, `fixedLayout`, `sections`, `toc[] {label, href, depth, missing}` |
+| web to app | `opened` | `sessionId`, `identifier` (unique-identifier text or null), `title`, `authors[]`, `dir`, `fixedLayout`, `sections`, `toc[] {label, href, depth, missing, index}` (`index`: spine section of the target, -1 if none; M5) |
 | web to app | `relocate` | `sessionId`, `cfi`, `fraction`, `sectionIndex`, `tocHref`, `page`/`pages` (paged: 1-based text page in the section and its text pages; 0/0 scrolled), `sectionFraction` (M4) |
 | web to app | `painted` | `sessionId` (two animation frames after `relocate`) |
 | web to app | `seeked` | `sessionId`, `id` (after the `relocate` of a `goTo` that carried `id`) |
 | web to app | `tap` | `sessionId`, `x`, `y` (fractions of the viewport; links and selections excluded) |
-| web to app | `error` | `sessionId` (or null), `kind` (`open_failed` or `nothing_readable`), `message` |
+| web to app | `error` | `sessionId` (or null), `kind` (`open_failed`, `nothing_readable`, or `hit_not_found`: not fatal, see below), `message` |
 
 Ordering: `opened` is sent after the package is parsed and before the first page is displayed, so the app records
 the book before the first `relocate` arrives. Reopening with the same `sessionId` as the last closed book reuses the
@@ -60,6 +62,16 @@ whose target is absent carry `missing: true` (R-001). Book scripts never run (CS
   resolve). The app uses it for the cross-source resume: when `opened` identifies a book that has a saved position
   but was opened without it (known under another source), the app sends `goTo {target: saved, id}` and stores no
   position until `seeked` with that id arrives. The book-start `relocate`s before it never replace the saved one.
+
+### Search hits (M5, F-050)
+
+- `goToText` is queued and sequenced like `goTo` (same `seeking` rule: exactly one `relocate` when it lands). The web
+  side reads the section's text (Text and CDATA nodes under `body`, `script`/`style`/`template` excluded), checks that
+  `needle` (compared lowercase and without diacritics, char by char) is at `offset`, else takes the nearest match
+  within ±500 chars, and jumps to that range. The range gets a temporary highlight (search colour, drawn again when
+  the section is re-laid out or preloaded) that stays until the next `goToText` or `clearSearchHighlight`.
+- If the text is not found (or the section has no document), the view goes to the section start and the web side sends
+  `error {kind: "hit_not_found"}` after the `relocate`. The app treats it as a notice, not as a failed reader.
 
 ## Rule for new messages
 

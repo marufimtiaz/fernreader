@@ -22,6 +22,12 @@ import kotlinx.serialization.json.Json
     @Serializable @SerialName("setSettings") data class SetSettings(val v: Int = 1, val settings: WebSettings) : ToWeb
     /** F-034 slider: seek to a fraction of the book (0..1). */
     @Serializable @SerialName("goToFraction") data class GoToFraction(val v: Int = 1, val fraction: Double) : ToWeb
+    /**
+     * F-050: jump to a search hit. [offset]/[length] index the section's text (virtual spine, already mapped), [needle] is
+     * the hit's text; the web side verifies it there (or finds it nearby) and highlights it until the next jump.
+     */
+    @Serializable @SerialName("goToText") data class GoToText(val v: Int = 1, val sectionIndex: Int, val offset: Int, val length: Int, val needle: String) : ToWeb
+    @Serializable @SerialName("clearSearchHighlight") data class ClearSearchHighlight(val v: Int = 1) : ToWeb
 }
 
 @Serializable data class WebSettings(
@@ -32,11 +38,13 @@ import kotlinx.serialization.json.Json
 )
 
 @Serializable data class WebTexts(val missingPart: String)
-@Serializable data class TocItem(val label: String, val href: String, val depth: Int, val missing: Boolean = false)
+/** [index]: the spine section the entry points to, -1 when it resolves to none. */
+@Serializable data class TocItem(val label: String, val href: String, val depth: Int, val missing: Boolean = false, val index: Int = -1)
 
 @Serializable sealed interface FromWeb {
     @Serializable @SerialName("ready") data class Ready(val v: Int = 1, val engine: String) : FromWeb
     @Serializable @SerialName("pong") data class Pong(val v: Int = 1, val id: Int) : FromWeb
+    /** [kind] `hit_not_found` is not fatal: a search hit's text was not in the section, the view went to the section start. */
     @Serializable @SerialName("error") data class Error(val v: Int = 1, val sessionId: String? = null, val kind: String, val message: String) : FromWeb
     @Serializable @SerialName("opened") data class Opened(
         val v: Int = 1, val sessionId: String, val identifier: String? = null, val title: String, val authors: List<String>,

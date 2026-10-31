@@ -15,6 +15,8 @@ class ProtocolFixtureTest {
     @Test fun ready_decodes() = assertEquals(FromWeb.Ready(engine = "foliate-js@78914ae"), decodeFromWeb(fixture("ready")))
     @Test fun pong_decodes() = assertEquals(FromWeb.Pong(id = 7), decodeFromWeb(fixture("pong")))
     @Test fun ping_encodes_like_fixture() = assertEquals(tree(fixture("ping")), tree(encodeToWeb(ToWeb.Ping(id = 7))))
+    @Test fun toc_index_defaults_to_unresolved() =
+        assertEquals(-1, BridgeJson.decodeFromString(TocItem.serializer(), """{"label":"A","href":"a","depth":0}""").index)
     @Test fun unknown_type_is_ignored() = assertNull(decodeFromWeb(fixture("unknown")))
 
     @Test fun every_from_web_fixture_decodes() {
@@ -26,6 +28,7 @@ class ProtocolFixtureTest {
             decodeFromWeb(fixture("pageCounts")))
         val o = decodeFromWeb(fixture("opened")) as FromWeb.Opened
         assertEquals(listOf(false, true), o.toc.map { it.missing })
+        assertEquals(listOf(0, -1), o.toc.map { it.index })
     }
 
     @Test fun every_to_web_message_encodes_like_its_fixture() {
@@ -33,6 +36,8 @@ class ProtocolFixtureTest {
             "open" to ToWeb.Open(sessionId = "s-1", position = "epubcfi(/6/4!/4/2/1:0)", texts = WebTexts("This part of the book could not be shown.")),
             "close" to ToWeb.Close(), "next" to ToWeb.Next(), "prev" to ToWeb.Prev(), "goTo" to ToWeb.GoTo(target = "OEBPS/c2.xhtml"),
             "goToSeek" to ToWeb.GoTo(target = "epubcfi(/6/6!/4/2)", id = 1),
+            "goToText" to ToWeb.GoToText(sectionIndex = 4, offset = 1234, length = 8, needle = "Borodinó"),
+            "clearSearchHighlight" to ToWeb.ClearSearchHighlight(),
             "goToFraction" to ToWeb.GoToFraction(fraction = 0.25),
             "setSettings" to ToWeb.SetSettings(settings = WebSettings(1.4, "literata", 1.8, 3, "justify", "warm", "scrolled")),
         )

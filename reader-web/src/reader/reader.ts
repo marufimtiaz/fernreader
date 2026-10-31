@@ -7,6 +7,7 @@ import { flattenToc } from './toc'
 import { resolveSaved } from './position'
 import { PageCounter } from './counter'
 import { shareSections } from './sections'
+import { resolveTextRange } from './textpos'
 import { applySettings as applyStyles, DEFAULT_SETTINGS, readerCss, THEMES, type WebSettings } from './styles'
 
 /* foliate-js is untyped JS; keep `any` at this boundary only. */
@@ -47,6 +48,8 @@ export class Reader {
   private counter: PageCounter | null = null
   private countGen = 0
   private countTimer: ReturnType<typeof setTimeout> | null = null
+  /** The one temporary search highlight (F-050): its CFI and section, drawn again whenever that section's overlayer is made. */
+  private search: { cfi: string; index: number } | null = null
 
   constructor(private bridge: Bridge) {
     // Read-only probes for the app's instrumented tests (evaluateJavascript); nothing in the app calls them.
@@ -87,6 +90,7 @@ export class Reader {
         const d = this.view?.renderer?.getContents?.().find((x: any) => x.index === index)?.doc
         return [...(d?.body?.querySelectorAll('h1, h2, h3, h4, p') ?? [])].map(e => e.textContent?.trim()).find(Boolean) ?? null
       },
+      searchHighlight: () => this.search?.cfi ?? null,
       slots: () => this.view?.renderer?.debugSlots ?? null,
       linear: () => (this.book?.sections ?? []).map((x: any, i: number) => (x.linear !== 'no' ? i : -1)).filter((i: number) => i >= 0),
       goIndex: (i: number) => { void this.view?.renderer?.goTo({ index: i, anchor: 0 }) },
@@ -106,6 +110,8 @@ export class Reader {
         case 'next': this.turn('next'); break
         case 'prev': this.turn('prev'); break
         case 'goTo': this.enqueue({ kind: 'goTo', target: m.target, id: m.id }); break
+        case 'goToText': this.enqueue({ kind: 'text', index: m.sectionIndex, offset: m.offset, length: m.length, needle: m.needle }); break
+        case 'clearSearchHighlight': this.enqueue({ kind: 'clearSearch' }); break
       }
     })
   }
@@ -148,6 +154,10 @@ export class Reader {
       document.body.append(view)
       view.addEventListener('relocate', (e: CustomEvent) => this.onRelocate(view, sessionId, e.detail))
       view.addEventListener('load', (e: CustomEvent) => { applySettings(e.detail.doc, this.settings); this.onLoad(sessionId, e.detail.doc) })
+      view.addEventListener('draw-annotation', (e: CustomEvent) => {
+        if (e.detail.annotation?.value === this.search?.cfi) e.detail.draw(Overlayer.highlight, { color: SEARCH_COLOR })
+      })
+      view.addEventListener('create-overlay', (e: CustomEvent) => { if (this.search && e.detail.index === this.search.index) this.drawSearch(view) })
       view.addEventListener('external-link', (e: Event) => e.preventDefault()) // F-044 arrives in M6
       await view.open(book)
       if (stale()) return
@@ -204,21 +214,51 @@ export class Reader {
           try { await (c.dir === 'next' ? view.next() : view.prev()) } catch (e) { console.warn('turn failed', e) }
           continue
         }
+        if (c.kind === 'clearSearch') { this.clearSearch(view); continue }
+        let hit: { cfi: string; index: number } | null = null
         this.seeking = true
         try {
           if (c.kind === 'fraction') await view.goToFraction(c.fraction)
-          else await goToTarget(view, c.target)
+          else if (c.kind === 'text') {
+            this.clearSearch(view)
+            hit = await this.findHit(view, c)
+            if (hit) await goToTarget(view, hit.cfi)
+            else await view.renderer.goTo({ index: c.index, anchor: 0 })
+          } else await goToTarget(view, c.target)
         } catch (e) { console.warn('goTo failed', e) }
         if (this.token !== token || this.view !== view) break
         this.seeking = false
         // One relocate where it landed (or, if the target did not resolve, where it stayed), then the answer.
         if (view.lastLocation) this.onRelocate(view, sessionId, view.lastLocation)
         if (c.kind === 'goTo' && c.id != null) this.bridge.send({ v: 1, type: 'seeked', sessionId, id: c.id })
+        if (c.kind === 'text') {
+          if (hit) { this.search = hit; this.drawSearch(view) }
+          else this.bridge.send({ v: 1, type: 'error', sessionId, kind: 'hit_not_found', message: 'The search result was not found in the section text.' })
+        }
       }
     } finally {
       this.pumping = false
     }
     if (this.queue.length && this.token !== token) void this.pump() // queued for a newer open
+  }
+
+  /** The CFI of a search hit's text in its section, or null (no such section or document, or the text is not there). */
+  private async findHit(view: any, c: Extract<Cmd, { kind: 'text' }>): Promise<{ cfi: string; index: number } | null> {
+    try {
+      const doc: Document | undefined = await this.book?.sections?.[c.index]?.createDocument?.()
+      const range = doc && resolveTextRange(doc, c.offset, c.length, c.needle)
+      return range ? { cfi: view.getCFI(c.index, range), index: c.index } : null
+    } catch (e) { console.warn('hit resolution failed', e); return null }
+  }
+
+  private drawSearch(view: any) {
+    if (this.search) void view.addAnnotation({ value: this.search.cfi }).catch?.((e: unknown) => console.warn('search highlight failed', e))
+  }
+
+  private clearSearch(view: any) {
+    const s = this.search
+    this.search = null
+    if (s) void view.deleteAnnotation({ value: s.cfi })?.catch?.(() => {})
   }
 
   /**
@@ -366,6 +406,8 @@ export class Reader {
     this.queue = []
     this.seeking = false
     const view = this.view
+    if (view) this.clearSearch(view)
+    this.search = null
     if (view && !view.lastLocation) { destroyView(view) }
     if (this.book && this.sessionId && this.has) {
       const kept = view?.lastLocation ? view : null
@@ -377,8 +419,11 @@ export class Reader {
 }
 
 const MAX_TURNS = 3
+/** Search hit highlight: translucent orange, readable on all four reading themes (user highlights get other colours). */
+const SEARCH_COLOR = 'rgba(255, 140, 0, 0.45)'
 
 type Cmd = { kind: 'turn'; dir: 'next' | 'prev' } | { kind: 'goTo'; target: string; id?: number } | { kind: 'fraction'; fraction: number }
+  | { kind: 'text'; index: number; offset: number; length: number; needle: string } | { kind: 'clearSearch' }
 
 /** Which settings each section document has (so a stale one can be caught up). */
 const applied = new WeakMap<Document, WebSettings>()

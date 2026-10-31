@@ -2,7 +2,8 @@ import type { WebSettings } from '../reader/styles'
 
 export const PROTOCOL_VERSION = 1
 
-export type TocItem = { label: string; href: string; depth: number; missing: boolean }
+/** [index]: the section the entry points to, -1 when it resolves to none. */
+export type TocItem = { label: string; href: string; depth: number; missing: boolean; index: number }
 
 export type ToWeb =
   | { v: 1; type: 'ping'; id: number }
@@ -13,8 +14,11 @@ export type ToWeb =
   | { v: 1; type: 'goTo'; target: string; id?: number }
   | { v: 1; type: 'setSettings'; settings: WebSettings }
   | { v: 1; type: 'goToFraction'; fraction: number }
+  /** Search hit (F-050): [needle] is the hit text; the web side finds it near [offset] in the section's text. */
+  | { v: 1; type: 'goToText'; sectionIndex: number; offset: number; length: number; needle: string }
+  | { v: 1; type: 'clearSearchHighlight' }
 
-export const TO_WEB_TYPES: ReadonlyArray<ToWeb['type']> = ['ping', 'open', 'close', 'next', 'prev', 'goTo', 'setSettings', 'goToFraction']
+export const TO_WEB_TYPES: ReadonlyArray<ToWeb['type']> = ['ping', 'open', 'close', 'next', 'prev', 'goTo', 'setSettings', 'goToFraction', 'goToText', 'clearSearchHighlight']
 
 export type FromWeb =
   | { v: 1; type: 'ready'; engine: string }

@@ -19,6 +19,8 @@ function validShape(m: Record<string, unknown>): boolean {
         (m.position == null || isStr(m.position)) && (m.settings == null || validSettings(m.settings))
     }
     case 'goTo': return isStr(m.target) && (m.id == null || Number.isInteger(m.id))
+    case 'goToText': return Number.isInteger(m.sectionIndex) && (m.sectionIndex as number) >= 0 && Number.isInteger(m.offset) &&
+      (m.offset as number) >= 0 && Number.isInteger(m.length) && (m.length as number) >= 0 && isStr(m.needle)
     case 'setSettings': return validSettings(m.settings)
     case 'goToFraction': return isNum(m.fraction) && (m.fraction as number) >= 0 && (m.fraction as number) <= 1
     default: return true

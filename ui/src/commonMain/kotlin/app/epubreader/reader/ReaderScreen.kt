@@ -116,7 +116,7 @@ fun ReaderScreen(c: ReaderController, onBack: () -> Unit, onForget: (SourceRef) 
         if (s.tocVisible) TocPanel(s.toc, s.currentTocHref, onSelect = c::onTocSelected, onDismiss = c::hideToc, probe = probe)
         s.notice?.let {
             LaunchedEffect(it) { kotlinx.coroutines.delay(3_000); c.dismissNotice() }
-            Snackbar(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(16.dp)) { Text(Copy.missingTarget) }
+            Snackbar(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(16.dp)) { Text(if (it == Notice.HitNotFound) Copy.hitNotFound else Copy.missingTarget) }
         }
     }
     }
