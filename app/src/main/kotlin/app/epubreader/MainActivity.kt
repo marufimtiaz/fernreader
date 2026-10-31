@@ -39,8 +39,9 @@ class MainActivity : ComponentActivity() {
     lateinit var nav: Navigator
         private set
     private val access = StorageAccess(this) { onAccessMaybeGranted() }
-    /** Task 3.6 hooks the first full scan here. */
+    /** Access was just granted: the first full scan starts (F-003). Tests replace it. */
     var onAccessGranted: () -> Unit = {}
+    private var resumedOnce = false
     private val probe = EventProbe { n, x -> Probe.ev(n, x) }
     private var webViewTooOld by mutableStateOf(false)
 
@@ -55,6 +56,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge() // status/navigation bar icons follow the system light/dark setting, like the app theme
         super.onCreate(savedInstanceState)
         val graph = (application as EpubReaderApp).graph
+        onAccessGranted = graph.scans::onAccessGranted
         // Decided before the first frame, so neither screen flashes (F-001).
         nav = Navigator(if (access.granted()) Route.Library else Route.Onboarding)
         reader = ReaderEngine(this, graph.server)
@@ -83,6 +85,7 @@ class MainActivity : ComponentActivity() {
         if (Probe.enabled) {
             BenchCommands.register("openPath") { openBook(SourceRef.File(it)) }
             BenchCommands.register("back") { goBack() }
+            BenchCommands.register("rescan") { graph.scans.rescan() }
             BenchCommands.register("next") { reader.send(ToWeb.Next()) }
             BenchCommands.register("prev") { reader.send(ToWeb.Prev()) }
             BenchCommands.register("toc") { controller.showToc() }
@@ -93,6 +96,7 @@ class MainActivity : ComponentActivity() {
         // Pre-warm after the first frame so it never delays the home screen (P-001).
         window.decorView.post {
             Probe.ev("first_frame")
+            graph.scans.onAppStart() // incremental scan, after the first frame (P-001)
             window.decorView.post {
                 // WEBVIEW_TOO_OLD (or no WebView at all): show a full-screen message instead of crashing (R16).
                 runCatching { reader.prewarm() }.onFailure { webViewTooOld = true }
@@ -116,6 +120,9 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         onAccessMaybeGranted()
+        // F-012: back to the library → incremental rescan (debounced). The first resume is the app start.
+        if (resumedOnce && nav.top == Route.Library) (application as EpubReaderApp).graph.scans.onLibraryResumed()
+        resumedOnce = true
     }
 
     /** Back from the system permission screen (or the API 26–29 dialog): with access, the library opens at once. */

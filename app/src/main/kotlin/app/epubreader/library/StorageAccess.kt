@@ -2,6 +2,7 @@ package app.epubreader.library
 
 import android.Manifest
 import android.content.ActivityNotFoundException
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -20,8 +21,7 @@ import app.epubreader.onboarding.StoragePermissionPort
 class StorageAccess(private val activity: ComponentActivity, onResult: () -> Unit) : StoragePermissionPort {
     private val legacy = activity.registerForActivityResult(ActivityResultContracts.RequestPermission()) { onResult() }
 
-    override fun granted(): Boolean = grantedOverride?.invoke() ?: if (Build.VERSION.SDK_INT >= 30) Environment.isExternalStorageManager()
-        else activity.checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+    override fun granted(): Boolean = hasAccess(activity)
 
     companion object {
         /**
@@ -29,6 +29,9 @@ class StorageAccess(private val activity: ComponentActivity, onResult: () -> Uni
          * changes, so routing tests replace the check instead of toggling the real permission.
          */
         @androidx.annotation.VisibleForTesting var grantedOverride: (() -> Boolean)? = null
+
+        fun hasAccess(context: Context): Boolean = grantedOverride?.invoke() ?: if (Build.VERSION.SDK_INT >= 30) Environment.isExternalStorageManager()
+            else context.checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
     }
 
     override fun request() {
