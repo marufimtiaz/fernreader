@@ -38,12 +38,12 @@ wait_ev() {
 bench_cmd() { $A shell am broadcast -a app.epubreader.BENCH -n "$PKG/.bench.BenchCommandReceiver" --es cmd "$1" --es arg "'${2:-}'" >/dev/null; }
 video_ms() { bash "$SPEC_TOOLS/summarize_open.sh" "$1" | sed 's/.*open_ms=//'; }
 # video_first_ms <video>: ms from the first visible change (the bench command's marker) to the first large change after it
-# (mean-abs-diff >= 2: the screen starts to move). NA when the first change is already large (no marker seen). P-026 (C-071): input -> first frame of the boundary slide.
+# (mean-abs-diff >= 2 over >= 2 % of the pixels: the page starts to move, not a label). NA when the first change is already large (no marker seen). P-026 (C-071): input -> first frame of the boundary slide.
 video_first_ms() {
   python3 -I "$SPEC_TOOLS/frame_changes.py" "$1" 0.5 | awk '
     /^#/ {next}
-    { t=$1; match($0, /mad= *[0-9.]+/); m=substr($0, RSTART+4, RLENGTH-4)+0
-      if (t0=="") { if (m < 2) { t0=t; next } else { nomark=1; exit } } if (m>=2 && t1=="") t1=t }
+    { t=$1; match($0, /mad= *[0-9.]+/); m=substr($0, RSTART+4, RLENGTH-4)+0; match($0, /changed=[0-9.]+/); c=substr($0, RSTART+8, RLENGTH-8)+0
+      if (t0=="") { if (m < 2) { t0=t; next } else { nomark=1; exit } } if (m>=2 && c>=0.02 && t1=="") t1=t }
     END { if (nomark || t0=="" || t1=="") print "NA"; else printf "%d\n", (t1-t0)*1000 }'
 }
 B=/sdcard/Books
