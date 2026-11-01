@@ -258,7 +258,8 @@ class LibraryState(
             val byTitle = compareBy<LibraryBook> { it.sortTitle }.thenBy { it.id } // sort keys are stored lowercase
             return hits.sortedWith(
                 when (sort) {
-                    LibrarySort.RECENT -> compareByDescending<LibraryBook> { it.lastOpenedAt ?: Long.MIN_VALUE }.thenByDescending { it.addedAt }.then(byTitle)
+                    // C-076: recency is the later of last opened and added, so a newly found book starts on top (in every view)
+                    LibrarySort.RECENT -> compareByDescending<LibraryBook> { maxOf(it.lastOpenedAt ?: Long.MIN_VALUE, it.addedAt) }.thenByDescending { it.addedAt }.then(byTitle)
                     LibrarySort.ADDED -> compareByDescending<LibraryBook> { it.addedAt }.then(byTitle)
                     LibrarySort.TITLE -> byTitle
                     LibrarySort.AUTHOR -> compareBy<LibraryBook> { it.sortAuthor.ifEmpty { "￿" } }.then(byTitle)

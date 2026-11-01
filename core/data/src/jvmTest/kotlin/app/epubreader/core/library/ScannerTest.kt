@@ -68,6 +68,26 @@ class ScannerTest {
         assertTrue("Folder Test livetest" in titles())
     }
 
+    /** C-076: a book that left the library and is found again counts as newly added (it sorts first); a move keeps it. */
+    @Test fun book_found_again_after_leaving_is_added_anew_and_a_move_is_not() = runBlocking {
+        scanner().scan(ScanScope.Everywhere)
+        val gone = bookOf(f("Books/ToDelete/deletedfolder.epub").path)!!
+        val moved = bookOf(f("Download/moved.epub").path)!!
+        val addedBefore = db.libraryDao().byId(gone)!!.addedAt
+        val movedAdded = db.libraryDao().byId(moved)!!.addedAt
+        val keep = File(root.parentFile, "keep-${root.name}.epub").also { f("Books/ToDelete/deletedfolder.epub").copyTo(it) }
+        f("Books/ToDelete").deleteRecursively()
+        scanner().scan(ScanScope.Everywhere)
+        assertTrue(db.libraryDao().byId(gone)!!.deleted)
+        f("Documents/New").mkdirs(); keep.renameTo(f("Documents/New/deletedfolder.epub"))
+        f("Documents/Books").mkdirs(); f("Download/moved.epub").renameTo(f("Documents/Books/moved.epub"))
+        scanner().scan(ScanScope.Everywhere)
+        val back = db.libraryDao().byId(gone)!!
+        assertFalse(back.deleted)
+        assertTrue(back.addedAt > addedBefore, "added again: ${back.addedAt} > $addedBefore")
+        assertEquals(movedAdded, db.libraryDao().byId(moved)!!.addedAt)
+    }
+
     @Test fun duplicate_files_one_book() = runBlocking {
         scanner().scan(ScanScope.Everywhere)
         val a = bookOf(f("Download/dup.epub").path); val b = bookOf(f("Documents/Books/dup-copy.epub").path)

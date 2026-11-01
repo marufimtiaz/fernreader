@@ -83,7 +83,8 @@ abstract class LibraryDao {
     @Query("UPDATE book SET coverThumb = NULL WHERE id = :id") protected abstract suspend fun forgetCover(id: String)
     @Query(
         "UPDATE book SET title = :title, sortTitle = :sortTitle, authors = :authors, sortAuthor = :sortAuthor, language = :language, " +
-            "titleDirection = :dir, deleted = 0, updatedAt = :now WHERE id = :id",
+            // C-076: a book that had left the library (tombstoned) and is found again is newly added (sorts first)
+            "titleDirection = :dir, addedAt = CASE WHEN deleted = 1 THEN :now ELSE addedAt END, deleted = 0, updatedAt = :now WHERE id = :id",
     )
     protected abstract suspend fun updateScanned(id: String, title: String, sortTitle: String, authors: String, sortAuthor: String, language: String?, dir: String, now: Long)
 

@@ -47,6 +47,29 @@ class LibraryStateTest {
         assertEquals(listOf("moby", "war", "alice", "frank", "he", "anon"), ids(s = LibrarySort.AUTHOR)) // by the author's sort key; no author last
     }
 
+    /** C-076: recency is the later of last opened and added, so a newly found book is on top until others are read. */
+    @Test fun recent_sort_puts_a_newly_added_book_on_top() {
+        val fresh = book("fresh", "Zz Fresh", listOf("New"), added = 100)
+        val reread = book("reread", "Reread", listOf("Old"), added = 1, opened = 120)
+        val all = books + fresh
+        assertEquals(listOf("fresh", "alice", "moby", "anon", "he", "war", "frank"), LibraryState.arrange(all, "", LibrarySort.RECENT).map { it.id })
+        // opened after the new book was added: that one is more recent
+        assertEquals(listOf("reread", "fresh", "alice"), LibraryState.arrange(all + reread, "", LibrarySort.RECENT).map { it.id }.take(3))
+        // an old book opened long ago is behind a book added since, however old that book's file is
+        assertEquals(listOf("fresh", "alice"), LibraryState.arrange(all, "", LibrarySort.RECENT).map { it.id }.take(2))
+        // "date added" is unchanged
+        assertEquals(listOf("fresh", "anon", "he", "war", "frank", "alice", "moby"), LibraryState.arrange(all, "", LibrarySort.ADDED).map { it.id })
+    }
+
+    /** C-076 in a folder and in a collection: the view's books keep the same order. */
+    @Test fun recent_sort_in_folder_and_collection_views() {
+        fun b(id: String, added: Long, opened: Long?) = LibraryBook(id, id, listOf("A"), "auto", null, added, opened, id, "a",
+            "/storage/emulated/0/Documents/New/$id.epub", listOf("/storage/emulated/0/Documents/New/$id.epub"), listOf("c1"))
+        val all = listOf(b("read", 1, 50), b("old", 2, null), b("fresh", 60, null))
+        for (v in listOf(LibraryView.Folder("/storage/emulated/0/Documents/New"), LibraryView.Collection("c1")))
+            assertEquals(listOf("fresh", "read", "old"), LibraryState.arrange(LibraryState.inView(all, v, false), "", LibrarySort.RECENT).map { it.id })
+    }
+
     @Test fun layout_and_sort_persist() = runTest {
         val settings = FakeSettings()
         val scan = MutableStateFlow(ScanState())
