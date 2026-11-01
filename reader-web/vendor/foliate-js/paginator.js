@@ -605,7 +605,8 @@ export class Paginator extends HTMLElement {
         this.#stackTop = top
     }
     // local patch (C-079/C-080): stack-mode stability
-    #jumping = false // a deliberate jump is being applied: no following, no 'scroll' relocates, no stack work
+    #jumps = 0 // deliberate jumps or re-layouts being applied (they can overlap): no following, no 'scroll' relocates, no stack work
+    get #jumping() { return this.#jumps > 0 }
     #restoring = false // since the last deliberate jump the user has not scrolled: layout changes re-apply its anchor
     #screen = null // { view, el, top }: the element at the top of the viewport and its offset there (user scrolling)
     // after the last stacked slot: one screen of room while more sections follow, so a jump to a short section (or the
@@ -620,12 +621,12 @@ export class Paginator extends HTMLElement {
     }
     /** Runs a deliberate navigation [f]; the flags drop two frames after it (its own scroll events are past by then). */
     async #navigate(f) {
-        this.#jumping = true
+        this.#jumps++
         this.#restoring = true
         this.#screen = null
         try { return await f() } finally {
             await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))
-            this.#jumping = false
+            this.#jumps--
             this.#ensureStack()
         }
     }
@@ -1195,8 +1196,9 @@ export class Paginator extends HTMLElement {
         }
         // local patch (C-079): in stack mode a re-layout (flow switch, settings, rotation) is applied like a jump to the
         // current anchor: no following or stack work until it has settled, and its anchor holds until the user scrolls
-        if (this.#stack) {
-            this.#jumping = true
+        const settling = this.#stack
+        if (settling) {
+            this.#jumps++
             if (switched) this.#restoring = true
         }
         this.#view.render(layout)
@@ -1204,7 +1206,7 @@ export class Paginator extends HTMLElement {
             if (e.view !== this.#view && e.loaded) e.view.render(layout)
         this.#scrollToAnchor(this.#anchor)
         if (switched) this.#afterSwap()
-        if (this.#stack) requestAnimationFrame(() => requestAnimationFrame(() => { this.#jumping = false; this.#ensureStack() }))
+        if (settling) requestAnimationFrame(() => requestAnimationFrame(() => { this.#jumps--; this.#ensureStack() }))
     }
     get scrolled() {
         return this.getAttribute('flow') === 'scrolled'
