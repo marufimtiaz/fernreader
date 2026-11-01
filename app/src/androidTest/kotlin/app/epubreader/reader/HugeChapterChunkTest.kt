@@ -155,6 +155,10 @@ class HugeChapterChunkTest {
                 assertNotNull("page start text", pageBlockC)
                 val hlC = h.highlight(id, hitCfiC).also { made += it.id }
                 assertEquals("MARKERWORDHUGE", hlC.text)
+                // The hit's outline and a highlight on exactly its range share foliate's overlay key: the highlight shows once
+                // the search highlight is cleared.
+                h.send(app.epubreader.reader.bridge.ToWeb.ClearSearchHighlight())
+                assertEquals(hlC.text, sc.drawnText(hlC.id))
                 sc.onActivity { it.controller.toggleBookmark() }
                 val bmC: Bookmark = withTimeout(5_000) { c.state.first { it.bookmarked && it.bookmarks.size == 1 } }.bookmarks.single().also { marks += it.id }
                 val stoppedAt = h.settle()
@@ -189,11 +193,17 @@ class HugeChapterChunkTest {
                 assertEquals("MARKERWORDHUGE", sc.str("window.__readerTest.cfiText(${JSONObject.quote(hitCfiK)})"))
                 assertEquals(hitCfiC, map.cfiToOriginal(hitCfiK))
 
-                // A highlight made there now stores exactly the control's CFI (original coordinates), same section.
+                // A highlight made there now stores exactly the control's CFI (original coordinates), same section. The
+                // control's highlight goes first: the web side draws one highlight per range (CFI), so a second one on
+                // the same words would not be drawn.
+                assertEquals(hlC.cfi, graph.annotations.annotations(id).first().single { it.id == hlC.id }.cfi) // not rewritten
+                sc.onActivity { it.controller.removeAnnotation(hlC.id) }
+                withTimeout(5_000) { while (sc.jsValue("window.__readerTest.annotation(${JSONObject.quote(hlC.id)})") is JSONObject) delay(100) }
                 val hlK = h.highlight(id, hitCfiK).also { made += it.id }
                 assertEquals(hlC.cfi, hlK.cfi)
                 assertEquals(hlC.spineIndex, hlK.spineIndex)
                 assertEquals(hlC.text, hlK.text)
+                h.send(app.epubreader.reader.bridge.ToWeb.ClearSearchHighlight())
                 assertEquals(hlC.text, sc.drawnText(hlK.id))
 
                 // The control's bookmark: the list's jump lands on its page, with the marker.
@@ -207,7 +217,6 @@ class HugeChapterChunkTest {
 
                 // Stored rows were not rewritten by the chunked session.
                 assertEquals(bmC.cfi, graph.bookmarks.bookmarks(id).first().single { it.id == bmC.id }.cfi)
-                assertEquals(hlC.cfi, graph.annotations.annotations(id).first().single { it.id == hlC.id }.cfi)
 
                 // A bookmark made in the chunked run on that page (the button removes the control's first). Its CFI is
                 // the part's page start in original coordinates: same section, same itemref step and same text as the
