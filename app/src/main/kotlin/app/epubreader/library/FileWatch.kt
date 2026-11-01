@@ -11,6 +11,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * R-008: tells the reader when the open book's file is deleted, moved away or rewritten. The open descriptor keeps
@@ -27,8 +28,9 @@ import java.util.concurrent.TimeUnit
 class FileWatch(private val path: String, private val onGone: () -> Unit) {
     private val main = Handler(Looper.getMainLooper())
     private val mask = FileObserver.DELETE_SELF or FileObserver.MOVE_SELF or FileObserver.CLOSE_WRITE or FileObserver.ATTRIB
-    private val inode = inodeOf(path)
-    @Volatile private var fired = false
+    /** Set once by whichever notices first (inotify thread, poll thread, or stop()). */
+    private val fired = AtomicBoolean(false)
+    @Volatile private var stopped = false
     private val observer: FileObserver =
         if (Build.VERSION.SDK_INT >= 29) object : FileObserver(File(path), mask) { override fun onEvent(event: Int, p: String?) = on(event) }
         else @Suppress("DEPRECATION") object : FileObserver(path, mask) { override fun onEvent(event: Int, p: String?) = on(event) }
@@ -36,7 +38,7 @@ class FileWatch(private val path: String, private val onGone: () -> Unit) {
     private fun on(event: Int) {
         if (event and FileObserver.ATTRIB != 0 && event and (mask and FileObserver.ATTRIB.inv()) == 0) {
             val now = inodeOf(path)
-            if (now != null && now == inode) return // permissions or times changed; still the same file
+            if (now != null && now == stamp?.inode) return // permissions or times changed; still the same file
         }
         gone()
     }
@@ -47,17 +49,22 @@ class FileWatch(private val path: String, private val onGone: () -> Unit) {
     private fun stampOf(p: String): Stamp? = try {
         Os.stat(p).let { Stamp(it.st_ino, it.st_size, it.st_mtime) }
     } catch (e: ErrnoException) { null }
-    private val stamp = stampOf(path)
-    private var poll: ScheduledFuture<*>? = null
+    private val stamp = stampOf(path) // one stat on the caller's thread: the inode for ATTRIB and the poll's baseline
+    @Volatile private var poll: ScheduledFuture<*>? = null
 
-    private fun check() { if (!fired && stampOf(path) != stamp) gone() }
+    private fun check() { if (!fired.get() && stampOf(path) != stamp) gone() }
 
-    private fun gone() { if (!fired) { fired = true; poll?.cancel(false); main.post(onGone) } }
+    /** A callback posted just before stop() must not run after it: it would close the book opened next. */
+    private fun gone() {
+        if (!fired.compareAndSet(false, true)) return
+        poll?.cancel(false)
+        main.post { if (!stopped) onGone() }
+    }
     fun start() = apply {
         observer.startWatching()
         poll = POLLER.scheduleWithFixedDelay(::check, POLL_MS, POLL_MS, TimeUnit.MILLISECONDS)
     }
-    fun stop() { fired = true; observer.stopWatching(); poll?.cancel(false) }
+    fun stop() { stopped = true; fired.set(true); observer.stopWatching(); poll?.cancel(false) }
 
     private companion object {
         const val POLL_MS = 1_000L
