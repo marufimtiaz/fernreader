@@ -83,3 +83,20 @@ for RUN in 1 2 3; do
   emit P-026.blank_frames "$blanks"
 done
 bench_cmd back
+# --- M9 (--release): P-023 rotation on the huge single chapter (as P-022: app-requested orientation, recording from the
+# marker to the last change), after its page count settled.
+if [ "$RELEASE" = 1 ]; then
+  bench_cmd openPath "$B/generated/stress-huge-single-chapter.epub"; sleep 8
+  wait_ev page_total_exact 30 || echo "  (P-023: no page_total_exact before run 1)"
+  for RUN in 1 2 3; do
+    v="$OUT/P-023-$RUN.mp4"; $A logcat -c
+    $AD record start "$v" --scope device --hide-touches >/dev/null 2>&1; sleep 1.5
+    bench_cmd orient land; sleep 5
+    $AD record stop >/dev/null 2>&1
+    emit P-023 "$(video_ms "$v")" "video; events config_changed->painted=$(ev_delta config_changed painted)"
+    $A logcat -c; bench_cmd orient port; sleep 3
+    wait_ev page_total_exact 30 || echo "  (P-023: no page_total_exact after run $RUN)"
+  done
+  bench_cmd orient free; sleep 2; bench_cmd back
+fi
+
