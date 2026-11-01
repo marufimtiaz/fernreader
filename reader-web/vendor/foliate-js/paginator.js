@@ -691,7 +691,7 @@ export class Paginator extends HTMLElement {
         this.#preloadIndex(this.#adjacentIndex(1))
         this.#preloadIndex(this.#adjacentIndex(-1))
     }
-    async #swapTo(index, anchor, select) {
+    async #swapTo(index, anchor, select, deferAfterSwap = false) {
         const entry = this.#cache.get(index)
         if (!entry.loaded) await entry.ready
         if (!entry.loaded || this.#cache.get(index) !== entry) return false
@@ -704,7 +704,8 @@ export class Paginator extends HTMLElement {
         // synchronous for fraction anchors: the target page is scrolled into place before the next frame
         await this.scrollToAnchor((typeof anchor === 'function'
             ? anchor(entry.view.document) : anchor) ?? 0, select)
-        this.#afterSwap()
+        // local patch (C-071): a boundary slide preloads/evicts after it ends (no layout work during it, `from` kept)
+        if (!deferAfterSwap) this.#afterSwap()
         return true
     }
     get layout() { return this.#lastLayout }
@@ -1447,10 +1448,15 @@ export class Paginator extends HTMLElement {
                 // local patch (C-071): with `animated`, the neighbour slides in like any other page turn
                 const from = this.#cache.get(this.#index)
                 const slide = this.hasAttribute('animated') && !document.hidden && !this.#vertical && from
+                    && this.#cache.get(target).loaded // a neighbour still loading swaps in as before (its rect would be stale)
                 const before = slide ? from.view.element.getBoundingClientRect() : null
-                if (await this.#swapTo(target, prev ? () => 1 : () => 0)) {
-                    if (before) await this.#slideIn(from, this.#cache.get(target), before, dir)
-                    this.#locked = false
+                if (await this.#swapTo(target, prev ? () => 1 : () => 0, undefined, !!before)) {
+                    try {
+                        if (before) await this.#slideIn(from, this.#cache.get(target), before, dir)
+                    } finally {
+                        if (before) this.#afterSwap()
+                        this.#locked = false
+                    }
                     return
                 }
             }
@@ -1464,8 +1470,20 @@ export class Paginator extends HTMLElement {
         this.#locked = false
     }
     #lastSlide = []
+    #sliding = null // { from, to } while a boundary slide runs
     /** Diagnostics for tests (C-071): the frames of the last boundary slide, `{ t, old, next }` offsets in CSS px. */
     get debugSlide() { return this.#lastSlide }
+    /**
+     * Diagnostics for tests (C-071), null when no slide runs: the on-screen size of the container and of both pages'
+     * iframes, and whether the old page is still in the document (a test samples it on every frame of a slide).
+     */
+    get debugSlideGeometry() {
+        const s = this.#sliding
+        if (!s) return null
+        const rect = e => { const r = e?.getBoundingClientRect(); return r ? { left: r.left, right: r.right, height: r.height } : null }
+        return { container: rect(this.#container), old: rect(s.from.view.element.querySelector('iframe')),
+            next: rect(s.to.view.element.querySelector('iframe')), oldConnected: s.from.slot.isConnected }
+    }
     /**
      * Local patch (C-071): [to] has just been swapped in (in flow, scrolled to its page); [from] is the slot that was on
      * screen, its view element at [before] (viewport rect) before the swap. The old slot is pinned where it was (absolute,
@@ -1476,22 +1494,28 @@ export class Paginator extends HTMLElement {
         const width = this.#container.getBoundingClientRect().width
         if (!to || !(width > 0)) return
         const old = from.slot
-        old.style.cssText = 'position: absolute; top: 0; left: 0; overflow: visible; pointer-events: none; z-index: 1'
+        // the container's box (inset 0: full height, so the view's height: 100% holds), its view visible past it
+        old.style.cssText = 'position: absolute; inset: 0; overflow: visible; pointer-events: none; z-index: 1'
         const base = before.left - from.view.element.getBoundingClientRect().left
         const sign = slideSign(dir, this.#rtl)
         const frames = []
         this.#lastSlide = frames
+        this.#sliding = { from, to }
         const set = t => {
             const f = slideFrame(t, sign, width)
             old.style.transform = `translateX(${base + f.old}px)`
             to.slot.style.transform = `translateX(${f.next}px)`
             frames.push({ t, old: f.old, next: f.next })
         }
-        set(0)
-        await animate(0, 1, 300, easeOutQuad, set)
-        to.slot.style.transform = ''
-        old.style.transform = ''
-        if (this.#cache.get(this.#index)?.slot !== old) this.#slotStyle(old, false)
+        try {
+            set(0)
+            await animate(0, 1, 300, easeOutQuad, set)
+        } finally {
+            this.#sliding = null
+            to.slot.style.transform = ''
+            old.style.transform = ''
+            if (this.#cache.get(this.#index)?.slot !== old) this.#slotStyle(old, false)
+        }
     }
     prev(distance) {
         return this.#turnPage(-1, distance)

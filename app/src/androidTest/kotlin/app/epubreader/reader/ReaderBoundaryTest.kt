@@ -81,6 +81,24 @@ class ReaderBoundaryTest {
         assertEquals(0.0, frames.last().getDouble("next"), 0.5)
     }
 
+    /** Starts sampling the slide's on-screen geometry on every frame for 1.5 s (`window.__geo`). */
+    private suspend fun ReaderHarness.sampleGeometry() = sc.js("""window.__geo = []; window.__geoEnd = performance.now() + 1500;
+        (function loop() { const g = window.__readerTest.slideGeometry(); if (g) window.__geo.push(g);
+          if (performance.now() < window.__geoEnd) requestAnimationFrame(loop) })(); true""")
+
+    /** The sampled frames: both pages full height (no partial page), the old one still attached (no blank half). */
+    private suspend fun ReaderHarness.assertGeometry() {
+        val a = JSONArray(org.json.JSONTokener(sc.js("JSON.stringify(window.__geo)")).nextValue() as String)
+        assertTrue("geometry sampled during the slide: ${a.length()} frames", a.length() >= 3)
+        for (i in 0 until a.length()) {
+            val g = a.getJSONObject(i)
+            val h = g.getJSONObject("container").getDouble("height")
+            assertEquals("old page height, frame $i", h, g.getJSONObject("old").getDouble("height"), 1.0)
+            assertEquals("new page height, frame $i", h, g.getJSONObject("next").getDouble("height"), 1.0)
+            assertTrue("old page attached, frame $i", g.getBoolean("oldConnected"))
+        }
+    }
+
     /** C-071 (F-032): a turn across a chapter boundary slides like any other turn, forward and back. */
     @Test fun boundary_turns_slide_both_ways(): Unit = runBlocking {
         val wp = warAndPeace()
@@ -90,16 +108,20 @@ class ReaderBoundaryTest {
             val at = h.tocJump("BOOK ONE: 1805")
             h.lastPage()
             h.awaitPreloaded(at.sectionIndex + 1)
+            h.sampleGeometry()
             h.send(ToWeb.Next())
             h.relocate(5_000) { it.sectionIndex == at.sectionIndex + 1 }
-            delay(600) // the slide is 300 ms
+            delay(1_600) // the slide is 300 ms; the sampler runs 1.5 s
             assertSlide(h.slideFrames(), -1) // left-to-right book: next moves the content left
+            h.assertGeometry()
             h.settle()
             h.awaitPreloaded(at.sectionIndex)
+            h.sampleGeometry()
             h.send(ToWeb.Prev())
             h.relocate(5_000) { it.sectionIndex == at.sectionIndex }
-            delay(600)
+            delay(1_600)
             assertSlide(h.slideFrames(), 1)
+            h.assertGeometry()
             h.stop()
         }
     }

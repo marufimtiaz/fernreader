@@ -43,6 +43,7 @@ video_first_ms() {
   python3 -I "$SPEC_TOOLS/frame_changes.py" "$1" 0.5 | awk '
     /^#/ {next}
     { t=$1; match($0, /mad= *[0-9.]+/); m=substr($0, RSTART+4, RLENGTH-4)+0; match($0, /changed=[0-9.]+/); c=substr($0, RSTART+8, RLENGTH-8)+0
+      if (t < 1.3) next # the 1.5 s pre-roll before the command: a status-bar tick there is not the marker
       if (t0=="") { if (m < 2) { t0=t; next } else { nomark=1; exit } } if (m>=2 && c>=0.02 && t1=="") t1=t }
     END { if (nomark || t0=="" || t1=="") print "NA"; else printf "%d\n", (t1-t0)*1000 }'
 }
