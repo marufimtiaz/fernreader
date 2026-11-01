@@ -1,5 +1,6 @@
 package app.epubreader.reader
 
+import app.epubreader.settled
 import android.content.ClipboardManager
 import android.util.Log
 import androidx.test.core.app.ActivityScenario
@@ -63,9 +64,9 @@ class SelectionMenuTest {
 
     /** One of our items in the floating toolbar (opening its overflow if the item is there). */
     private fun menuItem(text: String): UiObject2 {
-        dev.wait(Until.findObject(By.text(text)), 1_500)?.let { return it }
-        dev.findObject(By.desc("More options"))?.click()
-        return dev.wait(Until.findObject(By.text(text)), 3_000) ?: error("menu item \"$text\" not found; screen: ${screenTexts()}")
+        dev.settled(By.text(text), 1_500)?.let { return it }
+        dev.settled(By.desc("More options"), 1_000)?.click()
+        return dev.settled(By.text(text), 3_000) ?: error("menu item \"$text\" not found; screen: ${screenTexts()}")
     }
 
     private fun screenTexts() = dev.findObjects(By.textStartsWith("")).mapNotNull { it.text }.filter { it.isNotBlank() }

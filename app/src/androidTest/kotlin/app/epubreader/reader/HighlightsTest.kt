@@ -1,5 +1,6 @@
 package app.epubreader.reader
 
+import app.epubreader.settled
 import android.util.Log
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -100,9 +101,9 @@ class HighlightsTest {
     }
 
     private fun menuItem(text: String): UiObject2 {
-        dev.wait(Until.findObject(By.text(text)), 1_500)?.let { return it }
-        dev.findObject(By.desc("More options"))?.click()
-        return dev.wait(Until.findObject(By.text(text)), 3_000) ?: error("menu item \"$text\" not found")
+        dev.settled(By.text(text), 1_500)?.let { return it }
+        dev.settled(By.desc("More options"), 1_000)?.click()
+        return dev.settled(By.text(text), 3_000) ?: error("menu item \"$text\" not found")
     }
 
     private fun shot(name: String) = dev.takeScreenshot(File(inst.targetContext.getExternalFilesDir(null), name))

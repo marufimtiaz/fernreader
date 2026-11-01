@@ -35,6 +35,8 @@ android {
         }
     }
     buildFeatures { compose = true; buildConfig = true }
+    // C-049: window animations off while instrumented tests run (Gradle runs; `am instrument --no-window-animation`)
+    testOptions { animationsDisabled = true }
     // R-009: the instrumented old-backup restore reads the frozen v1 fixtures of core:data (never copied, never edited).
     sourceSets.getByName("androidTest").assets.directories += "../core/data/src/jvmTest/resources/backup"
     compileOptions {
