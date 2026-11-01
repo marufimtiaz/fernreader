@@ -12,6 +12,21 @@ class LibraryRepositoryTest {
     private val repo = LibraryRepository(db, HybridClock(System::currentTimeMillis))
     private fun info(id: String, ref: SourceRef, title: String = "T") = OpenedBookInfo(id, title, listOf("A"), ref, 100)
 
+    /** M8 review M2: a forgotten source and dropped open-with sources take their chunk caches with them. */
+    @Test fun forgetting_sources_drops_their_derived_caches() = runTest {
+        val dropped = mutableListOf<List<String>>()
+        val r = LibraryRepository(db, HybridClock(System::currentTimeMillis), grantPersisted = { it.endsWith("/kept") },
+            onCacheDeleted = { _, keys -> dropped += keys })
+        r.recordOpened(info("id-1", SourceRef.Content("content://x/once")))   // a grant that could not be kept
+        r.recordOpened(info("id-2", SourceRef.Content("content://x/kept")))
+        r.dropSessionFiles()
+        assertEquals(listOf(listOf("content://x/once")), dropped)
+        r.forget(SourceRef.File("/sdcard/gone.epub"))
+        assertEquals(listOf("/sdcard/gone.epub"), dropped.last())
+        r.dropSessionFiles() // nothing left to drop: no call
+        assertEquals(2, dropped.size)
+    }
+
     @Test fun first_open_creates_book_and_remembers_source() = runTest {
         val ref = SourceRef.Content("content://x/1")
         assertNull(repo.knownBookId(ref))

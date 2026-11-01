@@ -21,7 +21,7 @@ class DeleteHideTest {
     private val clock = HybridClock(System::currentTimeMillis)
     private val gone = mutableListOf<String>()
     /** Book id -> file sources whose derived caches outside the database were dropped (M8 chunk directories). */
-    private val cachesDropped = mutableListOf<Pair<String, Set<String>>>()
+    private val cachesDropped = mutableListOf<Pair<String?, Set<String>>>()
     private val repo = LibraryRepository(db, clock, deleteFile = { File(it).delete() }, onBookFilesDeleted = { id, _ -> gone += id },
         onCacheDeleted = { id, keys -> cachesDropped += id to keys.toSet() })
     private val root = ScanFixtures.folderSet()
@@ -58,7 +58,7 @@ class DeleteHideTest {
         assertNull(db.bookCacheDao().get(id, "section-stats.v1", "d")) // M4 deferred: cache rows go with their book
         assertEquals(listOf(id), gone) // thumbnail cleanup hook
         // M8: the chunk caches (keyed by each file's source key) go with the book_cache rows.
-        assertEquals(listOf(id to setOf(f("Download/dup.epub").path, f("Documents/Books/dup-copy.epub").path)), cachesDropped)
+        assertEquals(listOf<Pair<String?, Set<String>>>(id to setOf(f("Download/dup.epub").path, f("Documents/Books/dup-copy.epub").path)), cachesDropped)
         scan()
         assertFalse("Folder Test dup" in titles())
         assertNotNull(repo.position(id)) // kept by id: the same book found again later resumes (F-012)

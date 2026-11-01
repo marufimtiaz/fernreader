@@ -23,6 +23,7 @@ abstract class LibraryDao {
     @Query("SELECT * FROM book_file WHERE path = :path") abstract suspend fun fileRow(path: String): BookFileEntity?
 
     @Query("DELETE FROM book_file WHERE path = :path AND source IN ('opened', 'session')") abstract suspend fun forgetOpened(path: String)
+    @Query("SELECT path FROM book_file WHERE source = 'session'") abstract suspend fun sessionPaths(): List<String>
     @Query("DELETE FROM book_file WHERE source = 'session'") abstract suspend fun dropSessionFiles()
 
     /** Book by identity (created on first sight) + its source; one transaction. Returns the book id. */

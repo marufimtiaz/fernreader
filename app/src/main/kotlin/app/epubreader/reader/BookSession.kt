@@ -26,8 +26,14 @@ class BookSession(
 ) : AutoCloseable {
     @Volatile var chunked: ChunkedBook? = chunked
         private set
-    /** Its book's chunk cache was deleted with the book ([BookOpener.forget]): never rebuilt, so never recreated. */
+    /** Its book's chunk cache was deleted with the book ([forget]): never rebuilt, so never recreated. */
     @Volatile var forgotten = false
+        private set
+    /**
+     * A rebuild failed (no space, out of memory, a different map): later reads fail at once instead of re-running the
+     * chunker (which starts by clearing the store) on every WebView request.
+     */
+    @Volatile private var rebuildFailed: String? = null
     private val rebuildLock = Any()
 
     val cdDigest: String get() = zip.centralDirectoryDigest
@@ -60,11 +66,34 @@ class BookSession(
         val now = chunked!!
         if (now !== seen) return now
         if (forgotten) throw ChunkCacheException("chunk cache deleted with its book")
+        rebuildFailed?.let { throw ChunkCacheException("chunk cache rebuild failed before: $it") }
         val r = rechunk ?: throw ChunkCacheException("chunk cache gone and no way to rebuild it")
-        val b = r()
-        if (b.map != seen.map) throw ChunkCacheException("rebuilt chunk map differs from the open book's")
+        val b = try {
+            r()
+        } catch (e: Exception) {
+            rebuildFailed = e.toString()
+            throw ChunkCacheException("chunk cache rebuild failed: $e")
+        } catch (e: OutOfMemoryError) { // never on a WebView thread: the server answers 500
+            rebuildFailed = e.toString()
+            throw ChunkCacheException("chunk cache rebuild ran out of memory")
+        }
+        // Deleted with its book while rebuilding: the caller deletes the directory once [forget] returns.
+        if (forgotten) throw ChunkCacheException("chunk cache deleted with its book")
+        if (b.map != seen.map) {
+            rebuildFailed = "map differs"
+            throw ChunkCacheException("rebuilt chunk map differs from the open book's")
+        }
         chunked = b
         b
+    }
+
+    /**
+     * The book's chunk cache is being deleted (M7 delete path, a forgotten source): no rebuild starts from now on,
+     * and this returns only after a rebuild in flight has finished, so the caller's deletion comes after its writes.
+     */
+    fun forget() {
+        forgotten = true
+        synchronized(rebuildLock) {}
     }
 
     override fun close() = zip.close() // closes the RandomAccessSource too

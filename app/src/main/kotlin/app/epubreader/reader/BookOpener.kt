@@ -1,6 +1,7 @@
 package app.epubreader.reader
 
 import android.util.Log
+import androidx.annotation.VisibleForTesting
 import app.epubreader.core.data.SourceRef
 import app.epubreader.core.data.newId
 import app.epubreader.core.epub.chunk.ChunkPolicy
@@ -44,7 +45,8 @@ class BookOpener(
      * Chunk policy of the opens from now on. A test hook too: an instrumented test opens the same book unsplit (a
      * threshold over the file's size) as a control. A warm session is reused only under the policy it was opened with.
      */
-    @Volatile var policy: ChunkPolicy = ChunkPolicy()
+    @VisibleForTesting
+    @Volatile internal var policy: ChunkPolicy = ChunkPolicy()
     private val lock = Mutex()
     @Volatile private var current: BookSession? = null
     private var warm: BookSession? = null
@@ -120,10 +122,10 @@ class BookOpener(
      */
     suspend fun forget(sourceKeys: Collection<String>) = withContext(io) {
         lock.withLock {
-            current?.takeIf { it.ref.key in sourceKeys }?.forgotten = true
+            current?.takeIf { it.ref.key in sourceKeys }?.forget()
             warm?.takeIf { it.ref.key in sourceKeys }?.let { w ->
                 warm = null
-                w.forgotten = true
+                w.forget()
                 server.unregister(w.id); w.close()
             }
         }

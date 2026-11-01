@@ -38,10 +38,12 @@ class LibraryRepository(
     /** Awaited before recording an open (the start-up [dropSessionFiles] must not remove a source opened just now). */
     private val beforeRecordOpened: suspend () -> Unit = {},
     /**
-     * Drops what the app derived from a book's files outside the database and keyed by their source keys
-     * (`book_file.path`, i.e. `SourceRef.key`): M8's chunk caches. Called with the `book_cache` rows' deletion.
+     * Drops what the app derived from book files outside the database and keyed by their source keys
+     * (`book_file.path`, i.e. `SourceRef.key`): M8's chunk caches. Called with the `book_cache` rows' deletion
+     * ([deleteBooks], with the book id), and for sources the library forgets ([forget], [dropSessionFiles], no id).
+     * A file moved elsewhere keeps its old cache until the system trims the cache directory.
      */
-    private val onCacheDeleted: suspend (bookId: String, sourceKeys: List<String>) -> Unit = { _, _ -> },
+    private val onCacheDeleted: suspend (bookId: String?, sourceKeys: List<String>) -> Unit = { _, _ -> },
     /** Where file deletion runs (R-005: never the main thread). */
     private val io: CoroutineDispatcher = Dispatchers.IO,
 ) : LibraryOps {
@@ -71,9 +73,16 @@ class LibraryRepository(
      * At process start: sources that were readable only in the last session (a content:// grant that could not be
      * persisted) are gone; their entries leave the library. Reading data stays by book id for the next open.
      */
-    suspend fun dropSessionFiles() = db.libraryDao().dropSessionFiles()
+    suspend fun dropSessionFiles() {
+        val keys = db.libraryDao().sessionPaths()
+        db.libraryDao().dropSessionFiles()
+        if (keys.isNotEmpty()) onCacheDeleted(null, keys)
+    }
 
-    suspend fun forget(ref: SourceRef) = db.libraryDao().forgetOpened(ref.key)
+    suspend fun forget(ref: SourceRef) {
+        db.libraryDao().forgetOpened(ref.key)
+        onCacheDeleted(null, listOf(ref.key))
+    }
 
     fun library(): Flow<List<LibraryBook>> = db.libraryDao().library().map { rows -> rows.map(::toBook) }
 

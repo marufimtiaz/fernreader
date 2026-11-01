@@ -19,6 +19,11 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.Assert.assertFalse
+import org.junit.Assert.fail
+import java.io.IOException
+import java.nio.file.Files
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
@@ -99,5 +104,52 @@ class BookContentServerChunkTest {
         assertEquals(500, server.serve("$sid/OPS/p.opf").status)
         assertEquals(500, server.serve("$sid/entries.json").status)
         assertEquals(200, server.serve("$sid/mimetype").status) // a plain zip entry is still served
+    }
+
+    /** Review I1: a failed rebuild (ENOSPC, OOM) is remembered: one attempt, every request a 500, nothing escapes. */
+    @Test fun a_failed_rebuild_is_tried_once_and_never_escapes() {
+        for (failure in listOf<Throwable>(IOException("ENOSPC"), OutOfMemoryError("test"))) {
+            var calls = 0
+            val (sid, map) = open { _, _ -> if (++calls > 1) throw failure; store }
+            store.clear()
+            val paths = map.docs.getValue("OPS/big.xhtml").parts.take(4).map { it.path } + "OPS/p.opf"
+            val statuses = paths.map { p -> try { server.serve("$sid/$p").status } catch (t: Throwable) { fail("escaped serve(): $t"); 0 } }
+            assertEquals("$failure", List(5) { 500 }, statuses)
+            assertEquals("$failure: the open, then one rebuild", 2, calls)
+            assertEquals(200, server.serve("$sid/mimetype").status)
+        }
+    }
+
+    /** Review M1: a book deleted while its cache is being rebuilt does not get its directory back. */
+    @Test fun a_rebuild_in_flight_does_not_recreate_a_deleted_cache() {
+        val dirs = ChunkDirs(Files.createTempDirectory("chunks").toFile())
+        val ref = SourceRef.File("/b.epub")
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        var calls = 0
+        val sources = object : Sources {
+            override fun open(ref: SourceRef) = OpenedSource(ByteArraySource(bytes), bytes.size.toLong())
+            override fun stamp(ref: SourceRef) = "1"
+        }
+        val o = BookOpener(sources, server, Dispatchers.Unconfined, warn = {}, chunkStore = { r, p ->
+            if (++calls > 1) { entered.countDown(); release.await() } // the rebuild blocks here
+            dirs.store(r, p)
+        }).also { it.policy = ChunkTestBook.small }
+        val sid = (runBlocking { o.open(ref) } as OpenResult.Ok).sessionId
+        assertTrue(dirs.dirOf(ref.key).isDirectory)
+        dirs.delete(listOf(ref.key)) // the system trimmed it
+        val pool = Executors.newFixedThreadPool(2)
+        try {
+            val request = pool.submit<Int> { server.serve("$sid/OPS/p.opf").status }
+            assertTrue(entered.await(10, TimeUnit.SECONDS))
+            // The M7 delete path (AppGraph.forgetChunks): forget, then delete the directory.
+            val deletion = pool.submit { runBlocking { o.forget(listOf(ref.key)) }; dirs.delete(listOf(ref.key)) }
+            Thread.sleep(300)
+            assertFalse("forget waits for the rebuild in flight", deletion.isDone)
+            release.countDown()
+            assertEquals(500, request.get(10, TimeUnit.SECONDS)) // its result is dropped: the book is gone
+            deletion.get(10, TimeUnit.SECONDS)
+            assertFalse(dirs.dirOf(ref.key).exists())
+        } finally { release.countDown(); pool.shutdown() }
     }
 }

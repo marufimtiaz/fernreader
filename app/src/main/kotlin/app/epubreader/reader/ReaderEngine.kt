@@ -131,6 +131,9 @@ private class BookPathHandler(private val server: BookContentServer) : WebViewAs
     } catch (e: Exception) {
         Log.w("EPR", "book request failed: $path: $e")
         response(500, "Internal Server Error", "text/plain", ByteArrayInputStream(ByteArray(0)))
+    } catch (e: Throwable) { // last guard (M8 review I1): an Error here would crash the app on a WebView thread
+        Log.e("EPR", "book request failed: $path", e)
+        response(500, "Internal Server Error", "text/plain", ByteArrayInputStream(ByteArray(0)))
     }
 
     private fun response(status: Int, reason: String, mime: String, body: InputStream) =
