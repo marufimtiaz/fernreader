@@ -26,8 +26,11 @@ def evaluate(rows, targets):
         t = targets.get(id_)
         if t is None:
             out[id_] = {"status": "FAIL", "median": m, "reason": "no target defined"}
+        elif t.get("info") and "must" in t:
+            out[id_] = {"status": "FAIL", "median": m, "reason": "target has both info and must"}
         elif t.get("info"):
-            out[id_] = {"status": "INFO", "median": m, "reason": "recorded, not gated"}
+            junk = sum(v >= 999999 for v in vals)
+            out[id_] = {"status": "INFO", "median": m, "reason": f"recorded, not gated{f'; {junk} run(s) not measured (raw NA)' if junk else ''}"}
         elif len(vals) < 3:
             out[id_] = {"status": "FAIL", "median": m, "reason": f"only {len(vals)} runs (need >= 3)"}
         elif m > t["must"]:

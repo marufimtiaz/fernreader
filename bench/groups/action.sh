@@ -86,7 +86,7 @@ bench_cmd back
 # --- M9 (--release): P-023 rotation on the huge single chapter (as P-022: app-requested orientation, recording from the
 # marker to the last change), after its page count settled.
 if [ "$RELEASE" = 1 ]; then
-  bench_cmd openPath "$B/generated/stress-huge-single-chapter.epub"; sleep 8
+  $A logcat -c; bench_cmd openPath "$B/generated/stress-huge-single-chapter.epub"; sleep 8
   wait_ev page_total_exact 30 || echo "  (P-023: no page_total_exact before run 1)"
   for RUN in 1 2 3; do
     v="$OUT/P-023-$RUN.mp4"; $A logcat -c

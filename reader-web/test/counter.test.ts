@@ -124,6 +124,32 @@ describe('PageCounter alone mode (C-032: vertical books counted one section at a
     expect(withCounts.at(-1).done).toBe(true)
     expect(Object.fromEntries(withCounts.flatMap(m => m.counts))).toEqual(Object.fromEntries(linear.map(i => [i, i + 1])))
   })
+  it('big sections: the sample split over several documents is still one sample message; done only on the last (C-062)', async () => {
+    const { PageCounter } = await import('../src/reader/counter')
+    const sections = Array.from({ length: 30 }, (_, i) => ({ load: async () => `blob:${i}`, size: 200_000 }))
+    const renderer = { pagedLayout: { width: 400, height: 800, gap: 28, columnWidth: 372, margin: 32 }, styles: '', busy: false }
+    const msgs: any[] = []
+    const counter = new PageCounter(sections, () => renderer, () => ({}) as any, 'en', 'ltr', m => msgs.push(m), { alone: true })
+    ;(counter as any).countAlone = async (i: number) => i + 1
+    await counter.start(1)
+    const withCounts = msgs.filter(m => m.counts.length)
+    const sampleMsgs = withCounts.filter(m => m.sample)
+    expect(sampleMsgs).toHaveLength(1)
+    expect(sampleMsgs[0].counts.map((c: number[]) => c[0])).toEqual(stratifiedSample(sections.map((_, i) => i), 12))
+    expect(withCounts[0]).toBe(sampleMsgs[0])
+    expect(withCounts.filter(m => m.done)).toEqual([withCounts.at(-1)])
+  })
+  it('stopped while the sample is held: no sample message is sent', async () => {
+    const { PageCounter } = await import('../src/reader/counter')
+    const sections = Array.from({ length: 30 }, (_, i) => ({ load: async () => `blob:${i}`, size: 200_000 }))
+    const renderer = { pagedLayout: { width: 400, height: 800, gap: 28, columnWidth: 372, margin: 32 }, styles: '', busy: false }
+    const msgs: any[] = []
+    const counter = new PageCounter(sections, () => renderer, () => ({}) as any, 'en', 'ltr', m => msgs.push(m), { alone: true })
+    let n = 0
+    ;(counter as any).countAlone = async (i: number) => { if (++n === 3) counter.stop(); return i + 1 }
+    await counter.start(1)
+    expect(msgs.filter(m => m.counts.length)).toEqual([])
+  })
   it('waits while a page turn runs before each section', async () => {
     const { PageCounter } = await import('../src/reader/counter')
     const sections = [{ load: async () => 'a' }, { load: async () => 'b' }]
