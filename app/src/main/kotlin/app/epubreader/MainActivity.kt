@@ -21,6 +21,7 @@ import app.epubreader.reader.ReaderWindowInputs
 import app.epubreader.reader.WindowApplier
 import app.epubreader.reader.WindowLook
 import app.epubreader.reader.readerWindowState
+import app.epubreader.reader.rememberReaderShown
 import android.view.WindowManager
 import app.epubreader.reader.display.ReadingTheme
 import androidx.compose.runtime.getValue
@@ -229,10 +230,15 @@ class MainActivity : ComponentActivity() {
             androidx.compose.runtime.LaunchedEffect(mode) { withContext(Dispatchers.IO) { app.epubreader.settings.AppThemeCache.write(this@MainActivity, mode) } }
             val dateFormat = androidx.compose.runtime.remember { java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT) } // bookmark dates (F-041)
             val inReader = nav.top == Route.Reader
+            // P-015: the reader's window (bars hidden: a system insets animation that redraws every frame) is applied one
+            // frame after the reader's first frame, never with it. Applied with it, the next frame's draw waits for the
+            // render thread to finish the first one (its first WebView draw, 100-300 ms on the emulator), and the main
+            // thread stalls right at the open. Leaving the reader restores the library's window at once.
+            val readerShown = rememberReaderShown(inReader)
             val winInputs by windowInputs.collectAsState()
-            val win = readerWindowState(inReader, winInputs, rs)
-            val brightness = if (inReader) rs.brightness?.toFloat() ?: WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
-            SideEffect { windowLook.update(WindowLook(brightness, lightBars = if (inReader) theme.isLight else !dark, win)) }
+            val win = readerWindowState(readerShown, winInputs, rs)
+            val brightness = if (readerShown) rs.brightness?.toFloat() ?: WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+            SideEffect { windowLook.update(WindowLook(brightness, lightBars = if (readerShown) theme.isLight else !dark, win)) }
             Box {
                 App(
                     dark = dark, webViewTooOld = webViewTooOld, nav = nav, library = library, reader = controller, probe = probe,

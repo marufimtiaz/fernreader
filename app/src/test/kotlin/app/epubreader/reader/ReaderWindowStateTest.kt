@@ -85,4 +85,12 @@ class ReaderWindowStateTest {
         WindowApplier { applied += it }.reapply() // nothing applied yet: nothing to repeat
         assertEquals(3, applied.size)
     }
+
+    /** P-015: the reader's window waits for the reader's first frame; leaving the reader restores the library's at once. */
+    @Test fun the_reader_window_waits_for_the_readers_first_frame() {
+        assertFalse(readerWindowActive(inReader = true, readerFramed = false))
+        assertTrue(readerWindowActive(inReader = true, readerFramed = true))
+        assertFalse(readerWindowActive(inReader = false, readerFramed = true))
+        assertFalse(readerWindowActive(inReader = false, readerFramed = false))
+    }
 }

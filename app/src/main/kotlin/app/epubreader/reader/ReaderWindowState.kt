@@ -3,6 +3,8 @@ package app.epubreader.reader
 import android.content.pm.ActivityInfo
 import app.epubreader.core.data.OrientationLock
 import app.epubreader.core.data.ReaderSettings
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 
 /** What the activity's window should look like (F-035). */
 data class ReaderWindowState(val barsHidden: Boolean, val keepScreenOn: Boolean, val orientation: Int)
@@ -55,3 +57,21 @@ class WindowApplier(private val apply: (WindowLook) -> Unit) {
     }
     fun reapply() { last?.let(apply) }
 }
+
+/**
+ * True once the reader route has been on screen for a frame (P-015): the reader's window look waits for it, so the
+ * frame after the reader's first one is not made to draw (and wait for the render thread) by a window change.
+ * False again as soon as the route is left.
+ */
+@androidx.compose.runtime.Composable
+fun rememberReaderShown(inReader: Boolean): Boolean {
+    var framed by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(inReader) {
+        framed = false
+        if (inReader) { androidx.compose.runtime.withFrameNanos { }; framed = true }
+    }
+    return readerWindowActive(inReader, framed)
+}
+
+/** The reader's window look applies only on the reader route, after its first frame ([rememberReaderShown]). */
+fun readerWindowActive(inReader: Boolean, readerFramed: Boolean): Boolean = inReader && readerFramed

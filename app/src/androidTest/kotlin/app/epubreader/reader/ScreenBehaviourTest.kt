@@ -94,6 +94,43 @@ class ScreenBehaviourTest {
         sc.onActivity { it.controller.toggleChrome() }
     }
 
+    /**
+     * P-015 (M6 regression): opening a book does not change the window in the reader's first frame. Applied with it, the
+     * bars' insets animation makes the next frame draw, and that draw waits for the render thread to finish the first
+     * one (the WebView's first draw), ~150-450 ms on the emulator. The bars are still hidden right after.
+     */
+    @Test fun the_reader_window_is_applied_after_the_readers_first_frame(): Unit = runBlocking {
+        val f = TestBooks.write(inst.targetContext, "screen-first.epub", TestBooks.epub(id = "urn:uuid:scr1-${System.nanoTime()}", chapters = 2, paragraphs = 30))
+        ActivityScenario.launch(MainActivity::class.java).use { sc ->
+            val h = ReaderHarness(sc, this)
+            try {
+                h.ready()
+                eventually("library", Route.Library) { sc.read { it.nav.top } }
+                eventually("bars visible in the library", true) { sc.statusBar() }
+                var before = -1
+                var atFirstDraw = -1
+                sc.onActivity { a ->
+                    before = a.windowApplies
+                    val decor = a.window.decorView
+                    val l = object : android.view.ViewTreeObserver.OnDrawListener {
+                        override fun onDraw() {
+                            if (atFirstDraw >= 0) return
+                            atFirstDraw = a.windowApplies
+                            decor.post { decor.viewTreeObserver.removeOnDrawListener(this) }
+                        }
+                    }
+                    decor.viewTreeObserver.addOnDrawListener(l)
+                    a.openBook(app.epubreader.core.data.SourceRef.File(f.path))
+                }
+                eventually("first reader frame drawn", true) { sc.read { atFirstDraw >= 0 } }
+                assertEquals("window applies in the reader's first frame", before, atFirstDraw)
+                eventually("hidden in the reader", false) { sc.statusBar() }
+            } finally {
+                h.stop()
+            }
+        }
+    }
+
     /** M6 (review): an error screen lets the screen time out and shows the bars. */
     @Test fun an_open_failure_screen_shows_the_bars_and_does_not_keep_the_screen_on(): Unit = runBlocking {
         ActivityScenario.launch(MainActivity::class.java).use { sc ->
