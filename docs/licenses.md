@@ -53,3 +53,4 @@ next to it. Downloaded from the google/fonts repository (`ofl/<family>/`) on 202
 | Literata (variable, roman + italic) | `literata.ttf`, `literata-italic.ttf` | SIL OFL 1.1 (`OFL-Literata.txt`) | 2017 The Literata Project Authors |
 | Source Sans 3 (variable, roman + italic) | `source-sans-3.ttf`, `source-sans-3-italic.ttf` | SIL OFL 1.1 (`OFL-SourceSans3.txt`) | 2010-2020 Adobe |
 | Atkinson Hyperlegible (regular, italic, bold, bold italic) | `atkinson-*.ttf` | SIL OFL 1.1 (`OFL-AtkinsonHyperlegible.txt`) | 2020 Braille Institute of America, Inc. |
+| Noto Sans Math (regular; OpenType MATH table, used for `math` elements only, C-047; added in M9 from `ofl/notosansmath/` on 2026-11-01) | `noto-sans-math.ttf` | SIL OFL 1.1 (`OFL-NotoSansMath.txt`) | 2022 The Noto Project Authors |

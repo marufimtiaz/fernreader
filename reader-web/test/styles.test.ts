@@ -16,6 +16,17 @@ describe('readerCss', () => {
     expect(css).toContain('url("https://appassets.androidplatform.net/assets/reader/fonts/literata.ttf")')
     expect(css).not.toMatch(/url\("?\.\.?\//)
   })
+  // C-047: MathML gets a font with an OpenType MATH table (stretchy fences, radicals), and the reader's font
+  // override never reaches into a formula.
+  it('gives math elements the bundled math font, outside the reader font override', () => {
+    expect(css).toContain('@font-face { font-family: "Noto Sans Math"; src: url("https://appassets.androidplatform.net/assets/reader/fonts/noto-sans-math.ttf")')
+    expect(css).toMatch(/(^|\n)math \{ font-family: "Noto Sans Math", math !important; \}/)
+    const override = css.split('\n').find(r => r.includes('font-family: var(--er-font)'))!
+    const selector = override.slice(0, override.indexOf('{')).trim()
+    const d = new DOMParser().parseFromString('<html data-er-font="literata"><body><p>x</p><math xmlns="http://www.w3.org/1998/Math/MathML"><mrow><mo>[</mo><mi>A</mi></mrow></math></body></html>', 'text/html')
+    expect(d.querySelector('p')!.matches(selector)).toBe(true)
+    for (const el of d.querySelectorAll('math, math *')) expect(el.matches(selector)).toBe(false)
+  })
   it('sets no color-scheme: a frame whose scheme differs from the host page gets an opaque #121212 canvas', () => {
     expect(css).not.toContain('color-scheme')
   })

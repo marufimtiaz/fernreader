@@ -51,6 +51,8 @@ export function readerCss(base: string): string {
     face('Atkinson Hyperlegible', 'atkinson-italic.ttf', 'italic', '400', base),
     face('Atkinson Hyperlegible', 'atkinson-bold.ttf', 'normal', '700', base),
     face('Atkinson Hyperlegible', 'atkinson-bolditalic.ttf', 'italic', '700', base),
+    // C-047: an OpenType MATH table, so fences and radicals stretch (Android ships no math font).
+    face('Noto Sans Math', 'noto-sans-math.ttf', 'normal', '400', base),
   ]
   const themes = Object.entries(THEMES).map(([id, t]) =>
     `html[data-er-theme="${id}"] { --er-bg: ${t.bg}; --er-fg: ${t.fg}; --er-link: ${t.link}; --er-rule: ${t.rule}; }`)
@@ -62,7 +64,8 @@ export function readerCss(base: string): string {
     'html[data-er-lh] body, html[data-er-lh] body :is(p, li, blockquote, dd, dt) { line-height: var(--er-line-height) !important; }',
     'html[data-er-align="start"] body :is(p, li, blockquote, dd) { text-align: start !important; }',
     'html[data-er-align="justify"] body :is(p, li, blockquote, dd) { text-align: justify !important; }',
-    'html[data-er-font] body, html[data-er-font] body :not(code, pre, kbd, samp, tt, code *, pre *) { font-family: var(--er-font) !important; }',
+    'html[data-er-font] body, html[data-er-font] body :not(code, pre, kbd, samp, tt, code *, pre *, math, math *) { font-family: var(--er-font) !important; }',
+    'math { font-family: "Noto Sans Math", math !important; }',
     ...themes,
     // The paper is the host page (it follows the theme); section documents stay transparent, so margins, the page and
     // the edges always have the same colour, also right after a theme change.
