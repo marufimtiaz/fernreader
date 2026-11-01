@@ -1,3 +1,5 @@
+// LOCAL PATCH (M9 C-071, see PATCHES.md): a turn into a preloaded neighbour section slides (`animated`) instead of
+// swapping instantly: #slideIn moves the old and the new slot side by side over 300 ms.
 // LOCAL PATCH (M6 Task 9, see PATCHES.md): `vertical-pages` attribute: vertical-rl sections paged right-to-left as
 // horizontal pages (multicol rows with `column-wrap`) where supported.
 // LOCAL PATCH (epub-reader M4, see PATCHES.md): `View` exported; `layout`, `styles`, `busy` getters; neighbour-section
@@ -32,6 +34,13 @@ const debounce = (f, wait, immediate) => {
 
 const lerp = (min, max, x) => x * (max - min) + min
 const easeOutQuad = x => 1 - (1 - x) * (1 - x)
+
+// local patch (C-071): the boundary slide's geometry. [slideSign]: which way the content moves for a turn [dir]
+// (1 = next): toward the line start, so left in left-to-right books, right in right-to-left ones. [slideFrame]: at
+// progress [t] (0..1, eased) the old page's and the incoming page's offsets for a viewport [width]; they stay exactly one
+// width apart, so no gap (blank) ever shows between them.
+export const slideSign = (dir, rtl) => (dir > 0 ? -1 : 1) * (rtl ? -1 : 1)
+export const slideFrame = (t, sign, width) => ({ old: sign * width * t + 0, next: -sign * width * (1 - t) + 0 })
 const animate = (a, b, duration, ease, render) => new Promise(resolve => {
     let start
     const step = now => {
@@ -1434,10 +1443,16 @@ export class Paginator extends HTMLElement {
         if (this.#preload && this.#view && !this.scrolled) { // no view yet: the first `next()` of an open displays section 0
             const target = this.#adjacentIndex(dir)
             const atEdge = prev ? this.page <= 1 : this.page >= this.pages - 2
-            if (atEdge && target != null && this.#cache.has(target)
-                && await this.#swapTo(target, prev ? () => 1 : () => 0)) {
-                this.#locked = false
-                return
+            if (atEdge && target != null && this.#cache.has(target)) {
+                // local patch (C-071): with `animated`, the neighbour slides in like any other page turn
+                const from = this.#cache.get(this.#index)
+                const slide = this.hasAttribute('animated') && !document.hidden && !this.#vertical && from
+                const before = slide ? from.view.element.getBoundingClientRect() : null
+                if (await this.#swapTo(target, prev ? () => 1 : () => 0)) {
+                    if (before) await this.#slideIn(from, this.#cache.get(target), before, dir)
+                    this.#locked = false
+                    return
+                }
             }
         }
         const shouldGo = await (prev ? this.#scrollPrev(distance) : this.#scrollNext(distance))
@@ -1447,6 +1462,36 @@ export class Paginator extends HTMLElement {
         })
         if (shouldGo || !this.hasAttribute('animated')) await wait(100)
         this.#locked = false
+    }
+    #lastSlide = []
+    /** Diagnostics for tests (C-071): the frames of the last boundary slide, `{ t, old, next }` offsets in CSS px. */
+    get debugSlide() { return this.#lastSlide }
+    /**
+     * Local patch (C-071): [to] has just been swapped in (in flow, scrolled to its page); [from] is the slot that was on
+     * screen, its view element at [before] (viewport rect) before the swap. The old slot is pinned where it was (absolute,
+     * shifted back to its old screen position), then both move one container width in the turn's direction, eased like
+     * an in-section turn. Both documents are laid out already (preloaded), so every frame shows real pages.
+     */
+    async #slideIn(from, to, before, dir) {
+        const width = this.#container.getBoundingClientRect().width
+        if (!to || !(width > 0)) return
+        const old = from.slot
+        old.style.cssText = 'position: absolute; top: 0; left: 0; overflow: visible; pointer-events: none; z-index: 1'
+        const base = before.left - from.view.element.getBoundingClientRect().left
+        const sign = slideSign(dir, this.#rtl)
+        const frames = []
+        this.#lastSlide = frames
+        const set = t => {
+            const f = slideFrame(t, sign, width)
+            old.style.transform = `translateX(${base + f.old}px)`
+            to.slot.style.transform = `translateX(${f.next}px)`
+            frames.push({ t, old: f.old, next: f.next })
+        }
+        set(0)
+        await animate(0, 1, 300, easeOutQuad, set)
+        to.slot.style.transform = ''
+        old.style.transform = ''
+        if (this.#cache.get(this.#index)?.slot !== old) this.#slotStyle(old, false)
     }
     prev(distance) {
         return this.#turnPage(-1, distance)

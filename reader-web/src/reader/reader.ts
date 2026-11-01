@@ -135,6 +135,8 @@ export class Reader {
       },
       searchHighlight: () => this.search?.cfi ?? null,
       slots: () => this.view?.renderer?.debugSlots ?? null,
+      /** C-071: frames of the last boundary slide (`{ t, old, next }`, CSS px), [] if none ran. */
+      slide: () => this.view?.renderer?.debugSlide ?? null,
       linear: () => (this.book?.sections ?? []).map((x: any, i: number) => (x.linear !== 'no' ? i : -1)).filter((i: number) => i >= 0),
       /**
        * Loads a registered session's package like an open does and keeps the identifier `opened` would report, without

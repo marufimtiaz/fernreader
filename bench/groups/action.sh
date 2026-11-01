@@ -66,20 +66,22 @@ for RUN in 1 2 3; do
   wait_ev page_total_exact 20 || echo "  (P-022: no page_total_exact after run $RUN)"
 done
 bench_cmd orient free; sleep 2
-# P-026: next from the last page of a chapter (the neighbour is preloaded); 5 turns per run, median per run.
+# P-026: next from the last page of a chapter (the neighbour is preloaded, C-071: it slides in); 5 turns per run, median
+# per run of input -> first frame of the slide; blank/partial frames over the whole recording (S2 rule).
 for RUN in 1 2 3; do
-  vals=(); blanks=0
+  vals=(); slides=(); blanks=0
   for k in 1 2 3 4 5; do
     bench_cmd lastPage; sleep 2
     v="$OUT/P-026-$RUN-$k.mp4"
     $AD record start "$v" --scope device --hide-touches >/dev/null 2>&1; sleep 1.5
     bench_cmd next; sleep 2
     $AD record stop >/dev/null 2>&1
-    vals+=("$(video_ms "$v")")
+    vals+=("$(video_first_ms "$v")") # C-071: input -> first frame of the slide (the slide itself: P-025)
+    slides+=("$(video_ms "$v")")
     b=$(ink_verdict "$v"); [ "$b" = NA ] || blanks=$((blanks + b))
   done
   med=$(printf '%s\n' "${vals[@]}" | grep -E '^[0-9]+$' | sort -n | awk '{a[NR]=$1} END { if (NR) print a[int((NR+1)/2)]; else print "NA" }')
-  emit P-026 "$med" "turns: ${vals[*]}"
+  emit P-026 "$med" "input -> first slide frame per turn: ${vals[*]}; input -> last change: ${slides[*]}"
   emit P-026.blank_frames "$blanks"
 done
 bench_cmd back

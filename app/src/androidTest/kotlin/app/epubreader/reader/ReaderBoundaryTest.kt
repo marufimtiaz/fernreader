@@ -9,10 +9,11 @@ import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.json.JSONObject
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** P-026 / F-031 basis: neighbour sections are preloaded and boundary turns swap them in (War and Peace). */
+/** P-026 / F-031 basis: neighbour sections are preloaded and boundary turns bring them in (War and Peace); C-071: with a slide. */
 @RunWith(AndroidJUnit4::class)
 class ReaderBoundaryTest {
     private suspend fun ReaderHarness.loaded(): List<Int> = JSONArray(sc.js("window.__readerTest.loaded()")).let { a -> List(a.length()) { a.getInt(it) } }
@@ -60,6 +61,69 @@ class ReaderBoundaryTest {
             h.painted()
             assertTrue("still drawn after the swap", sc.js("window.__readerTest.overlayCount($next)").toInt() > 0)
             h.stop()
+        }
+    }
+
+    private suspend fun ReaderHarness.slideFrames(): List<JSONObject> = JSONArray(sc.js("JSON.stringify(window.__readerTest.slide() ?? [])").let { org.json.JSONTokener(it).nextValue() as String })
+        .let { a -> List(a.length()) { a.getJSONObject(it) } }
+
+    /**
+     * Checks one boundary slide: several distinct in-between frames (not one swap), the two pages exactly one width apart
+     * in every frame (no gap, so no blank shows), moving the way the turn goes ([sign] -1 = content to the left), ending in place.
+     */
+    private fun assertSlide(frames: List<JSONObject>, sign: Int) {
+        val mid = frames.map { it.getDouble("t") }.filter { it > 0.0 && it < 1.0 }.distinct()
+        assertTrue("several in-between frames, not one swap: $frames", mid.size >= 3)
+        val width = Math.abs(frames.first().getDouble("next"))
+        assertTrue("starts one width away: $frames", width > 100)
+        for (f in frames) assertEquals("adjacent pages at t=${f.getDouble("t")}", sign * width, f.getDouble("old") - f.getDouble("next"), 0.5)
+        assertEquals(1.0, frames.last().getDouble("t"), 1e-9)
+        assertEquals(0.0, frames.last().getDouble("next"), 0.5)
+    }
+
+    /** C-071 (F-032): a turn across a chapter boundary slides like any other turn, forward and back. */
+    @Test fun boundary_turns_slide_both_ways(): Unit = runBlocking {
+        val wp = warAndPeace()
+        ActivityScenario.launch(MainActivity::class.java).use { sc ->
+            val h = ReaderHarness(sc, this)
+            h.ready(); h.open(wp)
+            val at = h.tocJump("BOOK ONE: 1805")
+            h.lastPage()
+            h.awaitPreloaded(at.sectionIndex + 1)
+            h.send(ToWeb.Next())
+            h.relocate(5_000) { it.sectionIndex == at.sectionIndex + 1 }
+            delay(600) // the slide is 300 ms
+            assertSlide(h.slideFrames(), -1) // left-to-right book: next moves the content left
+            h.settle()
+            h.awaitPreloaded(at.sectionIndex)
+            h.send(ToWeb.Prev())
+            h.relocate(5_000) { it.sectionIndex == at.sectionIndex }
+            delay(600)
+            assertSlide(h.slideFrames(), 1)
+            h.stop()
+        }
+    }
+
+    /** C-071: with "no animation" every turn is instant, boundary turns included. */
+    @Test fun without_animation_a_boundary_turn_is_instant(): Unit = runBlocking {
+        val wp = warAndPeace()
+        ActivityScenario.launch(MainActivity::class.java).use { sc ->
+            val h = ReaderHarness(sc, this)
+            h.ready()
+            sc.onActivity { it.controller.updateSettings { s -> s.copy(pageAnimation = app.epubreader.core.data.PageAnimation.NONE) } }
+            try {
+                h.open(wp)
+                val at = h.tocJump("BOOK ONE: 1805")
+                h.lastPage()
+                h.awaitPreloaded(at.sectionIndex + 1)
+                h.send(ToWeb.Next())
+                h.relocate(5_000) { it.sectionIndex == at.sectionIndex + 1 }
+                delay(600)
+                assertEquals("no slide frames", 0, h.slideFrames().size)
+            } finally {
+                sc.onActivity { it.controller.updateSettings { s -> s.copy(pageAnimation = app.epubreader.core.data.PageAnimation.SLIDE) } }
+                h.stop()
+            }
         }
     }
 }

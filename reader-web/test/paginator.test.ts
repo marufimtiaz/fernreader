@@ -44,3 +44,26 @@ describe('verticalPagesRootStyles: one column per page, pages stacked as multico
     expect(s['height']).toBe('850.25px')
   })
 })
+
+// Local patch (C-071, PATCHES.md): a turn into the preloaded neighbour section slides like a turn inside a section.
+describe('boundary slide (C-071): the old page leaves and the neighbour page comes in, side by side', () => {
+  it('direction: next moves content toward the line start (left in LTR, right in RTL), prev the other way', async () => {
+    const { slideSign } = await import('../vendor/foliate-js/paginator.js')
+    expect(slideSign(1, false)).toBe(-1)
+    expect(slideSign(-1, false)).toBe(1)
+    expect(slideSign(1, true)).toBe(1)
+    expect(slideSign(-1, true)).toBe(-1)
+  })
+  it('the incoming page starts one width away and ends in place; the two pages stay exactly adjacent (no gap, no blank)', async () => {
+    const { slideFrame, slideSign } = await import('../vendor/foliate-js/paginator.js')
+    for (const [dir, rtl] of [[1, false], [-1, false], [1, true], [-1, true]] as const) {
+      const s = slideSign(dir, rtl)
+      expect(slideFrame(0, s, 400)).toEqual({ old: 0, next: -s * 400 })
+      expect(slideFrame(1, s, 400)).toEqual({ old: s * 400, next: 0 })
+      for (const t of [0.1, 0.37, 0.5, 0.9]) {
+        const f = slideFrame(t, s, 400)
+        expect(f.old - f.next).toBeCloseTo(s * 400)
+      }
+    }
+  })
+})
