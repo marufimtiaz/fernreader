@@ -285,6 +285,12 @@ object Copy {
         app.epubreader.core.data.VolumeKeys.ON -> "Volume down: next page. Volume up: previous page."
         app.epubreader.core.data.VolumeKeys.REVERSED -> "Volume up: next page. Volume down: previous page."
     }
+    /** C-005 on the settings screen: the choice and what it does. */
+    fun volumeSummary(v: app.epubreader.core.data.VolumeKeys) = when (v) {
+        app.epubreader.core.data.VolumeKeys.OFF -> volumeOff
+        app.epubreader.core.data.VolumeKeys.ON -> volumeOn
+        app.epubreader.core.data.VolumeKeys.REVERSED -> volumeReversed
+    } + ". " + volumeHint(v)
     const val fullscreen = "Hide system bars"
     const val keepScreenOn = "Keep screen on while reading"
     const val orientation = "Orientation"

@@ -40,7 +40,7 @@ fun AppPages(route: Route, nav: Navigator, graph: AppGraph, settings: SettingsSt
                     folderView = folderView, onFolderView = graph.prefs::setFolderView,
                     folder = ui.folder, onEverywhere = settings::useEverywhere, onPickFolder = actions.pickFolder,
                     hiddenCount = ui.hidden.size, onHiddenBooks = { nav.push(Route.HiddenBooks) },
-                    pageScope = rs.pageIndicatorScope, onPageScope = { s -> reader.updateSettings { it.copy(pageIndicatorScope = s) } },
+                    reader = rs, onReader = reader::updateSettings,
                     onBackUp = actions.backUp, onRestore = actions.restore, onAbout = { nav.push(Route.About) },
                 )),
                 onBack = back,
