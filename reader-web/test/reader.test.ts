@@ -396,6 +396,18 @@ describe('goToText (F-050)', () => {
     expect(probe()).toBeNull()
   })
 
+  it('a user highlight on exactly the hit range is drawn again when the search highlight is cleared (F-061)', async () => {
+    open('s1', null); await settle()
+    const v = FakeView.all[0]
+    goToText('borodino', 11); await settle()
+    send({ v: 1, type: 'addAnnotation', sessionId: 's1', id: 'h1', cfi: 'cfi-hit:Borodinó', color: 'green', style: 'highlight' }); await settle()
+    v.addAnnotation.mockClear()
+    send({ v: 1, type: 'clearSearchHighlight' }); await settle()
+    expect(v.deleteAnnotation).toHaveBeenLastCalledWith({ value: 'cfi-hit:Borodinó' })
+    expect(v.addAnnotation).toHaveBeenCalledWith({ value: 'cfi-hit:Borodinó' })
+    expect(probe()).toBeNull()
+  })
+
   it('draws the highlight again when its section gets an overlayer again, and only then', async () => {
     open('s1', null); await settle()
     const v = FakeView.all[0]

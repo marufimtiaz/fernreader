@@ -442,7 +442,11 @@ export class Reader {
   private clearSearch(view: any) {
     const s = this.search
     this.search = null
-    if (s) void view.deleteAnnotation({ value: s.cfi })?.catch?.(() => {})
+    if (!s) return
+    // foliate keys overlays by CFI: a user highlight on exactly the hit's range was drawn as the outline meanwhile and
+    // goes with it, so it is drawn again (F-061).
+    const own = this.annotations.byValue(s.cfi)
+    void Promise.resolve(view.deleteAnnotation({ value: s.cfi })).catch(() => {}).then(() => { if (own && this.view === view) this.drawAnnotation(view, own) })
   }
 
   /**
