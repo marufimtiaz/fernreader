@@ -2,7 +2,8 @@ import '../../vendor/foliate-js/view.js'
 import { EPUB } from '../../vendor/foliate-js/epub.js'
 import { Overlayer } from '../../vendor/foliate-js/overlayer.js'
 import type { Bridge } from '../bridge/bridge'
-import { makeLoader } from './loader'
+import { makeLoader, packageProblem } from './loader'
+
 import { flattenToc } from './toc'
 import { resolveSaved } from './position'
 import { PageCounter } from './counter'
@@ -16,6 +17,12 @@ import { visibleBookmarks } from './bookmarks'
 import { readSelection, SelectionReporter } from './selection'
 import { AnnotationStore, annotationDraw, taggedDraw, type AnnotationChange, type AnnotationItem } from './annotations'
 import { applySettings as applyStyles, DEFAULT_SETTINGS, readerCss, THEMES, type WebSettings } from './styles'
+
+/** The book identifier the app records on open (with the cd digest it is the book's identity, M2). */
+const identifierOf = (book: any): string | null => book.metadata?.identifier || null
+
+/** C-048: the error messages for package problems (the app shows its own wording by kind; these are for logs). */
+const PROBLEM_TEXT = { no_package: 'No package found in this file.', nothing_readable: 'The book has no readable sections.' } as const
 
 /* foliate-js is untyped JS; keep `any` at this boundary only. */
 type Book = any
@@ -88,6 +95,7 @@ export class Reader {
 
   constructor(private bridge: Bridge) {
     // Read-only probes for the app's instrumented tests (evaluateJavascript); nothing in the app calls them.
+    const identities = new Map<string, { identifier?: string | null; error?: string }>()
     ;(window as any).__readerTest = {
       page: () => { const r = this.view?.renderer; return r ? { page: r.page, textPages: r.pages - 2, index: this.view.lastLocation?.section?.current } : null },
       /** Sections with a loaded document: the current one first, then preloaded neighbours. */
@@ -128,6 +136,18 @@ export class Reader {
       searchHighlight: () => this.search?.cfi ?? null,
       slots: () => this.view?.renderer?.debugSlots ?? null,
       linear: () => (this.book?.sections ?? []).map((x: any, i: number) => (x.linear !== 'no' ? i : -1)).filter((i: number) => i >= 0),
+      /**
+       * Loads a registered session's package like an open does and keeps the identifier `opened` would report, without
+       * a view or layout (IdentityAgreementTest over the whole corpus, C-049). Read it with identity(sessionId).
+       */
+      identify: (sessionId: string) => {
+        identities.delete(sessionId)
+        void makeLoader(`/book/${encodeURIComponent(sessionId)}`, '')
+          .then(loader => new EPUB(loader as any).init())
+          .then((book: any) => identities.set(sessionId, { identifier: identifierOf(book) }))
+          .catch((e: unknown) => identities.set(sessionId, { error: String((e as Error)?.message ?? e) }))
+      },
+      identity: (sessionId: string) => identities.get(sessionId) ?? null,
       goIndex: (i: number) => { void this.view?.renderer?.goTo({ index: i, anchor: 0 }) },
       htmlVar: (index: number, name: string) => this.view?.renderer?.getContents?.().find((x: any) => x.index === index)?.doc?.documentElement.style.getPropertyValue(name) ?? null,
       /** F-043: text of the open footnote popup, or null. */
@@ -255,7 +275,15 @@ export class Reader {
         this.book = warm.book; this.has = warm.has
       } else {
         const loader = await makeLoader(`/book/${encodeURIComponent(sessionId)}`, missingPart)
-        const book = await new EPUB(loader as any).init()
+        let book: any
+        try {
+          book = await new EPUB(loader as any).init()
+        } catch (e) {
+          const problem = await packageProblem(loader).catch(() => null)
+          if (!problem) throw e
+          if (!stale()) this.bridge.send({ v: 1, type: 'error', sessionId, kind: problem, message: PROBLEM_TEXT[problem] })
+          return
+        }
         shareSections((book.sections ?? []).filter(Boolean) as any[]) // the paginator and the page counter share each section's resources
         if (stale()) return
         this.book = book
@@ -265,7 +293,7 @@ export class Reader {
       const book = this.book
       if (!book.sections?.length) {
         this.book = null; this.has = null
-        this.bridge.send({ v: 1, type: 'error', sessionId, kind: 'nothing_readable', message: 'The book has no readable sections.' })
+        this.bridge.send({ v: 1, type: 'error', sessionId, kind: 'nothing_readable', message: PROBLEM_TEXT.nothing_readable })
         return
       }
       this.sendOpened(sessionId)
@@ -507,7 +535,7 @@ export class Reader {
     const book = this.book
     this.bridge.send({
       v: 1, type: 'opened', sessionId,
-      identifier: book.metadata?.identifier || null,
+      identifier: identifierOf(book),
       title: text(book.metadata?.title),
       authors: [book.metadata?.author ?? []].flat().map(text).filter(Boolean),
       dir: book.dir === 'rtl' ? 'rtl' : 'ltr',

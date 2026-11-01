@@ -1,6 +1,7 @@
 package app.epubreader.ui
 
 import app.epubreader.reader.OpenFailure
+import app.epubreader.reader.ReaderError
 
 /** All user-facing text (our own wording). Moves to Compose resources when the app is translated. */
 object Copy {
@@ -326,6 +327,12 @@ object Copy {
     const val missingTarget = "This entry points to a part that is missing from the book."
     const val missingPart = "This part of the book is missing from the file, so it can't be shown. You can keep reading."
     const val engineError = "This book can't be displayed."
+    /** C-048: the detail line under [engineError]; package problems are worded, anything else keeps the engine's message. */
+    fun engineDetail(e: ReaderError.Engine) = when (e.kind) {
+        "no_package" -> "No package found in this file."
+        "nothing_readable" -> "This book has no readable sections."
+        else -> e.message
+    }
     const val fileChanged = "This book's file was changed or removed, so it was closed."
     const val missingTitle = "File not found"
     fun missingBody(title: String) = "The file for “$title” is no longer where it was. It may have been moved or deleted."

@@ -2,10 +2,10 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import type { FromWeb, ToWeb } from '../src/bridge/protocol'
 
 // foliate-js is replaced by a fake <foliate-view>: these tests cover the Reader's open/close/warm-reopen logic only.
-const h = vi.hoisted(() => ({ makeLoader: vi.fn(), epubInit: vi.fn() }))
+const h = vi.hoisted(() => ({ makeLoader: vi.fn(), epubInit: vi.fn(), packageProblem: vi.fn() }))
 vi.mock('../vendor/foliate-js/view.js', () => ({}))
 vi.mock('../vendor/foliate-js/epub.js', () => ({ EPUB: class { init() { return h.epubInit() } } }))
-vi.mock('../src/reader/loader', () => ({ makeLoader: h.makeLoader }))
+vi.mock('../src/reader/loader', () => ({ makeLoader: h.makeLoader, packageProblem: h.packageProblem }))
 
 import { Bridge } from '../src/bridge/bridge'
 import { Reader } from '../src/reader/reader'
@@ -71,6 +71,7 @@ beforeEach(() => {
   FakeView.all = []; FakeView.initHook = null; FakeView.fxl = false; document.body.innerHTML = ''
   h.makeLoader.mockReset().mockResolvedValue({ has: () => true })
   h.epubInit.mockReset().mockImplementation(async () => book())
+  h.packageProblem.mockReset().mockResolvedValue(null)
   sent = []
   // Page counts are the counter's business (counter.test.ts); these tests follow the open/turn/seek sequence.
   bridge = new Bridge(json => { const m = JSON.parse(json); if (m.type !== 'pageCounts') sent.push(m) })
@@ -91,6 +92,31 @@ describe('Reader open', () => {
     expect(types()).toEqual(['opened', 'relocate', 'painted'])
     expect(sent[1]).toMatchObject({ sessionId: 's1', cfi: 'cfi-a', fraction: 0.25, sectionIndex: 1, tocHref: 'c1.xhtml' })
     expect(FakeView.all).toHaveLength(1)
+  })
+
+  // C-048: foliate's own failure ("Failed to load container file", or a script error on an empty spine) is replaced
+  // by a kind the app words clearly; other failures keep foliate's message.
+  for (const kind of ['no_package', 'nothing_readable'] as const) {
+    it(`an open that fails for a package problem reports '${kind}', not the script error`, async () => {
+      h.epubInit.mockImplementation(async () => { throw new TypeError("Cannot destructure property 'parentNode' of 'undefined'") })
+      h.packageProblem.mockResolvedValue(kind)
+      open('s1'); await settle()
+      expect(sent).toEqual([expect.objectContaining({ type: 'error', sessionId: 's1', kind })])
+    })
+  }
+  // C-049: the identity check over the corpus reads the identifier the open would report, without laying out the book.
+  it('the identify test hook reports the identifier opened would send, without opening a view', async () => {
+    const hook = (window as any).__readerTest
+    hook.identify('s9')
+    await settle()
+    expect(hook.identity('s9')).toEqual({ identifier: 'id' })
+    expect(FakeView.all).toHaveLength(0)
+    expect(sent).toEqual([])
+  })
+  it('any other open failure stays open_failed with its message', async () => {
+    h.epubInit.mockImplementation(async () => { throw new Error('XML parse error') })
+    open('s1'); await settle()
+    expect(sent).toEqual([expect.objectContaining({ type: 'error', kind: 'open_failed', message: 'XML parse error' })])
   })
 })
 
