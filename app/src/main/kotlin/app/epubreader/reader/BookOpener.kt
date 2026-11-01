@@ -41,7 +41,7 @@ class BookOpener(
                     current = w
                     return@withContext OpenResult.Ok(w.id, w.cdDigest, w.size)
                 }
-                server.unregister(w.id); w.close()
+                server.unregister(w.id); w.closeQuietly()
             }
             // Any failure becomes a reason (R-002): providers may throw IllegalArgumentException,
             // IllegalStateException, UnsupportedOperationException or their own RuntimeExceptions.
@@ -91,8 +91,16 @@ class BookOpener(
 
     /** Current session becomes the warm one; the previous warm session is closed for good. */
     private fun retire(s: BookSession) {
-        warm?.let { server.unregister(it.id); it.close() }
+        warm?.let { server.unregister(it.id); it.closeQuietly() }
         warm = s
+    }
+
+    /**
+     * Closing a finished session never fails what comes next (C-049): a file on shared storage that was deleted
+     * meanwhile can throw `IOException: close failed: EIO` from the FUSE layer, and that used to fail the next open.
+     */
+    private fun BookSession.closeQuietly() {
+        try { close() } catch (e: Exception) { warn("closing ${ref.key} failed: $e") }
     }
 }
 

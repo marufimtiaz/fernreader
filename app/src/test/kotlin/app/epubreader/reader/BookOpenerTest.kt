@@ -14,14 +14,18 @@ import java.util.zip.ZipOutputStream
 
 /** I2 (R-002): whatever a provider or the zip reader throws, open() answers with a reason and releases the source. */
 class BookOpenerTest {
-    private class TrackingSource(private val inner: RandomAccessSource, private val failRead: Exception? = null) : RandomAccessSource {
+    private class TrackingSource(
+        private val inner: RandomAccessSource,
+        private val failRead: Exception? = null,
+        private val failClose: Exception? = null,
+    ) : RandomAccessSource {
         var closed = false
         override val size get() = inner.size
         override fun read(position: Long, dst: ByteArray, off: Int, len: Int): Int {
             failRead?.let { throw it }
             return inner.read(position, dst, off, len)
         }
-        override fun close() { closed = true; inner.close() }
+        override fun close() { closed = true; inner.close(); failClose?.let { throw it } }
     }
 
     private class FakeSources(var open: () -> OpenedSource) : Sources {
@@ -74,5 +78,26 @@ class BookOpenerTest {
         assertEquals(null, o.bookText("another-session"))
         o.close(id)
         assertEquals(null, o.bookText(id)) // closed: the warm session is not "current"
+    }
+
+    /**
+     * C-049: the order-dependent R-008 failure. The warm session's file was on shared storage and deleted by an earlier
+     * test; closing it threw `IOException: close failed: EIO`, and that failed the next, unrelated open as NO_ACCESS.
+     * Closing an old session must never fail an open or a close.
+     */
+    @Test fun a_failing_close_of_the_warm_session_does_not_fail_the_next_open() = runBlocking {
+        var next: () -> RandomAccessSource = { TrackingSource(ByteArraySource(epub), failClose = java.io.IOException("close failed: EIO")) }
+        val o = opener(object : Sources {
+            override fun open(ref: SourceRef) = OpenedSource(next(), epub.size.toLong())
+            override fun stamp(ref: SourceRef) = ref.key
+        })
+        val a = (o.open(SourceRef.File("/sdcard/Download/gone/a.epub")) as OpenResult.Ok).sessionId
+        o.close(a) // a is now the warm session
+        next = { TrackingSource(ByteArraySource(epub), failClose = java.io.IOException("close failed: EIO")) }
+        val b = o.open(SourceRef.File("/data/cache/b.epub")) // closes the warm session a
+        assertTrue(b.toString(), b is OpenResult.Ok)
+        o.close((b as OpenResult.Ok).sessionId) // b becomes warm
+        val c = (o.open(SourceRef.File("/data/cache/c.epub")) as OpenResult.Ok).sessionId
+        o.close(c) // retiring c closes the warm b: must not throw either
     }
 }
