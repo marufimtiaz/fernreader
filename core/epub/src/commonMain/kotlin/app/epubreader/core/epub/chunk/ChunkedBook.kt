@@ -17,6 +17,12 @@ class ChunkedBook internal constructor(val map: ChunkMap, private val store: Chu
         if (path !in virtualPaths) return null
         return store.read(Chunker.entryName(path)) ?: throw ChunkCacheException("chunk cache entry missing: $path")
     }
+
+    /** Byte size of a virtual entry without reading it (the reader's entry list); null = not virtual, serve the zip's. */
+    fun virtualSize(path: String): Long? {
+        if (path !in virtualPaths) return null
+        return store.size(Chunker.entryName(path)) ?: throw ChunkCacheException("chunk cache entry missing: $path")
+    }
 }
 
 class ChunkCacheException(message: String) : RuntimeException(message)

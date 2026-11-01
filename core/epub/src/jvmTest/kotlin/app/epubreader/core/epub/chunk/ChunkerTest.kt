@@ -270,6 +270,17 @@ class ChunkerTest {
         assertNull(cb.virtualEntry("OPS/images/cover.png"))   // not virtual: serve the zip entry
     }
 
+    /** The content server lists virtual entries in entries.json with their sizes, without reading them (M8 8.3). */
+    @Test fun virtual_sizes_are_the_store_sizes_and_missing_ones_throw() {
+        val (z, pkg) = ChunkBooks.book(ChunkBooks.paras(1000))
+        val store = MemoryChunkStore()
+        val cb = chunk(z, pkg, store)
+        for (p in cb.virtualPaths) assertEquals(cb.virtualEntry(p)!!.size.toLong(), cb.virtualSize(p), p)
+        assertNull(cb.virtualSize("OPS/other-not-virtual.png"))
+        store.remove(Chunker.entryName("OPS/p.opf"))
+        assertFailsWith<ChunkCacheException> { cb.virtualSize("OPS/p.opf") }
+    }
+
     @Test fun cache_from_another_file_is_not_used() {
         val store = MemoryChunkStore()
         val (z1, p1) = ChunkBooks.book(ChunkBooks.paras(1000))
