@@ -37,7 +37,7 @@ class HugeChapterBackTest {
     private val inst = InstrumentationRegistry.getInstrumentation()
     private val huge = File("/sdcard/Books/generated/stress-huge-single-chapter.epub")
 
-    @Test fun back_one_second_after_opening_the_huge_chapter_shows_the_library_within_200_ms(): Unit = runBlocking {
+    @Test fun back_one_second_after_opening_the_huge_chapter_returns_to_the_library_debug_guard(): Unit = runBlocking {
         inst.uiAutomation.executeShellCommand("appops set ${inst.targetContext.packageName} MANAGE_EXTERNAL_STORAGE allow").close()
         check(huge.isFile) { "corpus not pushed: $huge" }
         val other = TestBooks.write(inst.targetContext, "r5-other.epub", TestBooks.epub(id = "urn:uuid:r5-other"))
@@ -47,7 +47,7 @@ class HugeChapterBackTest {
             lateinit var a: app.epubreader.MainActivity
             sc.onActivity { a = it }
             withTimeout(15_000) { a.reader.isReady.first { it } }
-            repeat(1) { run -> // one cold open: a guard, the Must is judged by bench/robust_r005.sh
+            repeat(1) { run -> // one cold open (a guard); the 200 ms Must: bench/robust_r005.sh
                 // A small book first, so the huge one is not the warm session: every trial is a cold open.
                 sc.onActivity { it.openBook(SourceRef.File(other.path)) }
                 withTimeout(20_000) { a.controller.state.first { it.open && !it.loading } }

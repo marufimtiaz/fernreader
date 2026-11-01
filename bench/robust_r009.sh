@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# bench/robust_r009.sh — R-009 kill loop (M9 Task 9.1): open War and Peace, then 20 times: turn a page, kill the app
-# (am force-stop) right after the turn's relocate, start it again and reopen the book. The reopened position may lag
-# the last page reached by at most one page (the turn in flight). Benchmark build (bench commands); not a timing gate.
+# bench/robust_r009.sh — R-009 kill loop (M9 Task 9.1): open War and Peace, then 20 times: turn two pages, kill the app
+# (am force-stop) 0, 50, 200 or 500 ms after the second turn's relocate (cycling), start it again and reopen the book.
+# The reopened position must be the last page reached or the one before (lag <= 1: only the turn in flight may be
+# lost); the page before both turns (an app that saves only on close or pause) fails. Benchmark build; not a gate.
 # Usage: bench/robust_r009.sh [iterations]   (prints one line per iteration and "R-009 kill loop: PASS|FAIL")
 RESULTS=/dev/null source "$(dirname "$0")/lib.sh"
 N=${1:-20}
@@ -19,17 +20,24 @@ $A shell am force-stop "$PKG"
 here=$(reopen)
 [ "$here" != NA ] || { echo "R-009: the book did not open"; exit 1; }
 fails=0; lag0=0; lag1=0
+turn() { # one page forward; prints the CFI it reached, or NA
+  local before; before=$(cfis | wc -l); bench_cmd next
+  local end=$(( $(date +%s) + 5 ))
+  until [ "$(cfis | wc -l)" -gt "$before" ]; do [ "$(date +%s)" -ge "$end" ] && { echo NA; return; }; sleep 0.05; done
+  cfis | tail -1
+}
+DELAYS=(0 0.05 0.2 0.5)
 for i in $(seq 1 "$N"); do
   $A logcat -c
-  bench_cmd next
-  if ! wait_ev relocate 5; then echo "  $i: no relocate after next"; fails=$((fails + 1)); continue; fi
-  reached=$(cfis | tail -1)
-  $A shell am force-stop "$PKG" # right after the page change
+  first=$(turn); second=$(turn)
+  if [ "$first" = NA ] || [ "$second" = NA ]; then echo "  $i: a turn did not land"; fails=$((fails + 1)); continue; fi
+  d=${DELAYS[$(( (i - 1) % 4 ))]}; sleep "$d"
+  $A shell am force-stop "$PKG"
   got=$(reopen)
-  if [ "$got" = "$reached" ]; then lag0=$((lag0 + 1)); verdict="lag 0"
-  elif [ "$got" = "$here" ]; then lag1=$((lag1 + 1)); verdict="lag 1 (the turn in flight was lost)"
-  else fails=$((fails + 1)); verdict="FAIL (before=$here reached=$reached reopened=$got)"; fi
-  echo "  $i: $verdict"
+  if [ "$got" = "$second" ]; then lag0=$((lag0 + 1)); verdict="lag 0"
+  elif [ "$got" = "$first" ]; then lag1=$((lag1 + 1)); verdict="lag 1 (the turn in flight was lost)"
+  else fails=$((fails + 1)); verdict="FAIL (before=$here first=$first second=$second reopened=$got)"; fi
+  echo "  $i (kill +${d}s): $verdict"
   here=$got
 done
 echo "R-009 kill loop: $N iterations, lag 0: $lag0, lag 1: $lag1, failures: $fails"

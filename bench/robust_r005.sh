@@ -2,8 +2,10 @@
 # bench/robust_r005.sh — R-005 (M9 Task 9.1): Back 1 s after opening the huge chapter; the library must be drawn within
 # 200 ms. Measured in the app (benchmark build probes): the `back` bench command's arrival on the main thread -> the
 # first frame drawn with the library (EVT home_frame since_back_key=<ms>). A real key can't be timed this way on API 33+
-# (predictive back handles it before the window sees it; `input keyevent` itself takes ~0.2-0.5 s to start), and the
-# command arrives on the same main thread, so a blocked main thread still shows in the value. Before each
+# (predictive back handles it before the window sees it; `input keyevent` itself takes ~0.2-0.5 s to start). The clock
+# starts when the command runs on the main thread, so a stall *before* it arrives (the main thread busy when Back is
+# pressed) is not in the value; HugeChapterBackTest (debug) reports the longest main-thread stall during the same
+# sequence (M9.md: 250-300 ms, all library composition in the debug build). Accepted method (gatekeeper). Before each
 # trial a small book is opened, so the huge one is never the warm session (every trial is a cold open). Median of 3.
 # Also counts ANRs (am_anr) during the runs. Usage: bench/robust_r005.sh
 RESULTS=/dev/null source "$(dirname "$0")/lib.sh"

@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # bench/robust_r006.sh — R-006 (M9 Task 9.1): read each stress book for 50 page turns on the reference emulator; the app
-# must not die (no am_proc_died / am_kill / am_anr / lowmemorykiller for the package, same pid throughout). Also records
-# the peak PSS of app + renderer (tools/mem_total.sh) per book for P-061/P-062 (release checks, Task 9.2).
+# must not die (no am_proc_died / am_kill / am_anr / lowmemorykiller for the package, same pid throughout). The app has
+# no onRenderProcessGone handler, so a renderer death kills the app process too (same-pid check); chromium's crash line
+# is checked as well. Every turn must land (its own relocate within 15 s), and the book must paint first. Also records
+# the peak PSS of app + renderer (tools/mem_total.sh) per book; P-061/P-062 are gated in Task 9.2, not here.
 # Benchmark build (bench commands). Usage: bench/robust_r006.sh [turns]
 RESULTS=/dev/null source "$(dirname "$0")/lib.sh"
 TURNS=${1:-50}
@@ -15,21 +17,25 @@ for book in ${BOOKS:-stress-huge-single-chapter stress-2000-chapters stress-200-
   pid=$($A shell pidof "$PKG" | tr -d '\r')
   t0=$(date +%s)
   bench_cmd openPath "$B/generated/$book.epub"
-  wait_ev painted 120 || echo "  $book: no first paint within 120 s"
+  painted=1; wait_ev painted 120 || painted=0
   open_s=$(( $(date +%s) - t0 ))
-  peak=$(mb)
+  sleep 1
+  peak=$(mb); missed=0
+  rel() { $A logcat -d -s EPR:I | grep -c "EVT relocate "; }
   for i in $(seq 1 "$TURNS"); do
-    bench_cmd next; sleep 0.6
-    if [ $((i % 10)) = 0 ]; then m=$(mb); [ "$m" -gt "$peak" ] && peak=$m; fi
+    before=$(rel); bench_cmd next
+    end=$(( $(date +%s) + 15 ))
+    until [ "$(rel)" -gt "$before" ]; do [ "$(date +%s)" -ge "$end" ] && { missed=$((missed + 1)); break; }; sleep 0.2; done
+    if [ $((i % 5)) = 0 ]; then m=$(mb); [ "$m" -gt "$peak" ] && peak=$m; fi
   done
   sleep 2
   now=$($A shell pidof "$PKG" | tr -d '\r')
   deaths=$($A logcat -b events -d | grep -E "am_proc_died|am_kill|am_anr|am_crash" | grep -v "force-stop" | grep -c "$PKG")
   lmk=$($A logcat -d | grep -i "lowmemorykiller\|lmkd" | grep -c "$PKG")
-  turns=$($A logcat -d -s EPR:I | grep -c "EVT relocate ")
-  if [ "$pid" = "$now" ] && [ "$deaths" -eq 0 ] && [ "$lmk" -eq 0 ]; then v=PASS; else v=FAIL; fails=$((fails + 1)); fi
+  crash=$($A logcat -d | grep -ci "renderer.*crash\|render process.*gone")
+  if [ "$painted" = 1 ] && [ "$missed" -eq 0 ] && [ "$pid" = "$now" ] && [ "$deaths" -eq 0 ] && [ "$lmk" -eq 0 ] && [ "$crash" -eq 0 ]; then v=PASS; else v=FAIL; fails=$((fails + 1)); fi
   [ "$v" = FAIL ] && $A logcat -b events -d | grep -E "am_proc_died|am_kill|am_anr|am_crash" | grep "$PKG" | sed 's/^/    /'
-  echo "  $book: $v (pid $pid -> $now, deaths $deaths, lmk $lmk, relocates $turns, first paint ${open_s} s, peak PSS ${peak} MB)"
+  echo "  $book: $v (painted $painted, turns missed $missed/$TURNS, pid $pid -> $now, deaths $deaths, lmk $lmk, renderer crash lines $crash, first paint ${open_s} s, peak PSS ${peak} MB)"
   bench_cmd back; sleep 1
 done
 $A shell am force-stop "$PKG"
