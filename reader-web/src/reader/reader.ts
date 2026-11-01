@@ -152,6 +152,49 @@ export class Reader {
           .catch((e: unknown) => identities.set(sessionId, { error: String((e as Error)?.message ?? e) }))
       },
       identity: (sessionId: string) => identities.get(sessionId) ?? null,
+      /**
+       * C-072: typography and line breaks of the first paragraph (≥ [minChars] characters) of loaded section [index], to
+       * compare paged and scrolled flow: computed font and spacing, the text column (paragraph box width and left edge
+       * in the host viewport), transforms/zoom on the root and the iframe, one word's rendered width (text autosizing
+       * would change it) and the first word of every line.
+       */
+      typography: (index: number, minChars = 400) => {
+        const c = this.view?.renderer?.getContents?.().find((x: any) => x.index === index)
+        const doc: Document | undefined = c?.doc
+        const p = [...(doc?.querySelectorAll('p') ?? [])].find(e => (e.textContent ?? '').trim().length >= minChars)
+        if (!doc || !p) return null
+        const win = doc.defaultView!
+        const cs = win.getComputedStyle(p)
+        const frame = win.frameElement as HTMLElement | null
+        const fr = frame?.getBoundingClientRect()
+        // one rect per column fragment in paged flow: the one on screen (host coordinates) is the text column
+        const frags = [...p.getClientRects()].map(r => ({ left: (fr?.left ?? 0) + r.left, width: r.width }))
+        const pr = frags.find(r => r.left >= 0 && r.left < window.innerWidth) ?? frags[0] ?? { left: 0, width: 0 }
+        const range = doc.createRange()
+        const walker = doc.createTreeWalker(p, NodeFilter.SHOW_TEXT)
+        const lines: string[] = []
+        let lastTop = Number.NaN
+        let wordWidth = 0
+        for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+          const text = n.nodeValue ?? ''
+          for (const m of text.matchAll(/\S+/g)) {
+            range.setStart(n, m.index!); range.setEnd(n, m.index! + m[0].length)
+            const r = range.getClientRects()[0]
+            if (!r) continue
+            if (!wordWidth) wordWidth = r.width
+            if (Number.isNaN(lastTop) || Math.abs(r.top - lastTop) > r.height / 2) { lines.push(m[0]); lastTop = r.top }
+          }
+        }
+        const root = win.getComputedStyle(doc.documentElement)
+        return {
+          fontFamily: cs.fontFamily, fontSize: cs.fontSize, fontWeight: cs.fontWeight, letterSpacing: cs.letterSpacing,
+          wordSpacing: cs.wordSpacing, lineHeight: cs.lineHeight, textAlign: cs.textAlign,
+          columnWidth: pr.width, columnLeft: pr.left, viewportWidth: window.innerWidth,
+          rootTransform: root.transform, rootZoom: (root as any).zoom ?? '', frameTransform: frame ? getComputedStyle(frame).transform : '',
+          frameZoom: frame ? (getComputedStyle(frame) as any).zoom ?? '' : '', textSizeAdjust: (cs as any).webkitTextSizeAdjust ?? '',
+          rootPadding: `${root.paddingLeft} ${root.paddingRight}`, wordWidth, lines,
+        }
+      },
       goIndex: (i: number) => { void this.view?.renderer?.goTo({ index: i, anchor: 0 }) },
       htmlVar: (index: number, name: string) => this.view?.renderer?.getContents?.().find((x: any) => x.index === index)?.doc?.documentElement.style.getPropertyValue(name) ?? null,
       /** F-043: text of the open footnote popup, or null. */

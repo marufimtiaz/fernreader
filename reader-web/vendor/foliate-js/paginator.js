@@ -224,6 +224,14 @@ export const columnWrapSupported = () => !!globalThis.CSS?.supports?.('column-wr
     && globalThis.CSS.supports('column-height', '1px')
 export const pagedVerticalRl = (layout, writingMode) => !!layout?.verticalPages
     && layout.flow !== 'scrolled' && writingMode === 'vertical-rl'
+/**
+ * LOCAL PATCH (C-072): the side inset (CSS px per side) that gives horizontal scrolled flow the text column of paged
+ * flow: where the paged #container starts in the grid ([probeStart], i.e. the half-gap grid column) plus half of
+ * paged flow's column gap, `g / (1 - g)` of the container's width ([probeSize]). `g` is the `gap` attribute as a
+ * fraction.
+ */
+export const scrolledInlineInset = ({ probeStart, probeSize, g }) => probeStart + (-g / (g - 1) * probeSize) / 2
+
 export const verticalPagesRootStyles = ({ height, gap, columnWidth }) => ({
     'box-sizing': 'border-box',
     'writing-mode': 'vertical-rl',
@@ -1166,14 +1174,22 @@ export class Paginator extends HTMLElement {
             this.setAttribute('dir', vertical ? 'rtl' : 'ltr')
             this.#top.style.padding = '0'
             const columnWidth = maxInlineSize
+            // LOCAL PATCH (C-072): horizontal text gets the same side inset as paged flow (the paged #container's
+            // offset in the grid plus half its column gap), so the text column, and so every line break, is the same
+            // in both flows. Foliate's `gap` here (g / (1 - g) of the full width per side) made it ~2 % narrower.
+            const scrolledGap = vertical ? gap : (() => {
+                const probe = this.#root.getElementById('probe').getBoundingClientRect()
+                const box = this.#container.getBoundingClientRect()
+                return scrolledInlineInset({ probeStart: probe.left - box.left, probeSize: probe.width, g })
+            })()
 
             this.heads = null
             this.feet = null
             this.#header.replaceChildren()
             this.#footer.replaceChildren()
 
-            this.#lastLayout = { flow, margin, gap, columnWidth }
-            return { flow, margin, gap, columnWidth }
+            this.#lastLayout = { flow, margin, gap: scrolledGap, columnWidth }
+            return { flow, margin, gap: scrolledGap, columnWidth }
         }
 
         const divisor = Math.min(maxColumnCount, Math.ceil(size / maxInlineSize))

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { pagedVerticalRl, verticalPagesRootStyles } from '../vendor/foliate-js/paginator.js'
+import { pagedVerticalRl, scrolledInlineInset, verticalPagesRootStyles } from '../vendor/foliate-js/paginator.js'
 
 // Local patch (F-081, PATCHES.md): vertical-rl sections in paginated flow are laid out as horizontal pages moving
 // right-to-left (CSS multicol rows, `column-wrap: wrap`), not foliate's top-to-bottom vertical pages.
@@ -65,5 +65,32 @@ describe('boundary slide (C-071): the old page leaves and the neighbour page com
         expect(f.old - f.next).toBeCloseTo(s * 400)
       }
     }
+  })
+})
+
+// C-072 (local patch): scrolled flow uses paged flow's side inset, so both flows have the same text column on a phone.
+describe('scrolledInlineInset: the scrolled text column equals the paged one', () => {
+  /** Paged geometry of the grid at viewport width v and gap fraction g, phone portrait (the 1fr columns at their minimum). */
+  const paged = (v: number, g: number) => {
+    const half = (g / 2) * v // the half-gap grid columns (percent of #top)
+    const container = v - 4 * half + 2 * half // columns 2..4: half-gap + centre + half-gap
+    const gap = (-g / (g - 1)) * container // foliate's column gap
+    return { probeStart: half, probeSize: container, gap, textStart: half + gap / 2, textWidth: container - gap }
+  }
+  for (const [v, m] of [[411, 5], [411, 0], [411, 10], [360, 3], [600, 8]]) {
+    it(`viewport ${v} px, margins ${m} %`, () => {
+      const g = (2 * m) / 100
+      const p = paged(v, g)
+      const inset = scrolledInlineInset({ probeStart: p.probeStart, probeSize: p.probeSize, g })
+      expect(inset).toBeCloseTo(p.textStart, 6)
+      expect(v - 2 * inset).toBeCloseTo(p.textWidth, 6)
+      // foliate's own scrolled padding (the C-072 bug) was wider by g / (1 - g) * v - g * v per side
+      if (m > 0) expect((-g / (g - 1)) * v).toBeGreaterThan(inset)
+    })
+  }
+  it('the measured emulator case: 411 px, 5 %: 41.14 px per side, a 329.14 px column (scrolled had 45.71 / 320)', () => {
+    const inset = scrolledInlineInset({ probeStart: 20.55, probeSize: 369.9, g: 0.1 })
+    expect(inset).toBeCloseTo(41.1, 1)
+    expect(411 - 2 * inset).toBeCloseTo(328.8, 0)
   })
 })
