@@ -10,7 +10,9 @@ vi.mock('../src/reader/loader', () => ({ makeLoader: h.makeLoader, packageProble
 import { Bridge } from '../src/bridge/bridge'
 import { Reader } from '../src/reader/reader'
 
-const tick = () => new Promise(r => setTimeout(r, 0)) // foliate moves asynchronously
+// C-069: the clock is fake (beforeEach), so a step that waits for timers advances them instead of racing real time on a
+// loaded host; advanceTimersByTimeAsync also flushes the promise chains between timers.
+const tick = () => new Promise(r => setTimeout(r, 0)) // foliate moves asynchronously (a fake timer: steps advance it)
 
 class FakeView extends HTMLElement {
   static all: FakeView[] = []
@@ -54,7 +56,7 @@ class FakeView extends HTMLElement {
 
 const doc = (body: string) => async () => new DOMParser().parseFromString(`<html><body>${body}</body></html>`, 'text/html')
 const book = () => ({ sections: [{ id: 'a' }, { id: 'b' }, { id: 'c', createDocument: doc('<p>Battle of Borodinó began</p>') }], toc: [], metadata: { title: 'T', identifier: 'id' }, resolveHref: () => ({ index: 0 }) })
-const settle = () => new Promise(r => setTimeout(r, 40))
+const settle = () => vi.advanceTimersByTimeAsync(40)
 
 let sent: FromWeb[]
 let bridge: Bridge
@@ -68,6 +70,7 @@ beforeAll(() => {
   globalThis.requestAnimationFrame = (cb: FrameRequestCallback) => setTimeout(() => cb(0), 0) as unknown as number
 })
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] })
   FakeView.all = []; FakeView.initHook = null; FakeView.fxl = false; document.body.innerHTML = ''
   h.makeLoader.mockReset().mockResolvedValue({ has: () => true })
   h.epubInit.mockReset().mockImplementation(async () => book())
@@ -77,7 +80,7 @@ beforeEach(() => {
   bridge = new Bridge(json => { const m = JSON.parse(json); if (m.type !== 'pageCounts') sent.push(m) })
   new Reader(bridge)
 })
-afterEach(() => vi.restoreAllMocks())
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
 
 describe('Reader open', () => {
   it('a fixed-layout book (renderer without setStyles) opens: opened, relocate, painted, no error (F-082)', async () => {
@@ -782,7 +785,7 @@ describe('selection and annotations (F-060)', () => {
     d.getSelection()!.removeAllRanges(); d.getSelection()!.addRange(r)
     d.dispatchEvent(new Event('selectionchange'))
   }
-  const wait = (ms: number) => new Promise(r => setTimeout(r, ms))
+  const wait = (ms: number) => vi.advanceTimersByTimeAsync(ms)
   /** What a draw-annotation call draws: the annotation id it is tagged with, fill (highlight) or underline, options. */
   const look = ([f, o]: any[]) => {
     const g = f([{ left: 0, top: 0, right: 10, bottom: 10, width: 10, height: 10 }], o) as SVGElement
