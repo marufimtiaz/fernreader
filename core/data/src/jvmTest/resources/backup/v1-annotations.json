@@ -1,0 +1,43 @@
+{
+  "format": "app.epubreader.backup",
+  "version": 1,
+  "createdAt": 1793500000000,
+  "app": "0.1.0-m6",
+  "books": [
+    {"id": "11111111-1111-4111-8111-111111111111", "identityKey": "4d1c9a2b7e3f5a60-0123456789abcdef0123456789abcdef",
+     "title": "Alice's Adventures in Wonderland", "authors": ["Lewis Carroll"], "addedAt": 1793300000000, "lastOpenedAt": 1793490000000,
+     "hidden": false, "hiddenUpdatedAt": 0, "updatedAt": 1793490000000, "deleted": false},
+    {"id": "22222222-2222-4222-8222-222222222222", "identityKey": "9f00aa11bb22cc33-fedcba9876543210fedcba9876543210",
+     "title": "A book on another phone", "authors": [], "addedAt": 1793300000000, "lastOpenedAt": null,
+     "hidden": false, "hiddenUpdatedAt": 0, "updatedAt": 1793300000000, "deleted": false}
+  ],
+  "positions": [],
+  "bookmarks": [
+    {"id": "aaaaaaaa-0001-4000-8000-000000000001", "bookId": "11111111-1111-4111-8111-111111111111",
+     "cfi": "epubcfi(/6/8!/4/2/10/1:120)", "spineIndex": 3, "fraction": 0.27, "chapter": "Down the Rabbit-Hole",
+     "createdAt": 1793410000000, "updatedAt": 1793410000000, "deleted": false},
+    {"id": "aaaaaaaa-0002-4000-8000-000000000002", "bookId": "11111111-1111-4111-8111-111111111111",
+     "cfi": "epubcfi(/6/12!/4/2/4/1:0)", "spineIndex": 5, "fraction": 0.41, "chapter": "A Caucus-Race",
+     "createdAt": 1793420000000, "updatedAt": 1793430000000, "deleted": true},
+    {"id": "aaaaaaaa-0003-4000-8000-000000000003", "bookId": "22222222-2222-4222-8222-222222222222",
+     "cfi": "epubcfi(/6/4!/4/2/1:0)", "spineIndex": 1, "fraction": 0.02, "chapter": "One",
+     "createdAt": 1793440000000, "updatedAt": 1793440000000, "deleted": false}
+  ],
+  "annotations": [
+    {"id": "bbbbbbbb-0001-4000-8000-000000000001", "bookId": "11111111-1111-4111-8111-111111111111",
+     "cfi": "epubcfi(/6/8!/4/2/12,/1:4,/1:52)", "spineIndex": 3, "text": "Curiouser and curiouser!", "chapter": "The Pool of Tears",
+     "color": "green", "style": "highlight", "note": null,
+     "createdAt": 1793450000000, "updatedAt": 1793450000000, "deleted": false},
+    {"id": "bbbbbbbb-0002-4000-8000-000000000002", "bookId": "11111111-1111-4111-8111-111111111111",
+     "cfi": "epubcfi(/6/10!/4/2/6,/1:0,/1:31)", "spineIndex": 4, "text": "We're all mad here.", "chapter": "Pig and Pepper",
+     "color": "purple", "style": "underline", "note": "The Cat, on the madness of everyone.\nSecond line, «non-ASCII» é.",
+     "createdAt": 1793460000000, "updatedAt": 1793470000000, "deleted": false},
+    {"id": "bbbbbbbb-0003-4000-8000-000000000003", "bookId": "11111111-1111-4111-8111-111111111111",
+     "cfi": "epubcfi(/6/14!/4/2/2,/1:0,/1:9)", "spineIndex": 6, "text": "Off with", "chapter": "The Queen's Croquet-Ground",
+     "color": "pink", "style": "highlight", "note": null,
+     "createdAt": 1793465000000, "updatedAt": 1793480000000, "deleted": true}
+  ],
+  "collections": [],
+  "collectionBooks": [],
+  "settings": []
+}

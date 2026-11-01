@@ -56,7 +56,7 @@ class BackupTest {
         val o = Json.parseToJsonElement(Backup(dbA, clock).export(appVersion = "1.0")).jsonObject
         assertEquals("app.epubreader.backup", o["format"]!!.jsonPrimitive.content)
         assertEquals(1, o["version"]!!.jsonPrimitive.content.toInt())
-        for (k in listOf("books", "positions", "bookmarks", "highlights", "collections", "collectionBooks", "settings")) assertTrue(k in o, k)
+        for (k in listOf("books", "positions", "bookmarks", "annotations", "collections", "collectionBooks", "settings")) assertTrue(k in o, k)
         assertEquals("k-alice", o["books"]!!.jsonArray.single().jsonObject["identityKey"]!!.jsonPrimitive.content)
         assertTrue("path" !in o["books"]!!.jsonArray.single().jsonObject) // file locations are device-local
     }

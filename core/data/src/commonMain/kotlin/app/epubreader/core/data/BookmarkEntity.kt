@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
 /** A bookmarked page (F-041), synced row (F-115). `cfi` is against the original documents. */
+@kotlinx.serialization.Serializable
 @Entity(tableName = "bookmark", indices = [Index(value = ["bookId"])])
 data class BookmarkEntity(
     @PrimaryKey val id: String,

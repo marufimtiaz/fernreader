@@ -142,7 +142,7 @@ object Copy {
     const val sectionReading = "Reading"
     const val sectionBackup = "Backup"
     const val backUpNow = "Back up now"
-    const val backUpSummary = "Save reading positions, collections and settings to a file (books are not included)"
+    const val backUpSummary = "Save reading positions, bookmarks, highlights and notes, collections and settings to a file (books are not included)"
     const val restore = "Restore"
     const val restoreSummary = "Merge a backup file into this device's data"
     const val aboutApp = "About this app"
@@ -171,7 +171,7 @@ object Copy {
     fun restoredBody(r: app.epubreader.core.data.RestoreResult) = buildString {
         append("${books(r.booksMatched).replaceFirstChar { it.uppercase() }} matched on this device.")
         if (r.booksWaiting > 0) append(" ${books(r.booksWaiting).replaceFirstChar { it.uppercase() }} ${if (r.booksWaiting == 1) "is" else "are"} not on this device; ${if (r.booksWaiting == 1) "its" else "their"} reading data is kept and comes back when the file is found.")
-        append(" Updated: ${r.positions} reading positions, ${r.collections} collections, ${r.settings} settings.")
+        append(" Updated: ${r.positions} reading positions, ${r.bookmarks} bookmarks, ${r.annotations} highlights and notes, ${r.collections} collections, ${r.settings} settings.")
     }
     const val ok = "OK"
     const val backupSavedTitle = "Backup saved"

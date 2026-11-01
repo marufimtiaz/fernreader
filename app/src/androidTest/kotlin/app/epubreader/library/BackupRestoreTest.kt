@@ -12,7 +12,12 @@ import androidx.test.uiautomator.Until
 import app.epubreader.EpubReaderApp
 import app.epubreader.MainActivity
 import app.epubreader.TestBooks
+import androidx.room.useWriterConnection
+import app.epubreader.core.data.AnnotationStyle
+import app.epubreader.core.data.HighlightColors
 import app.epubreader.core.data.SettingsStore
+import app.epubreader.reader.ReaderHarness
+import kotlinx.coroutines.withTimeout
 import app.epubreader.core.library.ScanScope
 import app.epubreader.ui.Copy
 import kotlinx.coroutines.flow.first
@@ -26,7 +31,8 @@ import org.junit.runner.RunWith
 import java.io.File
 
 /**
- * F-090 check: backup → clear app data → rescan → restore → positions, collections (and hidden books, settings) return.
+ * F-090 check: backup → clear app data → rescan → restore → positions, bookmarks, highlights and notes, collections (and
+ * hidden books, settings) return.
  * "Clear app data" is every table emptied in-process (pm clear would kill the test); the restore comes from opening
  * the backup file as a file manager would (F-090 "opening a backup file from a file manager offers restore").
  */
@@ -44,6 +50,9 @@ class BackupRestoreTest {
         File(dir, "alice.epub").writeBytes(TestBooks.epub(id = "urn:uuid:m7-alice", title = "M7 Alice"))
         File(dir, "frank.epub").writeBytes(TestBooks.epub(id = "urn:uuid:m7-frank", title = "M7 Frankenstein"))
         File(dir, "moby.epub").writeBytes(TestBooks.epub(id = "urn:uuid:m7-moby", title = "M7 Moby"))
+        // Each test starts from cleared app data: the same files keep their book ids across runs, so rows an earlier run
+        // restored (a collection, a bookmark on the first page) would otherwise be found again.
+        graph.db.clearAllTables()
     }
 
     @After fun tearDown() { dir.deleteRecursively() }
@@ -59,6 +68,9 @@ class BackupRestoreTest {
         graph.library.addToCollection(c, listOf(alice, frank))
         graph.library.hide(listOf(moby))
         graph.settings.put(SettingsStore.LIBRARY_SORT, "AUTHOR")
+        graph.bookmarks.add(alice, "epubcfi(/6/4!/4/2/1:11)", 1, 0.4, "Chapter 1")
+        val h = graph.annotations.add(alice, "epubcfi(/6/4!/4/2/4,/1:0,/1:9)", 1, "Paragraph", "Chapter 1", HighlightColors.GREEN, AnnotationStyle.HIGHLIGHT)
+        graph.annotations.update(h.id, note = "M6 note")
         val backup = File(dir, "epub-reader-backup-test.json").apply { writeText(graph.backup.export("test")) }
 
         graph.db.clearAllTables() // "clear app data"
@@ -77,5 +89,52 @@ class BackupRestoreTest {
         assertEquals(setOf(alice2, frank2), graph.library.library().first().filter { cid in it.collectionIds }.map { it.id }.toSet())
         assertEquals(listOf("M7 Moby"), graph.library.hiddenBooks().first().map { it.title })
         assertEquals("AUTHOR", graph.settings.get(SettingsStore.LIBRARY_SORT))
+        assertEquals(listOf("epubcfi(/6/4!/4/2/1:11)"), graph.bookmarks.bookmarks(alice2).first().map { it.cfi })
+        assertEquals(listOf("M6 note"), graph.annotations.annotations(alice2).first().map { it.note })
+    }
+
+    /**
+     * M6 + M7: a bookmark, a highlight and a note made in the reader, lost (rows deleted outright, as on a device whose data
+     * was cleared), come back from a backup into the book that is open: the reader's lists follow the database.
+     */
+    @Test fun bookmarks_highlights_and_notes_come_back_into_the_open_reader(): Unit = runBlocking {
+        scan()
+        val alice = idOf("alice.epub")
+        ActivityScenario.launch(MainActivity::class.java).use { sc ->
+            val h = ReaderHarness(sc, this)
+            try {
+                h.ready()
+                h.open(File(dir, "alice.epub"))
+                val c = h.a.controller
+                val at = h.at!!
+                suspend fun until(what: String, ok: (app.epubreader.reader.ReaderUiState) -> Boolean) =
+                    try { withTimeout(10_000) { c.state.first(ok) } } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+                        val st = c.state.value
+                        throw AssertionError("$what: bookmarks=${st.bookmarks.size} annotations=${st.annotations.size} bookmarked=${st.bookmarked}")
+                    }
+                sc.onActivity { c.toggleBookmark() } // the controls' bookmark button
+                val hl = graph.annotations.add(alice, "epubcfi(/6/4!/4/2/4,/1:0,/1:9)", at.sectionIndex, "Paragraph", "Chapter 1", HighlightColors.BLUE, AnnotationStyle.HIGHLIGHT)
+                val note = graph.annotations.add(alice, "epubcfi(/6/4!/4/2/6,/1:0,/1:9)", at.sectionIndex, "Paragraph", "Chapter 1", HighlightColors.PINK, AnnotationStyle.UNDERLINE)
+                graph.annotations.update(note.id, note = "M6 note")
+                until("made") { it.bookmarks.size == 1 && it.annotations.size == 2 && it.bookmarked }
+                val bookmark = c.state.value.bookmarks.single()
+                val text = graph.backup.export("test")
+
+                graph.db.useWriterConnection { t ->
+                    t.usePrepared("DELETE FROM bookmark") { it.step() }
+                    t.usePrepared("DELETE FROM annotation") { it.step() }
+                }
+                until("deleted") { it.bookmarks.isEmpty() && it.annotations.isEmpty() && !it.bookmarked }
+
+                val r = graph.backup.restore(text) // the app's backup API (the system file picker is not driven here)
+                assertEquals(1, r.bookmarks); assertEquals(2, r.annotations)
+                val s = until("restored") { it.bookmarks.size == 1 && it.annotations.size == 2 }
+                assertEquals(bookmark, s.bookmarks.single())
+                assertEquals(setOf(hl.id, note.id), s.annotations.map { it.id }.toSet())
+                assertEquals("M6 note", s.annotations.single { it.id == note.id }.note)
+                assertEquals(HighlightColors.BLUE, s.annotations.single { it.id == hl.id }.color)
+                until("marker") { it.bookmarked } // the page marker is back
+            } finally { h.stop() }
+        }
     }
 }

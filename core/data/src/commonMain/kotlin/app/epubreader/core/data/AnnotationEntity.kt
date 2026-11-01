@@ -28,6 +28,7 @@ object AnnotationStyle {
 }
 
 /** A highlight, underline or note on a text range (F-061), synced row (F-115). `cfi` is an original-document range CFI. */
+@kotlinx.serialization.Serializable
 @Entity(tableName = "annotation", indices = [Index(value = ["bookId"])])
 data class AnnotationEntity(
     @PrimaryKey val id: String,

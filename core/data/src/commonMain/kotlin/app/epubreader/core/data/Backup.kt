@@ -8,7 +8,6 @@ import androidx.room.useWriterConnection
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.intOrNull
@@ -22,16 +21,22 @@ sealed class BackupException(message: String) : Exception(message) {
 }
 
 /** What a restore did (shown to the user). Books "waiting" are not on this device yet; they attach when found. */
-data class RestoreResult(val booksMatched: Int, val booksWaiting: Int, val positions: Int, val collections: Int, val settings: Int)
+data class RestoreResult(
+    val booksMatched: Int, val booksWaiting: Int, val positions: Int, val collections: Int, val settings: Int,
+    /** Rows taken from the file (new or newer here), tombstones included. */
+    val bookmarks: Int = 0, val annotations: Int = 0,
+)
 
 /**
- * F-090 / R-009 / C-011: the backup file. Library metadata, reading positions, collections and settings (and, from M6,
- * bookmarks and highlights) — never the books themselves or where their files are (device-local). Every entry keeps its
- * stable id, change timestamp and tombstone (F-115).
+ * F-090 / R-009 / C-011: the backup file. Library metadata, reading positions, bookmarks, annotations (highlights,
+ * underlines and notes; C-041: added to version 1 by M6), collections and settings — never the books themselves or where
+ * their files are (device-local). Every entry keeps its stable id, change timestamp and tombstone (F-115), so
+ * tombstones are exported too. Search history is not (C-043).
  *
  * Restore merges: books are matched by identity key; for the same item the newer `updatedAt` wins, so neither an
  * older backup nor an older local state undoes a later change, and a newer tombstone deletes. A book that is not on
- * this device is kept as a pending identity (a book row with no file), which a later scan or open attaches to.
+ * this device is kept as a pending identity (a book row with no file), which a later scan or open attaches to; its
+ * position, bookmarks and annotations wait on that row. Rows whose book is not in the file at all are skipped.
  * Older file versions are upgraded by [migrations] first, so every backup ever written stays restorable.
  */
 class Backup(
@@ -46,6 +51,8 @@ class Backup(
             createdAt = clock.now(), app = appVersion,
             books = d.books().map { BackupBook(it.id, it.identityKey, it.title, it.authors.split('\n').filter(String::isNotBlank), it.addedAt, it.lastOpenedAt, it.hidden, it.hiddenUpdatedAt, it.updatedAt, it.deleted) },
             positions = d.positions(),
+            bookmarks = d.bookmarks(),
+            annotations = d.annotations(),
             collections = db.collectionDao().all(),
             collectionBooks = db.collectionDao().memberships(),
             settings = d.settings(),
@@ -65,7 +72,8 @@ class Backup(
     }
 
     private fun newestStamp(f: BackupFileV1): Long =
-        (f.books.map { maxOf(it.updatedAt, it.hiddenUpdatedAt) } + f.positions.map { it.updatedAt } + f.collections.map { it.updatedAt } +
+        (f.books.map { maxOf(it.updatedAt, it.hiddenUpdatedAt) } + f.positions.map { it.updatedAt } + f.bookmarks.map { it.updatedAt } +
+            f.annotations.map { it.updatedAt } + f.collections.map { it.updatedAt } +
             f.collectionBooks.map { it.updatedAt } + f.settings.map { it.updatedAt }).maxOrNull() ?: 0L
 
     /**
@@ -77,6 +85,8 @@ class Backup(
         return f.copy(
             books = f.books.map { it.copy(updatedAt = b(it.updatedAt), hiddenUpdatedAt = b(it.hiddenUpdatedAt), addedAt = b(it.addedAt), lastOpenedAt = it.lastOpenedAt?.let(::b)) },
             positions = f.positions.map { it.copy(updatedAt = b(it.updatedAt)) },
+            bookmarks = f.bookmarks.map { it.copy(updatedAt = b(it.updatedAt), createdAt = b(it.createdAt)) },
+            annotations = f.annotations.map { it.copy(updatedAt = b(it.updatedAt), createdAt = b(it.createdAt)) },
             collections = f.collections.map { it.copy(updatedAt = b(it.updatedAt), createdAt = b(it.createdAt)) },
             collectionBooks = f.collectionBooks.map { it.copy(updatedAt = b(it.updatedAt)) },
             settings = f.settings.map { it.copy(updatedAt = b(it.updatedAt)) },
@@ -130,6 +140,21 @@ class Backup(
                 db.positionDao().upsert(p.copy(id = id, bookId = bookId)); positions++
             }
         }
+        // Bookmarks and annotations: by row id (F-115); the newer stamp wins, equal keeps the local row, so a newer
+        // tombstone deletes and an older one is ignored. A row new here is taken as it is, tombstone included (it keeps
+        // the deletion for a later sync). Same rule as positions for the book: the local (or pending) book, else skipped.
+        var bookmarks = 0
+        for (b in f.bookmarks) {
+            val bookId = bookIds[b.bookId] ?: continue
+            val cur = db.bookmarkDao().anyRow(b.id)
+            if (cur == null || b.updatedAt > cur.updatedAt) { db.bookmarkDao().upsert(b.copy(bookId = bookId)); bookmarks++ }
+        }
+        var annotations = 0
+        for (a in f.annotations) {
+            val bookId = bookIds[a.bookId] ?: continue
+            val cur = db.annotationDao().anyRow(a.id)
+            if (cur == null || a.updatedAt > cur.updatedAt) { db.annotationDao().upsert(a.copy(bookId = bookId)); annotations++ }
+        }
         // Collections: by id, else by name among this device's live collections (no doubled "Classics").
         val collectionIds = HashMap<String, String>()
         var collections = 0
@@ -154,7 +179,7 @@ class Backup(
             val cur = d.setting(s.key)
             if (cur == null || s.updatedAt > cur.updatedAt) { d.upsertSetting(s.copy(id = cur?.id ?: s.id)); settings++ }
         }
-        return RestoreResult(matched, waiting, positions, collections, settings)
+        return RestoreResult(matched, waiting, positions, collections, settings, bookmarks, annotations)
     }
 
     private fun scopeUsable(json: String): Boolean {
@@ -209,7 +234,10 @@ data class BackupBook(
     val hidden: Boolean, val hiddenUpdatedAt: Long = 0, val updatedAt: Long, val deleted: Boolean,
 )
 
-/** Version 1 of the file. `bookmarks` and `highlights` are written empty until M6 adds them (entries defined there). */
+/**
+ * Version 1 of the file. Every list is optional on parse (an M7 file has empty `bookmarks` and the placeholder
+ * `highlights`, which is ignored like any unknown key); M6 writes `bookmarks` and `annotations` (C-041).
+ */
 @Serializable
 data class BackupFileV1(
     val format: String = Backup.FORMAT,
@@ -218,8 +246,9 @@ data class BackupFileV1(
     val app: String = "",
     val books: List<BackupBook> = emptyList(),
     val positions: List<ReadingPositionEntity> = emptyList(),
-    val bookmarks: JsonArray = JsonArray(emptyList()),
-    val highlights: JsonArray = JsonArray(emptyList()),
+    val bookmarks: List<BookmarkEntity> = emptyList(),
+    /** Highlights, underlines and notes: every annotation column. */
+    val annotations: List<AnnotationEntity> = emptyList(),
     val collections: List<CollectionEntity> = emptyList(),
     @SerialName("collectionBooks") val collectionBooks: List<CollectionBookEntity> = emptyList(),
     val settings: List<SettingEntity> = emptyList(),
@@ -229,6 +258,8 @@ data class BackupFileV1(
 interface BackupDao {
     @Query("SELECT * FROM book") suspend fun books(): List<BookEntity>
     @Query("SELECT * FROM reading_position") suspend fun positions(): List<ReadingPositionEntity>
+    @Query("SELECT * FROM bookmark") suspend fun bookmarks(): List<BookmarkEntity>
+    @Query("SELECT * FROM annotation") suspend fun annotations(): List<AnnotationEntity>
     @Query("SELECT * FROM setting") suspend fun settings(): List<SettingEntity>
     @Query("SELECT * FROM setting WHERE `key` = :key") suspend fun setting(key: String): SettingEntity?
     @Upsert suspend fun upsertSetting(s: SettingEntity)
@@ -238,7 +269,8 @@ interface BackupDao {
     @Query(
         "SELECT MAX(x) FROM (SELECT MAX(updatedAt) AS x FROM book UNION ALL SELECT MAX(hiddenUpdatedAt) FROM book " +
             "UNION ALL SELECT MAX(updatedAt) FROM reading_position UNION ALL SELECT MAX(updatedAt) FROM collection " +
-            "UNION ALL SELECT MAX(updatedAt) FROM collection_book UNION ALL SELECT MAX(updatedAt) FROM setting)",
+            "UNION ALL SELECT MAX(updatedAt) FROM collection_book UNION ALL SELECT MAX(updatedAt) FROM setting " +
+            "UNION ALL SELECT MAX(updatedAt) FROM bookmark UNION ALL SELECT MAX(updatedAt) FROM annotation)",
     )
     suspend fun maxStamp(): Long?
     @Query("UPDATE book SET hidden = :hidden, hiddenUpdatedAt = :hiddenUpdatedAt, addedAt = :addedAt, lastOpenedAt = :lastOpenedAt, updatedAt = :updatedAt WHERE id = :id")
