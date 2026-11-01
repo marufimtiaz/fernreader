@@ -52,6 +52,8 @@ class ReaderSearch(
     /** Sends the jump for a hit (the controller maps coordinates). */
     private val jump: (SearchHit) -> Unit,
     private val hidePanel: () -> Unit,
+    /** The reader's (virtual, M8) section of a hit, which [toc]'s indexes count; hits are in original sections. */
+    private val section: (SearchHit) -> Int = { it.spineIndex },
 ) {
     private val _state = MutableStateFlow(SearchState())
     val state: StateFlow<SearchState> = _state
@@ -181,7 +183,7 @@ class ReaderSearch(
                     if (_state.value.runId != run) return@collect // a newer search replaced this one
                     _state.update {
                         it.copy(
-                            results = it.results + u.hits.map { h -> SearchResult(h, labels.label(h.spineIndex)) },
+                            results = it.results + u.hits.map { h -> SearchResult(h, labels.label(section(h))) },
                             total = u.total, capped = u.capped, running = !u.done, done = u.done,
                         )
                     }

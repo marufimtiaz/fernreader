@@ -66,7 +66,9 @@ class ReaderControllerTest {
         val closed = mutableListOf<String>()
         private val pending = CompletableDeferred<OpenResult>()
         fun finishOpen(r: OpenResult) { pending.complete(r) }
-        override suspend fun open(ref: SourceRef) = if (suspendOpen) pending.await() else next
+        /** The opened book's position map (M8), given to every successful open. */
+        var map: PositionMap = PositionMap.Identity
+        override suspend fun open(ref: SourceRef) = (if (suspendOpen) pending.await() else next).let { if (it is OpenResult.Ok) it.copy(map = map) else it }
         override suspend fun close(sessionId: String) { closed += sessionId }
         var statsCalls = 0
         var stats: List<SectionStat>? = listOf(SectionStat(1000, 0), SectionStat(0, 1), SectionStat(500, 0))
@@ -179,9 +181,9 @@ class ReaderControllerTest {
         override fun textToOriginal(p: TextPos) = TextPos(p.spineIndex - 10, p.offset)
     }
     private suspend fun controller(controllerScope: CoroutineScope = scope, opener: FakeOpener = this.opener, map: PositionMap = PositionMap.Identity) = ReaderController(
-        reader, opener, library, CompletableDeferred(PositionWriter.create(db, clock, appScope)), controllerScope, WebTexts("missing"),
+        reader, opener.also { it.map = map }, library, CompletableDeferred(PositionWriter.create(db, clock, appScope)), controllerScope, WebTexts("missing"),
         closeScope = appScope, settingsStore = settings, search = searchPort, searchHistory = searchHistory, links = links,
-        bookmarks = bookmarkPort, annotations = annotationPort, textActions = textActions, positionMap = { map },
+        bookmarks = bookmarkPort, annotations = annotationPort, textActions = textActions,
     )
     /** Every later library query fails (stands in for a corrupt database or a full disk). */
     private suspend fun breakDatabase() = db.useWriterConnection { it.execSQL("DROP TABLE book_file"); it.execSQL("DROP TABLE book") }

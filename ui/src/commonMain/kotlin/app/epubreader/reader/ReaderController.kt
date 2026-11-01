@@ -19,6 +19,7 @@ import app.epubreader.core.data.SettingsPort
 import app.epubreader.core.data.SourceRef
 import app.epubreader.core.epub.PositionMap
 import app.epubreader.core.epub.TextPos
+import app.epubreader.core.epub.chunk.ChunkMap
 import app.epubreader.core.epub.meta.BookIdentity
 import app.epubreader.reader.bridge.BridgeJson
 import app.epubreader.reader.bridge.FromWeb
@@ -123,9 +124,12 @@ class ReaderController(
     private val annotations: AnnotationPort? = null,
     /** The selection menu's Copy and Share (F-060); null in tests that do not care. */
     private val textActions: TextActions? = null,
-    /** The open book's virtual/original position map (M8: its ChunkMap); identity until then. */
-    private val positionMap: (SourceRef) -> PositionMap = { PositionMap.Identity },
 ) {
+    /**
+     * [map] is the opened book's (M8: its ChunkMap when a huge document was split): every CFI, section index and text
+     * position the web side sends is virtual and becomes original through it before it is stored or compared with
+     * stored data; every stored one becomes virtual before it is sent.
+     */
     private class Session(
         val id: String, val ref: SourceRef, val cdDigest: String, val size: Long, val hadPosition: Boolean,
         val map: PositionMap = PositionMap.Identity,
@@ -196,6 +200,8 @@ class ReaderController(
         book = { session?.let { s -> s.bookId?.let { SearchBookRef(it, s.cdDigest, s.id) } } },
         toc = { _state.value.toc },
         jump = { h -> goToText(TextPos(h.spineIndex, h.offset), h.length, h.text) },
+        // Hits are in original sections, the contents' indexes in the reader's (virtual) ones.
+        section = { h -> session?.map?.textToVirtual(TextPos(h.spineIndex, h.offset))?.spineIndex ?: h.spineIndex },
         hidePanel = ::hideSearch,
     )
     private var landscape = false
@@ -270,7 +276,7 @@ class ReaderController(
             when (r) {
                 is OpenResult.Failed -> _state.update { it.copy(loading = false, error = ReaderError.Open(r.reason)) }
                 is OpenResult.Ok -> try {
-                    val s = Session(r.sessionId, ref, r.cdDigest, r.size, hadPosition = saved != null, map = positionMap(ref)).also { it.bookId = known }
+                    val s = Session(r.sessionId, ref, r.cdDigest, r.size, hadPosition = saved != null, map = r.map).also { it.bookId = known }
                     reader.isReady.first { it }
                     settingsLoaded.await()
                     session = s
@@ -292,8 +298,9 @@ class ReaderController(
         scope.launch {
             val id = s.bookId ?: return@launch
             try {
-                val stats = library.cached(id, STATS_KIND, s.cdDigest)?.let { runCatching { BridgeJson.decodeFromString(STATS, it) }.getOrNull() }
-                    ?: opener.sectionStats(s.id)?.also { library.storeCache(id, STATS_KIND, s.cdDigest, BridgeJson.encodeToString(STATS, it)) }
+                val kind = statsKind(s.map)
+                val stats = library.cached(id, kind, s.cdDigest)?.let { runCatching { BridgeJson.decodeFromString(STATS, it) }.getOrNull() }
+                    ?: opener.sectionStats(s.id)?.also { library.storeCache(id, kind, s.cdDigest, BridgeJson.encodeToString(STATS, it)) }
                 if (session !== s) return@launch
                 s.stats = stats
                 probe.ev("stats_ready", "${stats?.size}")
@@ -942,4 +949,10 @@ class ReaderController(
 private const val STORAGE = "storage"
 private const val HIT_NOT_FOUND = "hit_not_found"
 private const val STATS_KIND = "section-stats.v1"
+
+/**
+ * The `book_cache` kind of the section stats (M4) for the layout the reader shows: per spine item, or for a chunked
+ * book (M8) per virtual section under that chunk policy, so an unchunked and a chunked layout never share a row.
+ */
+internal fun statsKind(map: PositionMap): String = (map as? ChunkMap)?.takeUnless { it.isIdentity }?.let { "$STATS_KIND@${it.policyKey}" } ?: STATS_KIND
 private val STATS = kotlinx.serialization.builtins.ListSerializer(SectionStat.serializer())
