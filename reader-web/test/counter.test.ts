@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { boxPages, splitSource, planBatch, readingOrder, stratifiedSample } from '../src/reader/counter'
+import { BATCH, BATCH_BYTES, batches, boxPages, splitSource, planBatch, readingOrder, stratifiedSample } from '../src/reader/counter'
 
 describe('stratifiedSample (S1: 12 sections spread over the book)', () => {
   const linear = Array.from({ length: 368 }, (_, i) => i)
@@ -18,6 +18,28 @@ describe('stratifiedSample (S1: 12 sections spread over the book)', () => {
   it('respects non-linear gaps (only linear indexes)', () => {
     const lin = [0, 1, 3, 4, 6, 8, 9, 10, 12, 13, 15, 16, 17, 19, 20]
     expect(stratifiedSample(lin, 12).every(i => lin.includes(i))).toBe(true)
+  })
+})
+
+describe('batches (C-062: a batch document holds at most BATCH sections and about BATCH_BYTES of markup)', () => {
+  const ids = (n: number) => Array.from({ length: n }, (_, i) => i)
+  it('small sections: the sample, then BATCH at a time', () => {
+    const b = batches(ids(60), 12, () => 10_000)
+    expect(b.map(x => x.length)).toEqual([12, BATCH, 60 - 12 - BATCH])
+  })
+  it('huge parts go a few at a time, never more than BATCH_BYTES per document (one part alone if it is bigger)', () => {
+    const b = batches(ids(80), 12, () => 130_000)
+    expect(Math.max(...b.map(x => x.length))).toBe(Math.floor(BATCH_BYTES / 130_000))
+    expect(b.flat()).toEqual(ids(80))
+    expect(batches([0, 1], 0, () => 5 * BATCH_BYTES).map(x => x.length)).toEqual([1, 1])
+  })
+  it('the sample stays one message (the estimate) but is split into documents by size', () => {
+    const b = batches(ids(20), 12, i => (i < 12 ? 200_000 : 1_000))
+    expect(b.slice(0, -1).flat()).toEqual(ids(12)) // sample documents first
+    expect(b.at(-1)).toEqual(ids(20).slice(12))
+  })
+  it('an unknown size counts as small', () => {
+    expect(batches(ids(30), 0, () => undefined).map(x => x.length)).toEqual([BATCH, 6])
   })
 })
 

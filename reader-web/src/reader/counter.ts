@@ -71,11 +71,33 @@ export function splitSource(text: string): Source | null {
 export type Layout = { width: number; height: number; gap: number; columnWidth: number; margin: number; verticalPages?: boolean }
 export type CountMessage = { gen: number; linear?: number[]; counts: [number, number][]; sample: boolean; done: boolean }
 
-type Section = { load(): Promise<string>; unload?(): void; linear?: string }
+type Section = { load(): Promise<string>; unload?(): void; linear?: string; size?: number }
 type Renderer = { pagedLayout: Layout; styles: string | [string, string] | undefined; busy: boolean }
 
 export const SAMPLE = 12
 export const BATCH = 24
+/**
+ * Markup per batch document (C-062). A batch of 24 chunk parts (~128 K characters each) built a ~3 MB hidden document,
+ * and the renderer kept ~300 MB more for ~30 s after counting the huge chapter (P-061 peak 629 MB). Ordinary chapters
+ * (War and Peace: ~9 KB average) still go 24 at a time.
+ */
+export const BATCH_BYTES = 512 * 1024
+
+/**
+ * [order] cut into batch documents: the first [sampleLen] (the sample) and the rest never share one; each holds at most
+ * [BATCH] sections and, past its first section, at most [BATCH_BYTES] of markup by [size] (unknown = small).
+ */
+export function batches(order: number[], sampleLen: number, size: (i: number) => number | undefined): number[][] {
+  const out: number[][] = []
+  let cur: number[] = [], bytes = 0
+  order.forEach((i, k) => {
+    const b = size(i) ?? 0
+    if (cur.length && (k === sampleLen || cur.length >= BATCH || bytes + b > BATCH_BYTES)) { out.push(cur); cur = []; bytes = 0 }
+    cur.push(i); bytes += b
+  })
+  if (cur.length) out.push(cur)
+  return out
+}
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 const imagesSettled = (doc: Document) => Promise.all([...doc.images].filter(i => !i.complete)
@@ -128,15 +150,19 @@ export class PageCounter {
     this.send({ gen, linear, counts: [], sample: false, done: false })
     const sample = stratifiedSample(linear, SAMPLE)
     const order = readingOrder(linear, sample)
-    for (let at = 0; at < order.length; ) {
+    let at = 0
+    let pending: [number, number][] = [] // the sample's counts, sent together (the estimate needs all of them)
+    for (const batch of batches(order, sample.length, i => this.sections[i]?.size)) {
       if (!live()) return
-      const size = at === 0 ? sample.length : BATCH
-      const batch = order.slice(at, at + size)
       while (this.renderer()?.busy) { await sleep(40); if (!live()) return } // never during a page turn
       const counts = this.opts.alone ? await this.countEachAlone(batch, live) : await this.countBatch(batch, live)
       if (!counts || !live()) return
-      at += size
-      this.send({ gen, counts, sample: at === sample.length && sample.length > 0, done: at >= order.length })
+      at += batch.length
+      if (at < sample.length) pending.push(...counts)
+      else {
+        this.send({ gen, counts: [...pending, ...counts], sample: at === sample.length && sample.length > 0, done: at >= order.length })
+        pending = []
+      }
       if (at >= order.length) { this.host?.remove(); this.host = null} // the last batch document goes too
       await sleep(0) // let input and painting run between batches
     }
