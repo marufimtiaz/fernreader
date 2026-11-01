@@ -4,7 +4,6 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
-import androidx.test.uiautomator.Direction
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.UiObject2
 import androidx.test.uiautomator.Until
@@ -29,11 +28,22 @@ class SettingsReaderItemsTest {
     private val device = UiDevice.getInstance(inst)
     private val graph get() = (inst.targetContext.applicationContext as EpubReaderApp).graph
 
+    /**
+     * [text] on the settings list, scrolling down then up with explicit drags (scrollUntil stops after one drag on
+     * Compose) and refreshing UiAutomation's node cache after each (Compose sends no scroll event for the list, API 34+).
+     */
     private fun find(text: String): UiObject2? {
         device.findObject(By.text(text))?.let { return it }
         val list = device.wait(Until.findObject(By.scrollable(true)), 5_000) ?: return null
-        return list.scrollUntil(Direction.DOWN, Until.findObject(By.text(text)))
-            ?: list.scrollUntil(Direction.UP, Until.findObject(By.text(text)))
+        val r = list.visibleBounds
+        for (down in listOf(true, false)) repeat(8) {
+            val (from, to) = if (down) r.top + r.height() * 3 / 4 to r.top + r.height() / 4 else r.top + r.height() / 4 to r.top + r.height() * 3 / 4
+            device.swipe(r.centerX(), from, r.centerX(), to, 30)
+            device.waitForIdle(300)
+            if (android.os.Build.VERSION.SDK_INT >= 34) inst.uiAutomation.clearCache()
+            device.findObject(By.text(text))?.let { return it }
+        }
+        return null
     }
 
     private suspend fun stored(): ReaderSettings = ReaderSettings.decode(graph.settings.get(ReaderSettings.KEY))
@@ -46,7 +56,7 @@ class SettingsReaderItemsTest {
             sc.onActivity { a = it; it.controller.updateSettings { ReaderSettings() }; it.nav.push(Route.Settings) }
             try {
                 assertNotNull(device.wait(Until.findObject(By.text(Copy.pageNumbers)), 10_000))
-                for (t in listOf(Copy.pageAnimation, Copy.swipeDirection, Copy.volumeKeys, Copy.fullscreen, Copy.keepScreenOn, Copy.orientation, Copy.confirmLinks)) {
+                for (t in listOf(Copy.layout, Copy.pageAnimation, Copy.swipeDirection, Copy.volumeKeys, Copy.fullscreen, Copy.keepScreenOn, Copy.orientation, Copy.confirmLinks)) {
                     assertNotNull(t, find(t))
                 }
                 assertNotNull(Copy.volumeSummary(app.epubreader.core.data.VolumeKeys.OFF), find(Copy.volumeSummary(app.epubreader.core.data.VolumeKeys.OFF)))
