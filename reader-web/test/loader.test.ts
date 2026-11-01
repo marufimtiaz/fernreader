@@ -38,10 +38,37 @@ describe('loader container fallback', () => {
     expect(c).toContain('full-path="a/Package.OPF"')
     expect(l.has('META-INF/container.xml')).toBe(true)
   })
-  it('keeps a real container.xml', async () => {
-    const real = '<container><rootfiles><rootfile full-path="x.opf"/></rootfiles></container>'
-    const l = await makeLoader('/book/s-1', 'x', with_(['META-INF/container.xml', 'x.opf', 'y.opf'], { 'META-INF/container.xml': real }))
-    expect(await l.loadText('META-INF/container.xml')).toBe(real)
+  // Review I1: the scanner (ContainerParser + ZipReader.entry) and the reader must pick the same package whenever a
+  // container exists but is unusable, or a book is added that can never be opened.
+  const pick = async (names: string[], container: string) => {
+    const l = await makeLoader('/book/s-1', 'x', with_(names, { [names.find(n => /container\.xml$/i.test(n))!]: container }))
+    return (await l.loadText('META-INF/container.xml'))?.match(/full-path="([^"]*)"/)?.[1] ?? null
+  }
+  it('uses the package a sound container names', async () => {
+    expect(await pick(['META-INF/container.xml', 'x.opf', 'y.opf'], '<container><rootfiles><rootfile full-path="y.opf" media-type="application/oebps-package+xml"/></rootfiles></container>')).toBe('y.opf')
+  })
+  it('resolves a full-path like the zip reader: other case, leading slash, backslashes', async () => {
+    const names = ['META-INF/container.xml', 'OEBPS/content.opf', 'OEBPS/c.xhtml']
+    expect(await pick(names, '<container><rootfiles><rootfile full-path="OEBPS/Content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>')).toBe('OEBPS/content.opf')
+    expect(await pick(names, '<container><rootfiles><rootfile full-path="/OEBPS/content.opf"/></rootfiles></container>')).toBe('OEBPS/content.opf')
+    expect(await pick(names, '<container><rootfiles><rootfile full-path="OEBPS\\content.opf"/></rootfiles></container>')).toBe('OEBPS/content.opf')
+  })
+  it('takes the oebps-package rootfile, else the first one', async () => {
+    const names = ['META-INF/container.xml', 'a.opf', 'b.opf']
+    expect(await pick(names, '<container><rootfiles><rootfile full-path="a.opf" media-type="text/plain"/><rootfile full-path="b.opf" media-type="application/oebps-package+xml"/></rootfiles></container>')).toBe('b.opf')
+    expect(await pick(names, '<container><rootfiles><rootfile full-path="b.opf"/><rootfile full-path="a.opf"/></rootfiles></container>')).toBe('b.opf')
+  })
+  it('falls back to the first .opf when the container is broken, empty or names a missing file', async () => {
+    const names = ['META-INF/container.xml', 'z/second.opf', 'a/first.opf']
+    expect(await pick(names, '<container><rootfiles><rootfile full-path="gone.opf"/></rootfiles></container>')).toBe('a/first.opf')
+    expect(await pick(names, '<container><rootfiles></rootfiles></container>')).toBe('a/first.opf')
+    expect(await pick(names, '<<<not xml')).toBe('a/first.opf')
+  })
+  it('reads a broken container leniently, as the scanner does', async () => {
+    expect(await pick(['META-INF/container.xml', 'p.opf', 'a.opf'], '<container><rootfiles><rootfile full-path="p.opf" media-type="application/oebps-package+xml"><b></rootfiles>')).toBe('p.opf')
+  })
+  it('finds the container case-insensitively', async () => {
+    expect(await pick(['meta-inf/Container.XML', 'q.opf', 'a.opf'], '<container><rootfiles><rootfile full-path="q.opf"/></rootfiles></container>')).toBe('q.opf')
   })
   it('reports no package when there is neither a container nor an .opf', async () => {
     const l = await makeLoader('/book/s-1', 'x', with_(['mimetype', 'OEBPS/c.xhtml']))
