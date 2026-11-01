@@ -468,7 +468,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        windowLook.reapply() // back from another app: the bars and flags as the reader wants them
+        // Back from another app into the reader: the bars and flags as the reader wants them. Not on the library: its
+        // window is the system default, and re-applying it on every hot start costs P-002 time.
+        if (nav.top == Route.Reader) windowLook.reapply()
         onAccessMaybeGranted()
         // F-012: back to the library → incremental rescan (debounced). The first resume is the app start.
         if (resumedOnce && nav.top == Route.Library) (application as EpubReaderApp).graph.scans.onLibraryResumed()
