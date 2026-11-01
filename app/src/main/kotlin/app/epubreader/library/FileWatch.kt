@@ -7,6 +7,10 @@ import android.os.Looper
 import android.system.ErrnoException
 import android.system.Os
 import java.io.File
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
 
 /**
  * R-008: tells the reader when the open book's file is deleted, moved away or rewritten. The open descriptor keeps
@@ -15,6 +19,10 @@ import java.io.File
  * While the reader holds the file open, deleting it only unlinks it (no DELETE_SELF until the last descriptor
  * closes): that arrives as ATTRIB. So ATTRIB counts when the path is gone or now names another file (replaced by a
  * rename, as downloaders and sync apps do).
+ *
+ * Shared storage (/storage/emulated, FUSE) delivers no inotify events for changes made through FUSE, which is how every
+ * app (a file manager, a downloader) changes it: there a delete or replace went unnoticed (M9, R-008). So the path is
+ * also checked once a second on a background thread: gone, another file (inode), or rewritten (size or mtime).
  */
 class FileWatch(private val path: String, private val onGone: () -> Unit) {
     private val main = Handler(Looper.getMainLooper())
@@ -35,7 +43,25 @@ class FileWatch(private val path: String, private val onGone: () -> Unit) {
 
     private fun inodeOf(p: String): Long? = try { Os.stat(p).st_ino } catch (e: ErrnoException) { null }
 
-    private fun gone() { if (!fired) { fired = true; main.post(onGone) } }
-    fun start() = apply { observer.startWatching() }
-    fun stop() { fired = true; observer.stopWatching() }
+    private data class Stamp(val inode: Long, val size: Long, val mtimeSec: Long) // st_mtim (ns) needs API 27
+    private fun stampOf(p: String): Stamp? = try {
+        Os.stat(p).let { Stamp(it.st_ino, it.st_size, it.st_mtime) }
+    } catch (e: ErrnoException) { null }
+    private val stamp = stampOf(path)
+    private var poll: ScheduledFuture<*>? = null
+
+    private fun check() { if (!fired && stampOf(path) != stamp) gone() }
+
+    private fun gone() { if (!fired) { fired = true; poll?.cancel(false); main.post(onGone) } }
+    fun start() = apply {
+        observer.startWatching()
+        poll = POLLER.scheduleWithFixedDelay(::check, POLL_MS, POLL_MS, TimeUnit.MILLISECONDS)
+    }
+    fun stop() { fired = true; observer.stopWatching(); poll?.cancel(false) }
+
+    private companion object {
+        const val POLL_MS = 1_000L
+        /** One daemon thread for all watches (one book is open at a time). */
+        val POLLER: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "file-watch").apply { isDaemon = true } }
+    }
 }
