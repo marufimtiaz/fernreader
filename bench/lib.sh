@@ -27,6 +27,14 @@ ev_delta() {
     index($0, a) && s=="" { s=t() } index($0, b) && s!="" && e=="" { e=t() }
     END { if (s!="" && e!="") print e-s; else print "NA" }'
 }
+# wait_ev <event> [timeout_s]: waits until logcat (tag EPR) holds the event; returns 1 on timeout.
+wait_ev() {
+  local end=$(( $(date +%s) + ${2:-20} ))
+  until $A logcat -d -s EPR:I | grep -q "EVT $1 "; do
+    [ "$(date +%s)" -ge "$end" ] && return 1
+    sleep 0.3
+  done
+}
 bench_cmd() { $A shell am broadcast -a app.epubreader.BENCH -n "$PKG/.bench.BenchCommandReceiver" --es cmd "$1" --es arg "'${2:-}'" >/dev/null; }
 video_ms() { bash "$SPEC_TOOLS/summarize_open.sh" "$1" | sed 's/.*open_ms=//'; }
 B=/sdcard/Books

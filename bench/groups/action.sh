@@ -52,13 +52,17 @@ for RUN in 1 2 3; do
 done
 bench_cmd hideDisplay; sleep 1
 # P-022: rotation to landscape (app-requested, a real configuration change); recording from the marker to the last change.
+# The page label must show the exact total of the current layout before the recording starts (M6 Q7, C-049): on runs
+# 2-3 it used to change from "≈ N" to the total during the pre-roll, and the video clock started ~1 s before the rotation.
+wait_ev page_total_exact 20 || echo "  (P-022: no page_total_exact before run 1)"
 for RUN in 1 2 3; do
   v="$OUT/P-022-$RUN.mp4"; $A logcat -c
   $AD record start "$v" --scope device --hide-touches >/dev/null 2>&1; sleep 1.5
   bench_cmd orient land; sleep 3
   $AD record stop >/dev/null 2>&1
   emit P-022 "$(video_ms "$v")" "video; events config_changed->painted=$(ev_delta config_changed painted)"
-  bench_cmd orient port; sleep 3
+  $A logcat -c; bench_cmd orient port; sleep 3
+  wait_ev page_total_exact 20 || echo "  (P-022: no page_total_exact after run $RUN)"
 done
 bench_cmd orient free; sleep 2
 # P-026: next from the last page of a chapter (the neighbour is preloaded); 5 turns per run, median per run.
