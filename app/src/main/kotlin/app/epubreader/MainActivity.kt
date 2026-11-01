@@ -299,6 +299,16 @@ class MainActivity : ComponentActivity() {
             // M6 (tools/run_checks.sh, rendering compatibility): TOC entry by position, search result by position
             BenchCommands.register("tocIndex") { n -> n.trim().toIntOrNull()?.let { controller.state.value.toc.getOrNull(it) }?.let(controller::onTocSelected) }
             BenchCommands.register("searchHit") { n -> n.trim().toIntOrNull()?.let { controller.searcher.state.value.results.getOrNull(it) }?.let(controller.searcher::select) }
+            // M9 P-063: `seedLibrary 1000` adds 1000 books with their own cover thumbnails; `seedLibrary 0` removes them
+            BenchCommands.register("seedLibrary") { n ->
+                val thumbs = java.io.File(filesDir, "thumbs")
+                val seeder = app.epubreader.core.data.LibrarySeeder(
+                    graph.db, graph.clock,
+                    copyThumb = { from, id -> java.io.File(from).copyTo(java.io.File(thumbs, id + "." + java.io.File(from).extension), overwrite = true).path },
+                    deleteThumb = { java.io.File(it).delete() },
+                )
+                graph.appScope.launch { Probe.ev("seeded", seeder.seed(n.trim().toIntOrNull() ?: 0).toString()) }
+            }
         }
         // Pre-warm after the first frame so it never delays the library (P-001). Creating the WebView blocks the main
         // thread for ~0.3-0.5 s, so on the library it waits until the books are on screen (or a first scan found

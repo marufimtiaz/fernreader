@@ -148,6 +148,15 @@ abstract class LibraryDao {
     @Query("UPDATE book SET deleted = 1, updatedAt = :now WHERE id = :id") protected abstract suspend fun tombstone(id: String, now: Long)
     @Query("DELETE FROM book_file WHERE bookId = :id") protected abstract suspend fun deleteFiles(id: String)
 
+    // --- P-063 (benchmark build only): seeded books, ids starting with "seed-" -----------------------------------
+    @Query("SELECT coverThumb FROM book WHERE substr(id, 1, 5) = 'seed-' AND coverThumb IS NOT NULL") abstract suspend fun seedThumbs(): List<String>
+    @Query("DELETE FROM book_file WHERE substr(bookId, 1, 5) = 'seed-'") protected abstract suspend fun deleteSeedFiles()
+    @Query("DELETE FROM book WHERE substr(id, 1, 5) = 'seed-'") protected abstract suspend fun deleteSeedBooks()
+    @Transaction open suspend fun deleteSeeds() { deleteSeedFiles(); deleteSeedBooks() }
+    @Transaction open suspend fun insertSeeds(books: List<BookEntity>, files: List<BookFileEntity>) {
+        books.forEach { insertBook(it) }; files.forEach { upsertFile(it) }
+    }
+
     /** F-018 "remove entry": the book leaves the library; its reading data stays keyed by the id (a later scan brings it back). */
     @Transaction
     open suspend fun removeBook(id: String, now: Long) { deleteFiles(id); tombstone(id, now) }
