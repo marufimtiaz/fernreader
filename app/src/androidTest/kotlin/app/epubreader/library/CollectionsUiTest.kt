@@ -69,7 +69,7 @@ class CollectionsUiTest {
             text("Classics").click()
             assertTrue(device.wait(Until.hasObject(By.text("Zq Alice")), 5_000))
             assertTrue(device.hasObject(By.text("Zq Frankenstein")))
-            assertTrue(!device.hasObject(By.text("Zq Moby")))
+            assertTrue("Moby not in Classics", device.wait(Until.gone(By.text("Zq Moby")), 5_000)) // the search list it replaced had it (no idle wait, C-049)
 
             // F-025 library-only delete from the collection view
             text("Zq Alice").longClick()

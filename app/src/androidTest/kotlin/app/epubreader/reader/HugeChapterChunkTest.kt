@@ -251,6 +251,14 @@ class HugeChapterChunkTest {
             } finally {
                 graph.opener.policy = policy
                 runCatching { if (c.state.value.open) h.closeBook() }
+                // A small book last, so neither the opener's nor the web side's warm session keeps the 10 MB chapter: its
+                // DOM, walked by every accessibility query of a UiAutomator test, made the activity's teardown and the next
+                // test crawl on the emulator.
+                runCatching {
+                    val small = app.epubreader.TestBooks.write(inst.targetContext, "huge-after.epub")
+                    h.drain(); sc.onActivity { it.openBook(SourceRef.File(small.path)) }
+                    h.relocate(30_000); h.painted(30_000); h.closeBook()
+                }
                 for (a in made) graph.annotations.remove(a)
                 for (b in marks) graph.bookmarks.remove(b)
                 bookId?.let { id ->
