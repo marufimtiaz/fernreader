@@ -193,6 +193,16 @@ export class Reader {
         sel.removeAllRanges(); sel.addRange(hit.range)
         return true
       },
+      /** M8: text of the range [cfi] (the reader's own, virtual coordinates) in its loaded section, or null. */
+      cfiText: (cfi: string) => this.cfiRange(cfi)?.toString() ?? null,
+      /** M8: selects the range [cfi] in its loaded section (as a long-press would); false if it is not loaded. */
+      selectCfi: (cfi: string) => {
+        const r = this.cfiRange(cfi)
+        if (!r) return false
+        const sel = r.startContainer.ownerDocument!.getSelection()!
+        sel.removeAllRanges(); sel.addRange(r)
+        return true
+      },
       /** F-060: `Selection.toString()` of the section document holding a selection, or null. */
       selectionText: () => {
         for (const c of this.view?.renderer?.getContents?.() ?? []) {
@@ -574,6 +584,16 @@ export class Reader {
   }
 
   /** Test probe helper: the first whole-word occurrence of [word] fully inside the host viewport. */
+  /** Range of [cfi] in its section's loaded document (test probes), or null. */
+  private cfiRange(cfi: string): Range | null {
+    try {
+      const t = this.book?.resolveCFI?.(cfi)
+      const doc = this.view?.renderer?.getContents?.().find((x: any) => x.index === t?.index)?.doc
+      const r = doc && t?.anchor ? t.anchor(doc) : null
+      return r && typeof r === 'object' && 'startContainer' in r ? (r as Range) : null
+    } catch { return null }
+  }
+
   private findWord(word: string): { range: Range; index: number; x: number; y: number; w: number; h: number } | null {
     const re = new RegExp(`(^|[^\\p{L}\\p{N}])(${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})(?=$|[^\\p{L}\\p{N}])`, 'u')
     for (const c of this.view?.renderer?.getContents?.() ?? []) {
