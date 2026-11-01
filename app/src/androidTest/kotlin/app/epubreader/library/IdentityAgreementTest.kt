@@ -3,6 +3,7 @@ package app.epubreader.library
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import app.epubreader.EpubReaderApp
 import app.epubreader.MainActivity
 import app.epubreader.TestBooks
 import app.epubreader.core.data.SourceRef
@@ -10,17 +11,17 @@ import app.epubreader.core.epub.meta.BookIdentity
 import app.epubreader.core.epub.openFileSource
 import app.epubreader.core.epub.pkg.LoadResult
 import app.epubreader.core.epub.pkg.PackageLoader
-import app.epubreader.reader.bridge.FromWeb
-import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.channels.Channel
+import app.epubreader.reader.OpenResult
+import app.epubreader.reader.js
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.json.JSONObject
 import java.io.File
 
 /**
@@ -48,21 +49,32 @@ class IdentityAgreementTest {
         if (File("/sdcard/Books/gutenberg").isDirectory) assertTrue("only ${expected.size} books readable", expected.size >= 30)
         println("IdentityAgreementTest: comparing ${expected.size} books")
         val mismatches = mutableListOf<String>()
+        // The identifier comes from the web side's package load (the same code `opened` reports), without laying each
+        // book out: opening and rendering all ~40 corpus books one by one took ~105 s of the suite (C-049).
+        val opener = (inst.targetContext.applicationContext as EpubReaderApp).graph.opener
         ActivityScenario.launch(MainActivity::class.java).use { sc ->
             lateinit var a: MainActivity
             sc.onActivity { a = it }
             withTimeout(15_000) { a.reader.isReady.first { it } }
-            val ch = Channel<FromWeb>(Channel.UNLIMITED)
-            val job = launch(start = CoroutineStart.UNDISPATCHED) { a.reader.events.collect { ch.send(it) } }
             for ((f, id) in expected) {
-                sc.onActivity { it.openBook(SourceRef.File(f.path)) }
-                val opened = withTimeout(20_000) { while (true) { val e = ch.receive(); if (e is FromWeb.Opened) return@withTimeout e }; error("") }
+                val session = (opener.open(SourceRef.File(f.path)) as OpenResult.Ok).sessionId
+                sc.js("window.__readerTest.identify(${JSONObject.quote(session)})")
+                val got = withTimeout(20_000) {
+                    while (true) {
+                        val r = sc.js("JSON.stringify(window.__readerTest.identity(${JSONObject.quote(session)}))")
+                        val text = org.json.JSONTokener(r).nextValue() as? String
+                        if (text != null && text != "null") return@withTimeout JSONObject(text)
+                        delay(20)
+                    }
+                    @Suppress("UNREACHABLE_CODE") error("unreachable")
+                }
+                opener.close(session)
+                val identifier = if (got.isNull("identifier")) null else got.optString("identifier")
+                if (got.has("error")) { mismatches += "${f.name}: web load failed: ${got.getString("error")}"; continue }
                 val digest = openFileSource(f.path).use { app.epubreader.core.epub.zip.ZipReader.open(it).centralDirectoryDigest }
-                val fromReader = BookIdentity.of(opened.identifier, digest)
-                if (fromReader != id) mismatches += "${f.name}: reader='${opened.identifier}'"
-                sc.onActivity { it.goBack() }
+                val fromReader = BookIdentity.of(identifier, digest)
+                if (fromReader != id) mismatches += "${f.name}: reader='$identifier'"
             }
-            job.cancel()
         }
         assertEquals("identity mismatches", emptyList<String>(), mismatches)
     }
