@@ -1,5 +1,6 @@
 package app.epubreader.settings
 
+import app.epubreader.core.data.Flow
 import app.epubreader.core.data.IndicatorScope
 import app.epubreader.core.data.OrientationLock
 import app.epubreader.core.data.PageAnimation
@@ -28,7 +29,7 @@ class SettingsEntriesTest {
 
     @Test fun every_m6_reader_setting_is_listed_in_its_section() {
         val byTitle = sections().associate { s -> s.title to s.items.map { it.id } }
-        assertEquals(listOf("reader.pageScope", "reader.pageAnimation", "reader.swipeDirection", "reader.tapZones", "reader.volumeKeys"), byTitle[Copy.sectionReading])
+        assertEquals(listOf("reader.pageScope", "reader.flow", "reader.pageAnimation", "reader.swipeDirection", "reader.tapZones", "reader.volumeKeys"), byTitle[Copy.sectionReading])
         assertEquals(listOf("reader.fullscreen", "reader.keepScreenOn", "reader.orientation"), byTitle[Copy.settingsScreen])
         assertEquals(listOf("reader.confirmLinks"), byTitle[Copy.settingsLinks])
         // the sections sit between Library and Backup
@@ -74,5 +75,26 @@ class SettingsEntriesTest {
         choice("reader.pageScope").onSelect("CHAPTER"); assertEquals(IndicatorScope.CHAPTER, reader.pageIndicatorScope)
         // one field at a time: the others are untouched
         assertEquals(ReaderSettings().fontScale, reader.fontScale); assertTrue(reader.tapZones)
+    }
+
+    /** F-031 (user report): Reading mode is in Settings → Reading, above the animation, and edits the same `flow`. */
+    @Test fun reading_mode_is_listed_and_edits_the_same_flow_value() {
+        assertEquals(Copy.layout, choice("reader.flow").title)
+        assertEquals(listOf(Copy.flowPaged, Copy.flowScrolled, Copy.flowAuto), choice("reader.flow").options.map { it.second })
+        assertEquals("PAGED", choice("reader.flow").selected)
+        choice("reader.flow").onSelect("SCROLLED")
+        assertEquals(Flow.SCROLLED, reader.flow)
+        assertEquals("SCROLLED", choice("reader.flow").selected) // a change made elsewhere (panel, sheet) shows here
+        reader = reader.copy(flow = Flow.AUTO)
+        assertEquals("AUTO", choice("reader.flow").selected)
+    }
+
+    @Test fun page_animation_is_off_with_a_hint_in_scroll_mode_only() {
+        for (f in Flow.entries) {
+            reader = ReaderSettings(flow = f)
+            val anim = choice("reader.pageAnimation")
+            assertEquals(f != Flow.SCROLLED, anim.enabled, "$f")
+            assertEquals(if (f == Flow.SCROLLED) Copy.appliesToPageMode else null, anim.summary, "$f")
+        }
     }
 }

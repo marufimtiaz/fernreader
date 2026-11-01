@@ -28,6 +28,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -43,7 +44,7 @@ sealed interface SettingItem {
 
     /** One value out of a few; the current one is shown under the title, a dialog changes it. */
     data class Choice(override val id: String, val title: String, val options: List<Pair<String, String>>, val selected: String,
-                      val onSelect: (String) -> Unit, val summary: String? = null) : SettingItem
+                      val onSelect: (String) -> Unit, val summary: String? = null, val enabled: Boolean = true) : SettingItem
     data class Toggle(override val id: String, val title: String, val summary: String?, val checked: Boolean, val onChange: (Boolean) -> Unit) : SettingItem
     data class Action(override val id: String, val title: String, val summary: String?, val onClick: () -> Unit) : SettingItem
 }
@@ -77,8 +78,8 @@ fun SettingsScreen(sections: List<SettingsSection>, onBack: () -> Unit) {
                 }
                 items(s.items, key = { it.id }) { item ->
                     when (item) {
-                        is SettingItem.Choice -> Row2(item.title, item.summary ?: item.options.firstOrNull { it.first == item.selected }?.second) { choosing = item }
-                        is SettingItem.Action -> Row2(item.title, item.summary, item.onClick)
+                        is SettingItem.Choice -> Row2(item.title, item.summary ?: item.options.firstOrNull { it.first == item.selected }?.second, item.enabled) { choosing = item }
+                        is SettingItem.Action -> Row2(item.title, item.summary, onClick = item.onClick)
                         is SettingItem.Toggle -> Row(
                             Modifier.fillMaxWidth().clickable { item.onChange(!item.checked) }.padding(horizontal = 16.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -116,8 +117,11 @@ fun SettingsScreen(sections: List<SettingsSection>, onBack: () -> Unit) {
 }
 
 @Composable
-private fun Row2(title: String, summary: String?, onClick: () -> Unit) {
-    Column(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+private fun Row2(title: String, summary: String?, enabled: Boolean = true, onClick: () -> Unit) {
+    Column(
+        Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick).alpha(if (enabled) 1f else 0.38f).padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
         Text(title, style = MaterialTheme.typography.bodyLarge)
         summary?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
     }

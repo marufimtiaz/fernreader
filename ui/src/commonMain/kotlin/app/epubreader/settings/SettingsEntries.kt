@@ -1,5 +1,6 @@
 package app.epubreader.settings
 
+import app.epubreader.core.data.Flow
 import app.epubreader.core.data.IndicatorScope
 import app.epubreader.core.data.OrientationLock
 import app.epubreader.core.data.PageAnimation
@@ -36,10 +37,13 @@ class SettingsInputs(
 /**
  * The settings screen's content (F-100), grouped by topic. C-007: only settings of features that exist are listed.
  * M6's reader settings are here as well as in the reader's own Reader settings sheet; both edit the same
- * [ReaderSettings]: "Reading" (page numbers, page turning: animation, swipe direction, tap zones, volume keys), "Screen"
+ * [ReaderSettings]: "Reading" (page numbers, reading mode (F-031, also in the display panel), page turning: animation, swipe direction, tap zones, volume keys), "Screen"
  * (fullscreen, keep screen on, orientation lock) and "Links" (external-link confirmation). Later milestones add theirs
  * here (M5 a "Search" section).
  */
+/** F-031/F-032: the page-turn animation has no effect in Scroll mode (Auto still pages in portrait, C-004). */
+val ReaderSettings.pageAnimationApplies: Boolean get() = flow != Flow.SCROLLED
+
 fun settingsSections(i: SettingsInputs): List<SettingsSection> = listOf(
     SettingsSection(Copy.sectionAppearance, listOf(
         SettingItem.Choice("app.theme", Copy.appTheme,
@@ -56,8 +60,11 @@ fun settingsSections(i: SettingsInputs): List<SettingsSection> = listOf(
     SettingsSection(Copy.sectionReading, listOf(
         SettingItem.Choice("reader.pageScope", Copy.pageNumbers, listOf(IndicatorScope.BOOK.name to Copy.scopeBook, IndicatorScope.CHAPTER.name to Copy.scopeChapter),
             i.reader.pageIndicatorScope.name, { v -> i.onReader { it.copy(pageIndicatorScope = IndicatorScope.valueOf(v)) } }),
+        SettingItem.Choice("reader.flow", Copy.layout, listOf(Flow.PAGED.name to Copy.flowPaged, Flow.SCROLLED.name to Copy.flowScrolled, Flow.AUTO.name to Copy.flowAuto),
+            i.reader.flow.name, { v -> i.onReader { it.copy(flow = Flow.valueOf(v)) } }),
         SettingItem.Choice("reader.pageAnimation", Copy.pageAnimation, listOf(PageAnimation.SLIDE.name to Copy.animSlide, PageAnimation.NONE.name to Copy.animNone),
-            i.reader.pageAnimation.name, { v -> i.onReader { it.copy(pageAnimation = PageAnimation.valueOf(v)) } }),
+            i.reader.pageAnimation.name, { v -> i.onReader { it.copy(pageAnimation = PageAnimation.valueOf(v)) } },
+            summary = Copy.appliesToPageMode.takeUnless { i.reader.pageAnimationApplies }, enabled = i.reader.pageAnimationApplies),
         SettingItem.Choice("reader.swipeDirection", Copy.swipeDirection,
             listOf(SwipeDirection.AUTO.name to Copy.swipeAuto, SwipeDirection.LTR.name to Copy.swipeLtr, SwipeDirection.RTL.name to Copy.swipeRtl),
             i.reader.swipeDirection.name, { v -> i.onReader { it.copy(swipeDirection = SwipeDirection.valueOf(v)) } }),

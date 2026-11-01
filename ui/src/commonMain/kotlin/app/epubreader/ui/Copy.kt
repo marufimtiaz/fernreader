@@ -272,6 +272,8 @@ object Copy {
     const val pageAnimation = "Page-turn animation"
     const val animSlide = "Slide"
     const val animNone = "None"
+    /** F-032 with F-031: page-turn animation has no effect while scrolling. */
+    const val appliesToPageMode = "Applies to page mode"
     const val swipeDirection = "Swipe direction"
     const val swipeAuto = "Follow book"
     const val swipeLtr = "Left to right"

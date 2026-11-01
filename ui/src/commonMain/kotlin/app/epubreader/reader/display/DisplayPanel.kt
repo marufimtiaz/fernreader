@@ -32,6 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -84,7 +85,7 @@ fun DisplayPanel(
             Segments(Copy.alignment, listOf(Align.PUBLISHER to Copy.alignPublisher, Align.START to Copy.alignStart, Align.JUSTIFY to Copy.alignJustify), s.align) { a ->
                 onChange { it.copy(align = a) }
             }
-            Segments(Copy.layout, listOf(Flow.PAGED to Copy.flowPaged, Flow.SCROLLED to Copy.flowScrolled, Flow.AUTO to Copy.flowAuto), s.flow) { f ->
+            Segments(Copy.layout, FlowOptions, s.flow) { f ->
                 onChange { it.copy(flow = f) }
             }
             Segments(Copy.pageNumbers, listOf(IndicatorScope.BOOK to Copy.scopeBook, IndicatorScope.CHAPTER to Copy.scopeChapter), s.pageIndicatorScope) { sc ->
@@ -164,17 +165,22 @@ private fun SliderRow(label: String, value: String, v: Float, range: ClosedFloat
     }
 }
 
+/** F-031: the reading-mode choices, the same in the display panel, the Reader settings sheet and Settings → Reading. */
+internal val FlowOptions = listOf(Flow.PAGED to Copy.flowPaged, Flow.SCROLLED to Copy.flowScrolled, Flow.AUTO to Copy.flowAuto)
+
+/** [enabled] false greys the row out and ignores taps; [hint] is shown under it (e.g. why it is off). */
 @Composable
-internal fun <T> Segments(label: String, options: List<Pair<T, String>>, current: T, onPick: (T) -> Unit) {
+internal fun <T> Segments(label: String, options: List<Pair<T, String>>, current: T, enabled: Boolean = true, hint: String? = null, onPick: (T) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Label(label)
+        Label(label, Modifier.alpha(if (enabled) 1f else 0.38f))
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
             options.forEachIndexed { i, (v, text) ->
-                SegmentedButton(selected = v == current, onClick = { onPick(v) }, shape = SegmentedButtonDefaults.itemShape(i, options.size)) {
+                SegmentedButton(selected = v == current, onClick = { onPick(v) }, enabled = enabled, shape = SegmentedButtonDefaults.itemShape(i, options.size)) {
                     Text(text, maxLines = 1)
                 }
             }
         }
+        hint?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
     }
 }
 

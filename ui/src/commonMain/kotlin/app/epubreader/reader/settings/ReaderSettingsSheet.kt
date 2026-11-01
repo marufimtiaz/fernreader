@@ -23,9 +23,11 @@ import app.epubreader.core.data.PageAnimation
 import app.epubreader.core.data.ReaderSettings
 import app.epubreader.core.data.SwipeDirection
 import app.epubreader.core.data.VolumeKeys
+import app.epubreader.reader.display.FlowOptions
 import app.epubreader.reader.display.Label
 import app.epubreader.reader.display.Segments
 import app.epubreader.ui.Copy
+import app.epubreader.settings.pageAnimationApplies
 
 /**
  * Reader settings (M6): page turning, screen and link behaviour. Bottom-anchored over the page like the display panel,
@@ -51,9 +53,12 @@ fun ReaderSettingsSheet(
         ) {
             Text(Copy.readerSettings, style = MaterialTheme.typography.titleMedium)
             Header(Copy.settingsPageTurning)
-            Segments(Copy.pageAnimation, listOf(PageAnimation.SLIDE to Copy.animSlide, PageAnimation.NONE to Copy.animNone), s.pageAnimation) { v ->
-                onChange { it.copy(pageAnimation = v) }
-            }
+            // F-031: also here (and in Settings → Reading), not only in the display panel; all three edit `flow`.
+            Segments(Copy.layout, FlowOptions, s.flow) { f -> onChange { it.copy(flow = f) } }
+            Segments(
+                Copy.pageAnimation, listOf(PageAnimation.SLIDE to Copy.animSlide, PageAnimation.NONE to Copy.animNone), s.pageAnimation,
+                enabled = s.pageAnimationApplies, hint = Copy.appliesToPageMode.takeUnless { s.pageAnimationApplies },
+            ) { v -> onChange { it.copy(pageAnimation = v) } }
             Segments(
                 Copy.swipeDirection,
                 listOf(SwipeDirection.AUTO to Copy.swipeAuto, SwipeDirection.LTR to Copy.swipeLtr, SwipeDirection.RTL to Copy.swipeRtl),
