@@ -1,3 +1,7 @@
+// LOCAL PATCH (M9 C-079/C-080, see PATCHES.md): stack mode (scrolled flow) is driven by the viewport: a deliberate
+// jump resets the stack and is never "corrected" back (#jumping), layout changes restore the jump target only until the
+// user scrolls (#restoring) and otherwise keep the text on screen in place (#holdScreen), and sections are loaded ahead
+// of the viewport in both directions, through short sections (#ensureStack).
 // LOCAL PATCH (M9 C-071, see PATCHES.md): a turn into a preloaded neighbour section slides (`animated`) instead of
 // swapping instantly: #slideIn moves the old and the new slot side by side over 300 ms.
 // LOCAL PATCH (M6 Task 9, see PATCHES.md): `vertical-pages` attribute: vertical-rl sections paged right-to-left as
@@ -600,9 +604,86 @@ export class Paginator extends HTMLElement {
         if (delta) this.#container.scrollTop += delta
         this.#stackTop = top
     }
+    // local patch (C-079/C-080): stack-mode stability
+    #jumping = false // a deliberate jump is being applied: no following, no 'scroll' relocates, no stack work
+    #restoring = false // since the last deliberate jump the user has not scrolled: layout changes re-apply its anchor
+    #screen = null // { view, el, top }: the element at the top of the viewport and its offset there (user scrolling)
+    // after the last stacked slot: one screen of room while more sections follow, so a jump to a short section (or the
+    // end of one) is not clamped by the scroll range into the section before it (C-080)
+    #stackPad = Object.assign(document.createElement('div'), { className: 'stack-pad' })
+    #padStack() {
+        const last = Math.max(-1, ...this.#cache.keys())
+        const more = this.#stack && last >= 0 && this.#linearFrom(last, 1) != null
+        const h = more ? `${this.#container.clientHeight}px` : '0px'
+        if (this.#stackPad.style.height !== h) this.#stackPad.style.height = h
+        if (this.#stackPad.parentNode !== this.#container) this.#container.append(this.#stackPad)
+    }
+    /** Runs a deliberate navigation [f]; the flags drop two frames after it (its own scroll events are past by then). */
+    async #navigate(f) {
+        this.#jumping = true
+        this.#restoring = true
+        this.#screen = null
+        try { return await f() } finally {
+            await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))
+            this.#jumping = false
+            this.#ensureStack()
+        }
+    }
+    /** The user scrolls (touch, wheel, keys, a turn): from now on nothing re-applies a jump's anchor. */
+    #userScroll() {
+        this.#restoring = false
+        this.#justAnchored = false
+    }
+    #screenTop(view, el) {
+        const frame = view.element.querySelector('iframe')
+        if (!frame) return null
+        return el.getBoundingClientRect().top + frame.getBoundingClientRect().top - this.#container.getBoundingClientRect().top
+    }
+    /** Remembers which element of the current section is at the top of the viewport, and where. */
+    #captureScreen() {
+        if (!this.#stack || this.#jumping) return
+        const e = this.#cache.get(this.#index)
+        const doc = e?.view.document, frame = e?.view.element.querySelector('iframe')
+        if (!doc || !frame) { this.#screen = null; return }
+        const f = frame.getBoundingClientRect(), c = this.#container.getBoundingClientRect()
+        const y = c.top + 1 - f.top
+        const el = y >= 0 && y < f.height ? doc.elementFromPoint(f.width / 2, y) : null
+        this.#screen = el ? { view: e.view, el, top: this.#screenTop(e.view, el) } : null
+    }
+    /** A slot's height changed: the text on screen stays where it is (the captured element, else the current slot). */
+    #holdScreen() {
+        const s = this.#screen
+        if (!s || !s.el.isConnected || this.#cache.get(this.#index)?.view !== s.view) { this.#fixStack(); return }
+        const now = this.#screenTop(s.view, s.el)
+        if (now != null && Math.abs(now - s.top) > 0.5) this.#container.scrollTop += now - s.top
+        this.#stackTop = this.#slotOffset()
+    }
+    #linearFrom(index, dir) {
+        for (let i = index + dir; this.#canGoToIndex(i); i += dir) if (this.sections[i]?.linear !== 'no') return i
+    }
+    /**
+     * Stack mode: sections are loaded until about three screens of text are below the viewport and two above (one at a
+     * time, each when the previous has loaded, so short sections chain), and slots far from the viewport are dropped.
+     */
+    #ensureStack() {
+        this.#padStack()
+        if (!this.#stack || this.#jumping) return
+        const entries = [...this.#cache.values()].sort((a, b) => a.index - b.index)
+        if (!entries.length) return
+        const el = this.#container, vh = el.clientHeight || 1, top = el.scrollTop
+        const first = entries[0], last = entries.at(-1)
+        if (last.loaded && last.slot.offsetTop + last.slot.offsetHeight < top + 4 * vh) this.#preloadIndex(this.#linearFrom(last.index, 1))
+        if (first.loaded && first.slot.offsetTop > top - 2 * vh) this.#preloadIndex(this.#linearFrom(first.index, -1))
+        const near = new Set([this.#index, this.#linearFrom(this.#index, -1), this.#linearFrom(this.#index, 1)])
+        for (const e of entries) {
+            if (near.has(e.index) || !e.loaded) continue
+            const t = e.slot.offsetTop, b = t + e.slot.offsetHeight
+            if (b < top - 6 * vh || t > top + 8 * vh) this.#evict(e.index)
+        }
+    }
     /** Stack mode: the slot at the top of the viewport becomes the current section (no scrolling). */
     #followStack() {
-        if (!this.#stack) return false
+        if (!this.#stack || this.#jumping) return false
         const y = this.#container.scrollTop + 1
         for (const e of this.#cache.values()) {
             const { offsetTop, offsetHeight } = e.slot
@@ -621,12 +702,20 @@ export class Paginator extends HTMLElement {
         this.#slotStyle(slot, current)
         const view = new View({
             container: this,
-            onExpand: () => { if (this.#view === view) this.#scrollToAnchor(this.#anchor); else this.#fixStack() },
+            // local patch (C-079): a jump's anchor is re-applied only until the user scrolls; otherwise the text on
+            // screen stays put (a section or an image above it grew)
+            onExpand: () => {
+                if (this.#stack && !this.#restoring) this.#holdScreen()
+                else if (this.#view === view) this.#scrollToAnchor(this.#anchor)
+                else this.#fixStack()
+            },
         })
         slot.append(view.element)
         // in reading order, so stacked slots read top to bottom
         const after = [...this.#cache.values()].filter(e => e.index > index).sort((a, b) => a.index - b.index)[0]
-        this.#keepStack(() => this.#container.insertBefore(slot, after?.slot ?? null))
+        this.#padStack()
+        this.#keepStack(() => this.#container.insertBefore(slot, after?.slot ?? this.#stackPad))
+        this.#padStack()
         const entry = { index, slot, view, loaded: false }
         this.#cache.set(index, entry)
         return entry
@@ -637,6 +726,7 @@ export class Paginator extends HTMLElement {
         this.#cache.delete(index)
         e.view.destroy()
         this.#keepStack(() => e.slot.remove())
+        this.#padStack()
         this.sections[index]?.unload?.()
     }
     #afterLoadFor(index) {
@@ -680,6 +770,7 @@ export class Paginator extends HTMLElement {
                 detail: { doc: entry.view.document, index, attach: o => entry.view.overlayer = o },
             }))
             entry.loaded = true
+            this.#ensureStack() // stack mode: the next one, if the text below is still short
         })().catch(e => { if (!entry.mismatch) console.warn(e); if (this.#cache.get(index) === entry) this.#evict(index) })
     }
     /** [below]: only preload the next section (safe while the user scrolls; nothing above moves). */
@@ -863,9 +954,16 @@ export class Paginator extends HTMLElement {
         this.#container.addEventListener('scroll', () => this.dispatchEvent(new Event('scroll')))
         // Stack mode: follow the section at the top while scrolling, keep the next one ready below; work above the
         // viewport (eviction, preloading the previous section) waits until scrolling has stopped.
-        this.#container.addEventListener('scroll', () => { if (this.#followStack()) this.#afterSwap(true) })
+        this.#container.addEventListener('scroll', () => {
+            if (!this.#stack || this.#jumping) return
+            this.#followStack()
+            this.#ensureStack()
+            this.#captureScreen()
+        })
+        this.#container.addEventListener('wheel', () => this.#userScroll(), { passive: true })
         this.#container.addEventListener('scroll', debounce(() => {
-            if (this.#stack) this.#afterSwap()
+            if (this.#jumping) return // the jump reports its own position
+            if (this.#stack) this.#ensureStack()
             if (this.scrolled) {
                 if (this.#justAnchored) this.#justAnchored = false
                 else this.#afterScroll('scroll')
@@ -1095,11 +1193,18 @@ export class Paginator extends HTMLElement {
             this.#mode = mode
             if (cur) this.#slotStyle(cur.slot, true)
         }
+        // local patch (C-079): in stack mode a re-layout (flow switch, settings, rotation) is applied like a jump to the
+        // current anchor: no following or stack work until it has settled, and its anchor holds until the user scrolls
+        if (this.#stack) {
+            this.#jumping = true
+            if (switched) this.#restoring = true
+        }
         this.#view.render(layout)
         for (const e of this.#cache.values())
             if (e.view !== this.#view && e.loaded) e.view.render(layout)
         this.#scrollToAnchor(this.#anchor)
         if (switched) this.#afterSwap()
+        if (this.#stack) requestAnimationFrame(() => requestAnimationFrame(() => { this.#jumping = false; this.#ensureStack() }))
     }
     get scrolled() {
         return this.getAttribute('flow') === 'scrolled'
@@ -1163,6 +1268,7 @@ export class Paginator extends HTMLElement {
         })
     }
     #onTouchStart(e) {
+        this.#userScroll()
         const touch = e.changedTouches[0]
         this.#touchState = {
             x: touch?.screenX, y: touch?.screenY,
@@ -1370,7 +1476,19 @@ export class Paginator extends HTMLElement {
     #canGoToIndex(index) {
         return index >= 0 && index <= this.sections.length - 1
     }
-    async #goTo({ index, anchor, select}) {
+    async #goTo(target) {
+        // local patch (C-080): every deliberate navigation (contents, search hit, link, bookmark, highlight, slider,
+        // resume) comes here in both flows; in stack mode the old position's sections go first, so nothing restores it
+        if (!this.#stack) return this.#goToTarget(target)
+        return this.#navigate(async () => {
+            for (const i of [...this.#cache.keys()]) if (i !== target.index && i !== this.#index) this.#evict(i)
+            if (target.index !== this.#index && this.#cache.has(this.#index) && this.#cache.get(target.index)?.loaded) {
+                this.#evict(this.#index) // the target is laid out already: it takes over alone
+            }
+            return this.#goToTarget(target)
+        })
+    }
+    async #goToTarget({ index, anchor, select}) {
         if (index === this.#index) await this.#display({ index, anchor, select })
         else if (this.#preload && this.#cache.has(index) && await this.#swapTo(index, anchor, select)) return
         else {
@@ -1396,6 +1514,7 @@ export class Paginator extends HTMLElement {
         if (this.#canGoToIndex(resolved.index)) return this.#goTo(resolved)
     }
     #scrollPrev(distance) {
+        this.#userScroll()
         if (!this.#view) return true
         if (this.#stack) { // one screen up, across sections; only the very top goes to an unloaded section
             if (this.#container.scrollTop > 0) return this.#scrollTo(this.start - (distance ?? this.size), null, true)
@@ -1411,6 +1530,7 @@ export class Paginator extends HTMLElement {
         return this.#scrollToPage(page, 'page', true).then(() => page <= 0)
     }
     #scrollNext(distance) {
+        this.#userScroll()
         if (!this.#view) return true
         if (this.#stack) {
             const el = this.#container

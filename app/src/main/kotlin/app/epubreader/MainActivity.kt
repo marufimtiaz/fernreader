@@ -274,6 +274,8 @@ class MainActivity : ComponentActivity() {
             BenchCommands.register("fontStep") { d -> controller.updateSettings { it.stepFont(d.trim().toIntOrNull() ?: 1) } }
             BenchCommands.register("fontScale") { v -> v.trim().toDoubleOrNull()?.let { f -> controller.updateSettings { it.copy(fontScale = f) } } }
             BenchCommands.register("resetSettings") { controller.updateSettings { app.epubreader.core.data.ReaderSettings() } }
+            // C-079: reading mode for the scroll-mode fling checks (paged | scrolled | auto)
+            BenchCommands.register("flow") { f -> runCatching { app.epubreader.core.data.Flow.valueOf(f.trim().uppercase()) }.getOrNull()?.let { v -> controller.updateSettings { it.copy(flow = v) } } }
             BenchCommands.register("display") { controller.showDisplay() }
             BenchCommands.register("hideDisplay") { controller.hideDisplay() }
             BenchCommands.register("lastPage") { reader.webView.evaluateJavascript("window.__readerTest.lastPage()", null) }
