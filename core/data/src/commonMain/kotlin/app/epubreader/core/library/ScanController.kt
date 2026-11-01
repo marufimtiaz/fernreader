@@ -10,9 +10,11 @@ import kotlinx.coroutines.launch
 import kotlin.time.TimeSource
 
 /**
- * When scans run (F-003, F-012): a full scan right after access is granted, an incremental one on app start and
- * when the library comes back to the front (skipped within [debounceMs] of the last completed scan), and a manual
- * rescan. One scan at a time; requests while one runs collapse into a single follow-up scan.
+ * When scans run (F-003, F-012, C-075): a full scan right after access is granted, an incremental one on app start,
+ * on every return to the foreground and whenever the library or one of its views becomes visible (skipped within
+ * [debounceMs] of the last completed scan), and a manual rescan. One scan at a time; requests while one runs collapse
+ * into a single follow-up scan (the running walk may already have passed a new folder). Automatic scans are quiet:
+ * no progress unless they find something ([ScanState.showsProgress]).
  */
 class ScanController(
     private val scan: suspend (ScanScope, (ScanEvent) -> Unit) -> ScanEvent.Complete,
@@ -29,24 +31,38 @@ class ScanController(
     val state: StateFlow<ScanState> = _state
     private val requests = Channel<Unit>(Channel.CONFLATED)
     @kotlin.concurrent.Volatile private var lastCompleteAt: Long? = null
+    /** Whether a pending request is a manual one (or after a grant): the collapsed follow-up then shows progress. */
+    @kotlin.concurrent.Volatile private var loudPending = false
+    /** The app start scan was requested: the library's first composition must not scan before the first frame. */
+    @kotlin.concurrent.Volatile private var started = false
 
     init {
         scope.launch { for (r in requests) runOnce() }
     }
 
-    fun onAccessGranted() = request()
-    fun onAppStart() = request()
-    fun rescan() = request()
-    fun onLibraryResumed() {
+    fun onAccessGranted() = request(quiet = false)
+    fun onAppStart() { started = true; request(quiet = true) }
+    fun rescan() = request(quiet = false)
+    /** Back from another app (recents, launcher), on any screen. */
+    fun onForeground() = request(quiet = true)
+    /** The library, a collection, the folder list or a folder came into view. */
+    fun onViewShown() {
+        if (!started) return
         val last = lastCompleteAt
-        if (_state.value.running || (last != null && nowMs() - last < debounceMs)) return
-        request()
+        if (!_state.value.running && last != null && nowMs() - last < debounceMs) return
+        request(quiet = true)
     }
 
-    private fun request() { if (access()) requests.trySend(Unit) }
+    private fun request(quiet: Boolean) {
+        if (!access()) return
+        if (!quiet) loudPending = true
+        requests.trySend(Unit)
+    }
 
     private suspend fun runOnce() {
-        _state.update { it.copy(running = true, found = 0) }
+        val quiet = !loudPending
+        loudPending = false
+        _state.update { it.copy(running = true, found = 0, quiet = quiet) }
         probe("scan_started", "")
         try {
             val done = scan(scopeSetting()) { e ->

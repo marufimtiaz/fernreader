@@ -96,6 +96,8 @@ class LibraryActions(
     val onSettings: () -> Unit = {},
     val onAbout: () -> Unit = {},
     val onDetails: (bookId: String) -> Unit = {},
+    /** C-075: the library or one of its views came into view (an incremental scan runs). */
+    val onShown: () -> Unit = {},
 )
 
 private sealed interface Dialog {
@@ -124,6 +126,10 @@ fun LibraryScreen(state: LibraryState, actions: LibraryActions, probe: EventProb
         state.shown.value = true
         if (!firstBookLogged) { firstBookLogged = true; probe.ev("library_first_book", "") }
     }
+    val topTitle = ui.books.firstOrNull()?.title
+    // Bench (bench/device_pass.sh return): the book on top of the view changed (a new book sorts first, C-076)
+    LaunchedEffect(topTitle) { if (topTitle != null) probe.ev("library_top", topTitle) }
+    LaunchedEffect(ui.view) { actions.onShown() } // entering the library route, and every change of view (C-075)
     LaunchedEffect(ui.drawerOpen) { if (ui.drawerOpen) drawer.open() else drawer.close() }
     LaunchedEffect(drawer) { snapshotFlow { drawer.currentValue }.collect { state.setDrawer(it == DrawerValue.Open) } }
     LaunchedEffect(state) { for (m in state.messages) snackbar.showSnackbar(m) } // one at a time, each shown in full
@@ -141,7 +147,7 @@ fun LibraryScreen(state: LibraryState, actions: LibraryActions, probe: EventProb
                     if (ui.selected.isNotEmpty()) SelectionBar(ui, state, onAddTo = { dialog = Dialog.PickCollection }, onDelete = { dialog = Dialog.DeleteBooks },
                         onDetails = { actions.onDetails(ui.selected.first()) })
                     else Header(ui, state, actions, onDialog = { dialog = it })
-                    if (ui.scan.running) LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp)) else Spacer(Modifier.height(2.dp))
+                    if (ui.scan.showsProgress) LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp)) else Spacer(Modifier.height(2.dp))
                     val folder = ui.view as? LibraryView.Folder
                     if (folder != null) FolderBar(folder.path, ui.includeSubfolders, state::setIncludeSubfolders)
                     Box(Modifier.weight(1f)) {

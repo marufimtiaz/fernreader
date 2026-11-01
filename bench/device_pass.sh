@@ -12,6 +12,8 @@
 #   talkback   C-070: huge chapter with TalkBack on: open → painted, and how long one accessibility dump takes
 #   toc        P-031 scroll: 2000-entry contents panel, 10 flings, gfxinfo p90
 #   library    P-063 scroll: 1000 seeded books (`seedLibrary 1000`), 20 flings in the grid, gfxinfo p90; seeds removed
+#   return     C-075: manual rescan time (3 runs); then 3x Home, copy a new book into a new folder, back to the app:
+#              app_foreground -> the book on top of the library (app events); folders and books removed after
 #   all        every step above except talkback (it changes an accessibility setting; run it on its own)
 #
 # Needs the benchmark build on the phone (bench commands and app events): ./gradlew :app:assemblePlayBenchmark, then
@@ -22,7 +24,7 @@ set -u
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 SERIAL=""
 [ "${1:-}" = -s ] && { SERIAL=$2; shift 2; }
-[ -n "$SERIAL" ] && [ $# -gt 0 ] || { sed -n '2,20p' "$0"; exit 2; }
+[ -n "$SERIAL" ] && [ $# -gt 0 ] || { sed -n '2,22p' "$0"; exit 2; }
 A=${ADB:-$(command -v adb || echo "$HOME/Android/Sdk/platform-tools/adb")}
 export ANDROID_SERIAL=$SERIAL # every adb call below talks to this phone
 PKG=${PKG:-app.fernreader}
@@ -200,8 +202,40 @@ step_library() {
   bench_cmd seedLibrary 0; sleep 3
 }
 
+step_return() {
+  local tmp; tmp=$(mktemp -d)
+  start_app; bench_cmd rescan; sleep 5
+  local man=() k
+  for k in 1 2 3; do
+    $A logcat -c; bench_cmd rescan; sleep 3
+    man+=("$($A logcat -d -s EPR:I | awk '/EVT scan_complete /{ match($0,/ms=[0-9]+/); print substr($0,RSTART+3,RLENGTH-3); exit }')")
+  done
+  say "C-075 manual rescan, nothing changed (ms): ${man[*]}, median $(printf '%s\n' "${man[@]}" | grep -E '^[0-9]+$' | median) ($($A logcat -d -s EPR:I | grep -o 'files=[0-9]*' | tail -1) books seen)"
+  local shown=() scans=()
+  for k in 1 2 3; do
+    local name="ret$(date +%s)$k" dir="/sdcard/Documents/EprReturn$k"
+    python3 -I "$ROOT/tools/spec-tools/gen_folder_books.py" "$tmp" "$name" >/dev/null
+    $A push "$tmp/$name.epub" /data/local/tmp/ >/dev/null
+    $A shell input keyevent KEYCODE_HOME; sleep 3
+    $A shell "mkdir -p $dir/Inner && cp /data/local/tmp/$name.epub $dir/Inner/" # as a file manager would, through /sdcard
+    $A logcat -c
+    $A shell am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$PKG/$ACT" >/dev/null # as from recents
+    local i=0; until $A logcat -d -s EPR:I | grep -q "EVT library_top .*Folder Test $name"; do sleep 0.2; i=$((i + 1)); [ $i -lt 50 ] || break; done
+    shown+=("$($A logcat -d -s EPR:I | awk -v b="Folder Test $name" '
+      function t() { match($0, /t=[0-9]+/); return substr($0, RSTART+2, RLENGTH-2) }
+      /EVT app_foreground / && s=="" { s=t() } index($0, "EVT library_top") && index($0, b) && s!="" && e=="" { e=t() }
+      END { if (s!="" && e!="") print e-s; else print "NA" }')")
+    scans+=("$($A logcat -d -s EPR:I | awk '/EVT scan_complete /{ match($0,/ms=[0-9]+/); v=substr($0,RSTART+3,RLENGTH-3) } END{ print v }')")
+    sleep 2
+  done
+  say "C-075 return: copied book on top of the library after (ms from app_foreground): ${shown[*]}, median $(printf '%s\n' "${shown[@]}" | grep -E '^[0-9]+$' | median) (limit 2000)"
+  say "  last scan on return (ms): ${scans[*]}"
+  $A shell 'rm -rf /sdcard/Documents/EprReturn1 /sdcard/Documents/EprReturn2 /sdcard/Documents/EprReturn3; rm -f /data/local/tmp/ret*.epub'
+  rm -rf "$tmp"; bench_cmd rescan; sleep 3 # the copies leave the library
+}
+
 say "device pass $(date -u +%FT%TZ), serial $SERIAL, package $PKG"
-steps=("$@"); [ "$1" = all ] && steps=(info frames anim p020 p002 vertical toc library)
+steps=("$@"); [ "$1" = all ] && steps=(info frames anim p020 p002 vertical toc library return)
 for s in "${steps[@]}"; do
   type "step_$s" >/dev/null 2>&1 || { echo "unknown step: $s" >&2; exit 2; }
   echo "== $s"; "step_$s"

@@ -38,6 +38,8 @@ fun App(
     onLeave: () -> Unit,
     onOpen: (SourceRef) -> Unit,
     onRescan: () -> Unit,
+    /** C-075: the library or one of its views came into view. */
+    onLibraryShown: () -> Unit = {},
     onForget: (SourceRef) -> Unit,
     onBack: () -> Unit,
     fonts: Map<String, androidx.compose.ui.text.font.FontFamily> = emptyMap(),
@@ -62,6 +64,7 @@ fun App(
                 LibraryActions(
                     onOpen = { b -> library.open(b) { onOpen(SourceRef.fromKey(it)) } }, onOpenPicker = onOpenPicker, onRescan = onRescan,
                     onSettings = { nav.push(Route.Settings) }, onAbout = { nav.push(Route.About) }, onDetails = { nav.push(Route.BookDetails(it)) },
+                    onShown = onLibraryShown,
                 ),
                 probe = probe,
             )

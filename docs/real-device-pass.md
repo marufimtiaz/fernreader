@@ -47,6 +47,7 @@ runs, in this order (about 15 minutes; don't touch the phone):
 | `vertical` | C-046 | Kusamakura (vertical Japanese): screenshots, one swipe each way | columns run right to left, the swipe left goes to the next page, no clipped text; see below |
 | `toc` | P-031, C-019 | 2000-entry contents panel: open time, 10 flings | open ≤ 200 ms; scroll p90 ≤ one refresh interval |
 | `library` | P-063, C-019 | `seedLibrary 1000`, 20 flings in the grid, then the seeds are removed | p90 ≤ one refresh interval; covers appear while scrolling (screenshots) |
+| `return` | C-075, C-076, F-012 | 3 manual rescans with nothing changed; then 3 times: Home, a new book copied into a new folder `Documents/EprReturnN/Inner`, back to the app; copies removed after | the copied book is on top of the library ≤ 2000 ms after the app is back (app events `app_foreground` → `library_top`); record the manual rescan median (on your real storage) |
 
 If the refresh rate shows as empty or wrong (some phones report the panel's maximum while running at 60 Hz),
 check Settings → Display → refresh rate and re-run with it: `env REFRESH_HZ=120 bash bench/device_pass.sh -s $S frames`.
@@ -65,6 +66,12 @@ falls back to top-to-bottom pages with no book total: note the WebView version f
 for ten seconds. Then in the library run `adb -s $S shell am broadcast -a app.fernreader.BENCH -n app.fernreader/app.epubreader.bench.BenchCommandReceiver --es cmd seedLibrary --es arg 1000`,
 restart the app, and fling through the grid. No visible stall (a hitch you would notice while reading). Remove the
 seeds afterwards with the same command and `--es arg 0`.
+
+**C-075 rescan on return.** With your usual files on the phone: open the app, press Home, copy any EPUB into a new
+folder with the phone's file manager (e.g. from Download/ to a new folder in Documents/), and come back through
+recents. The book shows at the top of the library within about 2 seconds, without a manual rescan, and its folder is
+in the folder list. Then leave and come back once more without changing anything: no progress bar appears. Delete
+the copy afterwards.
 
 **C-036 keyboard (only if you have a phone with Android 8–10, API 26–29).** Open War and Peace, open search, type
 "Natasha". With the keyboard up, the page behind the search panel must not jump to another position; close the

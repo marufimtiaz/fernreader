@@ -70,7 +70,8 @@ class MainActivity : ComponentActivity() {
         private set
     lateinit var nav: Navigator
         private set
-    private lateinit var library: LibraryState
+    lateinit var library: LibraryState
+        private set
     private lateinit var settingsState: app.epubreader.settings.SettingsState
     private lateinit var backupState: app.epubreader.settings.BackupState
     private val access = StorageAccess(this) { onAccessMaybeGranted() }
@@ -248,6 +249,7 @@ class MainActivity : ComponentActivity() {
                     onOpenPicker = { pick.launch(arrayOf("application/epub+zip", "application/octet-stream")) },
                     onGrantAccess = access::request, onLeave = ::finish,
                     onOpen = ::openBook, onBack = { goBack() }, onRescan = graph.scans::rescan,
+                    onLibraryShown = graph.scans::onViewShown,
                     onForget = { ref -> graph.appScope.launch { graph.library.forget(ref) } },
                     pages = { route ->
                         AppPages(route, nav, graph, settingsState, controller, pageActions, BuildConfig.VERSION_NAME,
@@ -512,8 +514,10 @@ class MainActivity : ComponentActivity() {
         // window is the system default, and re-applying it on every hot start costs P-002 time.
         if (nav.top == Route.Reader) windowLook.reapply()
         onAccessMaybeGranted()
-        // F-012: back to the library → incremental rescan (debounced). The first resume is the app start.
-        if (resumedOnce && nav.top == Route.Library) (application as EpubReaderApp).graph.scans.onLibraryResumed()
+        // F-012/C-075: back in the foreground (on any screen) → incremental scan. The first resume is the app start.
+        // It used to run only when the library was on top and was not repeated when the library came back into view
+        // (Back from the reader or settings), so a book copied meanwhile stayed missing until a manual rescan.
+        if (resumedOnce) { Probe.ev("app_foreground"); (application as EpubReaderApp).graph.scans.onForeground() }
         resumedOnce = true
     }
 
