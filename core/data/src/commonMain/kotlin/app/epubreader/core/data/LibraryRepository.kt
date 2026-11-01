@@ -37,6 +37,11 @@ class LibraryRepository(
     private val grantPersisted: (uri: String) -> Boolean = { true },
     /** Awaited before recording an open (the start-up [dropSessionFiles] must not remove a source opened just now). */
     private val beforeRecordOpened: suspend () -> Unit = {},
+    /**
+     * Drops what the app derived from a book's files outside the database and keyed by their source keys
+     * (`book_file.path`, i.e. `SourceRef.key`): M8's chunk caches. Called with the `book_cache` rows' deletion.
+     */
+    private val onCacheDeleted: (bookId: String, sourceKeys: List<String>) -> Unit = { _, _ -> },
     /** Where file deletion runs (R-005: never the main thread). */
     private val io: CoroutineDispatcher = Dispatchers.IO,
 ) : LibraryOps {
@@ -120,11 +125,13 @@ class LibraryRepository(
         var deleted = 0; var failed = 0
         for (id in bookIds) {
             var kept = 0
-            for (f in dao.filesOf(id)) {
+            val files = dao.filesOf(id)
+            for (f in files) {
                 if (f.path.startsWith("/") && deleteFile(f.path)) { deleted++; dao.deleteFile(f.path) } else kept++
             }
             failed += kept
             dao.deleteCache(id)
+            onCacheDeleted(id, files.map { it.path })
             if (kept == 0) {
                 val thumb = dao.byId(id)?.coverThumb?.takeIf { it.isNotEmpty() }
                 dao.removeBook(id, clock.now()); onBookFilesDeleted(id, thumb)

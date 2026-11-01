@@ -20,7 +20,10 @@ class DeleteHideTest {
     private val db = testDb()
     private val clock = HybridClock(System::currentTimeMillis)
     private val gone = mutableListOf<String>()
-    private val repo = LibraryRepository(db, clock, deleteFile = { File(it).delete() }, onBookFilesDeleted = { id, _ -> gone += id })
+    /** Book id -> file sources whose derived caches outside the database were dropped (M8 chunk directories). */
+    private val cachesDropped = mutableListOf<Pair<String, Set<String>>>()
+    private val repo = LibraryRepository(db, clock, deleteFile = { File(it).delete() }, onBookFilesDeleted = { id, _ -> gone += id },
+        onCacheDeleted = { id, keys -> cachesDropped += id to keys.toSet() })
     private val root = ScanFixtures.folderSet()
     private fun f(rel: String) = File(root, rel)
     private suspend fun scan() = Scanner(db, clock, FileStorageWalker(root.path)).scan(ScanScope.Everywhere)
@@ -54,6 +57,8 @@ class DeleteHideTest {
         assertFalse("Folder Test dup" in titles())
         assertNull(db.bookCacheDao().get(id, "section-stats.v1", "d")) // M4 deferred: cache rows go with their book
         assertEquals(listOf(id), gone) // thumbnail cleanup hook
+        // M8: the chunk caches (keyed by each file's source key) go with the book_cache rows.
+        assertEquals(listOf(id to setOf(f("Download/dup.epub").path, f("Documents/Books/dup-copy.epub").path)), cachesDropped)
         scan()
         assertFalse("Folder Test dup" in titles())
         assertNotNull(repo.position(id)) // kept by id: the same book found again later resumes (F-012)
@@ -68,6 +73,16 @@ class DeleteHideTest {
         scan()
         assertFalse("Folder Test download" in titles()) // not back on the next scan
         assertEquals(listOf(id), repo.hiddenBooks().first().map { it.id })
+    }
+
+    /** M8: library-only delete (hide) keeps every cache: the book still opens fast when un-hidden. */
+    @Test fun hiding_keeps_the_caches() = runBlocking {
+        scan()
+        val id = idOf("Download/download.epub")
+        db.bookCacheDao().put(BookCacheEntity(id, "section-stats.v1", "d", "[]"))
+        repo.deleteBooks(listOf(id), deleteFiles = false)
+        assertNotNull(db.bookCacheDao().get(id, "section-stats.v1", "d"))
+        assertEquals(emptyList(), cachesDropped)
     }
 
     /** Final review I-4: file deletion never runs on the caller's (main) thread. */

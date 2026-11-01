@@ -35,6 +35,8 @@ import app.epubreader.core.data.buildDatabase
 import app.epubreader.reader.BookContentServer
 import app.epubreader.reader.BookOpener
 import app.epubreader.reader.BookSources
+import app.epubreader.reader.ChunkDirs
+import android.os.storage.StorageManager
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import android.util.Log
@@ -52,10 +54,15 @@ class AppGraph(app: Application) {
     val appScope: CoroutineScope get() = io
     val db = buildDatabase(androidDatabaseBuilder(app))
     val clock = HybridClock(System::currentTimeMillis)
+    /** M8 chunk caches, one cache group per book file and policy (trimmed whole by the system, rebuilt when needed). */
+    val chunkDirs = ChunkDirs(File(app.cacheDir, "chunks")) { dir ->
+        app.getSystemService(StorageManager::class.java)?.setCacheBehaviorGroup(dir, true)
+    }
     val library = LibraryRepository(
         db, clock, deleteFile = { java.io.File(it).delete() }, // F-025 "also delete the file"
         // F-025 with files: the thumbnail, the search history and the search index go with the book (M5 BookRemoval).
         onBookFilesDeleted = { id, thumb -> thumb?.let { java.io.File(it).delete() }; io.launch { removal.forgetSearch(id) } },
+        onCacheDeleted = { _, sourceKeys -> chunkDirs.delete(sourceKeys) }, // M8: chunk caches go with the book_cache rows
         grantPersisted = { uri -> app.contentResolver.persistedUriPermissions.any { it.isReadPermission && it.uri.toString() == uri } },
         beforeRecordOpened = { sessionCleanup.await() },
     )
@@ -71,7 +78,7 @@ class AppGraph(app: Application) {
     /** Created on IO when first awaited: PositionWriter.create seeds the clock from the stored positions. */
     val positions: Deferred<PositionWriter> = io.async(start = CoroutineStart.LAZY) { PositionWriter.create(db, clock, io) }
     val server = BookContentServer()
-    val opener = BookOpener(BookSources(app), server)
+    val opener = BookOpener(BookSources(app), server, chunkStore = chunkDirs::store)
     val settings = SettingsStore(db, clock)
     val searchHistory = SearchHistoryStore(db, clock)
     val bookmarks = BookmarkStore(db, clock)
