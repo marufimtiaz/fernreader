@@ -56,7 +56,7 @@ class BookOpener(
             current = null
             warm?.let { w ->
                 warm = null
-                if (w.ref == ref && w.policy == policy && w.stamp == runCatching { sources.stamp(ref) }.getOrNull()) {
+                if (!w.forgotten && w.ref == ref && w.policy == policy && w.stamp == runCatching { sources.stamp(ref) }.getOrNull()) {
                     current = w
                     return@withContext OpenResult.Ok(w.id, w.cdDigest, w.size, w.map)
                 }
@@ -99,6 +99,8 @@ class BookOpener(
         val pkg = try { (PackageLoader.load(zip) as? LoadResult.Ok)?.pkg } catch (e: Exception) { null }
             ?: return BookSession(id, ref, zip, size, stamp, policy = policy)
         val chunker = Chunker(policy)
+        // Nothing the chunker would split (a large image, CSS or non-spine document): no store, no directory.
+        if (!chunker.hasCandidates(zip, pkg)) return BookSession(id, ref, zip, size, stamp, pkg, policy = policy)
         return try {
             val book = chunker.chunk(zip, pkg, stores(ref, policy))
             // A rebuild asks for the store again: the directory may have been trimmed away, protection with it.
@@ -109,6 +111,21 @@ class BookOpener(
         } catch (e: OutOfMemoryError) {
             warn("chunking ran out of memory, serving unsplit: ${ref.key}")
             BookSession(id, ref, zip, size, stamp, pkg, policy = policy)
+        }
+    }
+
+    /**
+     * The chunk caches of these sources are being deleted (M7 delete path, F-025): a warm session of one of them is
+     * closed for good, and an open one is marked so it never rebuilds (recreates) the deleted cache.
+     */
+    suspend fun forget(sourceKeys: Collection<String>) = withContext(io) {
+        lock.withLock {
+            current?.takeIf { it.ref.key in sourceKeys }?.forgotten = true
+            warm?.takeIf { it.ref.key in sourceKeys }?.let { w ->
+                warm = null
+                w.forgotten = true
+                server.unregister(w.id); w.close()
+            }
         }
     }
 
@@ -146,17 +163,15 @@ class BookOpener(
 }
 
 /**
- * Whether [zip] has an entry the chunker could split under [policy]: over the threshold and not a media or font file
- * by its extension. False for almost every book, which then opens without a package parse (P-010/P-011).
+ * Whether [zip] has an entry the chunker could split under [policy]: an XHTML/HTML document by its extension, over
+ * the threshold. False for almost every book, which then opens without a package parse (P-010/P-011). A large SVG,
+ * CSS, NCX, font or image never costs a parse. (An XHTML spine item with another extension is served unsplit.)
  */
 internal fun mayNeedSplit(zip: ZipReader, policy: ChunkPolicy): Boolean = zip.entries.any { e ->
-    !e.isDirectory && e.size > policy.thresholdBytes && e.name.substringAfterLast('/').substringAfterLast('.', "").lowercase() !in BINARY
+    !e.isDirectory && e.size > policy.thresholdBytes && e.name.substringAfterLast('/').substringAfterLast('.', "").lowercase() in DOCUMENTS
 }
 
-private val BINARY = setOf(
-    "jpg", "jpeg", "png", "gif", "webp", "bmp", "tif", "tiff", "avif", "mp3", "mp4", "m4a", "m4v", "aac", "ogg", "oga",
-    "opus", "wav", "webm", "ttf", "otf", "woff", "woff2", "pdf", "zip",
-)
+private val DOCUMENTS = setOf("xhtml", "xht", "html", "htm")
 
 private fun logFailure(ref: SourceRef, e: Exception, warn: (String) -> Unit) {
     if (e !is FileNotFoundException && e !is SecurityException) warn("open failed: ${ref.key}: $e")

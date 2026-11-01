@@ -583,7 +583,6 @@ export class Reader {
     this.bridge.send({ v: 1, type: 'pageBookmarks', sessionId, cfis: this.seeking || !at ? [] : visibleBookmarks(cfis, at) })
   }
 
-  /** Test probe helper: the first whole-word occurrence of [word] fully inside the host viewport. */
   /** Range of [cfi] in its section's loaded document (test probes), or null. */
   private cfiRange(cfi: string): Range | null {
     try {
@@ -594,6 +593,7 @@ export class Reader {
     } catch { return null }
   }
 
+  /** Test probe helper: the first whole-word occurrence of [word] fully inside the host viewport. */
   private findWord(word: string): { range: Range; index: number; x: number; y: number; w: number; h: number } | null {
     const re = new RegExp(`(^|[^\\p{L}\\p{N}])(${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})(?=$|[^\\p{L}\\p{N}])`, 'u')
     for (const c of this.view?.renderer?.getContents?.() ?? []) {

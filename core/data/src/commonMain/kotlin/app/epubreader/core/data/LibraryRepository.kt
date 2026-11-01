@@ -41,7 +41,7 @@ class LibraryRepository(
      * Drops what the app derived from a book's files outside the database and keyed by their source keys
      * (`book_file.path`, i.e. `SourceRef.key`): M8's chunk caches. Called with the `book_cache` rows' deletion.
      */
-    private val onCacheDeleted: (bookId: String, sourceKeys: List<String>) -> Unit = { _, _ -> },
+    private val onCacheDeleted: suspend (bookId: String, sourceKeys: List<String>) -> Unit = { _, _ -> },
     /** Where file deletion runs (R-005: never the main thread). */
     private val io: CoroutineDispatcher = Dispatchers.IO,
 ) : LibraryOps {

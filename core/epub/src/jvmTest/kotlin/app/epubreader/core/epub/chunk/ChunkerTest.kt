@@ -281,6 +281,16 @@ class ChunkerTest {
         assertFailsWith<ChunkCacheException> { cb.virtualSize("OPS/p.opf") }
     }
 
+    /** M8 8.3 review I1: the opener asks before it creates a cache directory. */
+    @Test fun has_candidates_only_when_chunk_would_use_the_store() {
+        val (z, pkg) = ChunkBooks.book(ChunkBooks.paras(1000))
+        assertTrue(Chunker(small).hasCandidates(z, pkg))
+        assertFalse(Chunker(ChunkPolicy(thresholdBytes = Int.MAX_VALUE)).hasCandidates(z, pkg))
+        val store = MemoryChunkStore()
+        Chunker(ChunkPolicy(thresholdBytes = Int.MAX_VALUE)).chunk(z, pkg, store)
+        assertEquals(0, store.writeCount)
+    }
+
     @Test fun cache_from_another_file_is_not_used() {
         val store = MemoryChunkStore()
         val (z1, p1) = ChunkBooks.book(ChunkBooks.paras(1000))

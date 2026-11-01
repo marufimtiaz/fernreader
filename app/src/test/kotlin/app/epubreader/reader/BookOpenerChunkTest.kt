@@ -55,6 +55,49 @@ class BookOpenerChunkTest {
         assertEquals(0, store.writeCount)
     }
 
+    /** Review I1: a large entry the chunker would never split costs no store, no directory and no cache. */
+    @Test fun large_entries_that_are_not_split_candidates_create_no_store() = runBlocking {
+        val big = "x".repeat(30_000)
+        val svg = "<svg xmlns=\"http://www.w3.org/2000/svg\"><desc>$big</desc></svg>"
+        val doc = "<html xmlns=\"http://www.w3.org/1999/xhtml\"><body><p>$big</p></body></html>"
+        val books = listOf(
+            // A large SVG and CSS: not even a package parse.
+            ChunkTestBook.bytes(paragraphs = 20, extra = mapOf("OPS/plate.svg" to svg, "OPS/style.css" to "p{}/*$big*/"),
+                extraManifest = """<item id="s" href="plate.svg" media-type="image/svg+xml"/><item id="c" href="style.css" media-type="text/css"/>"""),
+            // A large XHTML document in the manifest but not in the spine, and one not even in the manifest.
+            ChunkTestBook.bytes(paragraphs = 20, extra = mapOf("OPS/appendix.xhtml" to doc, "OPS/stray.xhtml" to doc),
+                extraManifest = """<item id="ap" href="appendix.xhtml" media-type="application/xhtml+xml"/>"""),
+        )
+        for (b in books) {
+            val o = opener(BytesSources(b))
+            val r = ok(o.open(ref))
+            assertSame(PositionMap.Identity, r.map)
+            assertEquals(2, o.sectionStats(r.sessionId)!!.size)
+        }
+        assertEquals(emptyList<Any>(), stores)
+        assertEquals(0, store.writeCount)
+    }
+
+    /** Review M1/m3: a deleted book's sessions never rebuild its cache; a warm one is closed at once. */
+    @Test fun forgotten_sessions_do_not_rebuild_and_the_warm_one_is_evicted() = runBlocking {
+        val server = BookContentServer()
+        val o = opener(BytesSources(ChunkTestBook.bytes()), server)
+        val a = ok(o.open(ref))
+        o.forget(listOf(ref.key)) // deleted while open
+        store.clear()
+        val writes = store.writeCount
+        assertEquals(500, server.serve("${a.sessionId}/OPS/p.opf").status)
+        assertEquals("no rebuild", writes, store.writeCount)
+        o.close(a.sessionId) // now warm, but forgotten: not reused
+        val b = ok(o.open(ref)) // a new session, its cache built again (the book was opened again)
+        assertNotEquals(a.sessionId, b.sessionId)
+        assertEquals(200, server.serve("${b.sessionId}/OPS/p.opf").status)
+        o.close(b.sessionId)
+        o.forget(listOf(ref.key))
+        assertEquals(410, server.serve("${b.sessionId}/OPS/p.opf").status) // evicted, not kept registered
+        assertNotEquals(b.sessionId, ok(o.open(ref)).sessionId)
+    }
+
     @Test fun nothing_to_split_under_the_policy_is_the_identity() = runBlocking {
         val o = opener(BytesSources(ChunkTestBook.bytes()), policy = ChunkTestBook.never)
         assertSame(PositionMap.Identity, ok(o.open(ref)).map)
@@ -62,6 +105,7 @@ class BookOpenerChunkTest {
     }
 
     @Test fun later_opens_load_the_cache() = runBlocking {
+        assertTrue(ChunkTestBook.bytes().contentEquals(ChunkTestBook.bytes())) // deterministic fixture
         val first = ok(opener(BytesSources(ChunkTestBook.bytes())).open(ref)).map
         val writes = store.writeCount
         val again = ok(opener(BytesSources(ChunkTestBook.bytes())).open(ref)).map

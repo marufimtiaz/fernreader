@@ -62,7 +62,7 @@ class AppGraph(app: Application) {
         db, clock, deleteFile = { java.io.File(it).delete() }, // F-025 "also delete the file"
         // F-025 with files: the thumbnail, the search history and the search index go with the book (M5 BookRemoval).
         onBookFilesDeleted = { id, thumb -> thumb?.let { java.io.File(it).delete() }; io.launch { removal.forgetSearch(id) } },
-        onCacheDeleted = { _, sourceKeys -> chunkDirs.delete(sourceKeys) }, // M8: chunk caches go with the book_cache rows
+        onCacheDeleted = { _, sourceKeys -> forgetChunks(sourceKeys) }, // M8: chunk caches go with the book_cache rows
         grantPersisted = { uri -> app.contentResolver.persistedUriPermissions.any { it.isReadPermission && it.uri.toString() == uri } },
         beforeRecordOpened = { sessionCleanup.await() },
     )
@@ -79,6 +79,11 @@ class AppGraph(app: Application) {
     val positions: Deferred<PositionWriter> = io.async(start = CoroutineStart.LAZY) { PositionWriter.create(db, clock, io) }
     val server = BookContentServer()
     val opener = BookOpener(BookSources(app), server, chunkStore = chunkDirs::store)
+    /** M8: drops these sources' chunk caches; their sessions first, so none rebuilds (recreates) a deleted cache. */
+    suspend fun forgetChunks(sourceKeys: Collection<String>) {
+        opener.forget(sourceKeys)
+        chunkDirs.delete(sourceKeys)
+    }
     val settings = SettingsStore(db, clock)
     val searchHistory = SearchHistoryStore(db, clock)
     val bookmarks = BookmarkStore(db, clock)

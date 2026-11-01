@@ -1,5 +1,7 @@
 package app.epubreader.reader
 
+import android.util.Log
+import androidx.room.useWriterConnection
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -103,6 +105,9 @@ class HugeChapterChunkTest {
         delay(800) // the close-out stores the last position
     }
 
+    /** The CFI's package part (`epubcfi(/6/N[id]`): the spine step, the original itemref's in stored rows. */
+    private fun spineStep(cfi: String) = cfi.substringBefore('!')
+
     /** The chunked book's map, as the opener built it (read back from its cache in the app's chunk directory). */
     private fun chunkMap(f: File, policy: ChunkPolicy): ChunkMap {
         val zip = ZipReader.open(openFileSource(f.path))
@@ -118,7 +123,7 @@ class HugeChapterChunkTest {
         check(f.isFile) { "corpus not pushed: $f" }
         val ref = SourceRef.File(f.path)
         val policy = ChunkPolicy()
-        graph.chunkDirs.delete(listOf(f.path)) // the chunked run builds its cache from scratch
+        graph.forgetChunks(listOf(f.path)) // the chunked run builds its cache from scratch
         var bookId: String? = graph.library.knownBookId(ref)
         val savedPosition = bookId?.let { graph.library.position(it) }
         val made = mutableListOf<String>()
@@ -203,14 +208,53 @@ class HugeChapterChunkTest {
                 // Stored rows were not rewritten by the chunked session.
                 assertEquals(bmC.cfi, graph.bookmarks.bookmarks(id).first().single { it.id == bmC.id }.cfi)
                 assertEquals(hlC.cfi, graph.annotations.annotations(id).first().single { it.id == hlC.id }.cfi)
+
+                // A bookmark made in the chunked run on that page (the button removes the control's first). Its CFI is
+                // the part's page start in original coordinates: same section, same itemref step and same text as the
+                // control's; byte-identical only if both layouts start the page at the same place (logged).
+                sc.onActivity { it.controller.toggleBookmark() }
+                withTimeout(5_000) { c.state.first { !it.bookmarked && it.bookmarks.isEmpty() } }
+                sc.onActivity { it.controller.toggleBookmark() }
+                val bmK = withTimeout(5_000) { c.state.first { it.bookmarked && it.bookmarks.size == 1 } }.bookmarks.single().also { marks += it.id }
+                Log.i("HugeChapterChunkTest", "bookmark control=${bmC.cfi} chunked=${bmK.cfi} identical=${bmC.cfi == bmK.cfi}")
+                assertEquals(bmC.spineIndex, bmK.spineIndex)
+                assertEquals(spineStep(bmC.cfi), spineStep(bmK.cfi))
+                assertEquals(bmK.cfi, map.cfiToOriginal(map.cfiToVirtual(bmK.cfi)))
+                assertNotEquals("stored original, not the part's", map.cfiToVirtual(bmK.cfi), bmK.cfi)
+                h.tocJump("Section 1"); h.settle()
+                withTimeout(10_000) { c.state.first { !it.bookmarked } }
+                h.drain()
+                sc.onActivity { it.controller.onBookmarkSelected(bmK) }
+                h.relocate(15_000)
+                withTimeout(10_000) { c.state.first { it.bookmarked } }
+                assertEquals("true", sc.js("window.__readerTest.blockVisible(${JSONObject.quote(pageBlockC)})"))
+                val stoppedK = h.settle()
                 h.closeBook()
+
+                // The position the chunked run stored on close: original coordinates, the control's section and itemref.
+                val posK = graph.library.position(id)!!
+                Log.i("HugeChapterChunkTest", "position control=${posC.cfi} chunked=${posK.cfi} identical=${posC.cfi == posK.cfi}")
+                assertEquals(map.cfiToOriginal(stoppedK.cfi), posK.cfi)
+                assertEquals(posC.spineIndex, posK.spineIndex)
+                assertEquals(spineStep(posC.cfi), spineStep(posK.cfi))
+                assertEquals(posK.cfi, map.cfiToOriginal(map.cfiToVirtual(posK.cfi)))
+                assertNotEquals("stored original, not the part's", map.cfiToVirtual(posK.cfi), posK.cfi)
             } finally {
                 graph.opener.policy = policy
                 runCatching { if (c.state.value.open) h.closeBook() }
                 for (a in made) graph.annotations.remove(a)
                 for (b in marks) graph.bookmarks.remove(b)
-                bookId?.let { id -> savedPosition?.let { p -> graph.db.positionDao().put(id, p.cfi, p.fraction, p.spineIndex, (graph.library.position(id)?.updatedAt ?: p.updatedAt) + 1) } }
-                graph.chunkDirs.delete(listOf(f.path))
+                bookId?.let { id ->
+                    if (savedPosition != null) {
+                        graph.db.positionDao().put(id, savedPosition.cfi, savedPosition.fraction, savedPosition.spineIndex, (graph.library.position(id)?.updatedAt ?: savedPosition.updatedAt) + 1)
+                    }
+                    // The position row this test created (if the book had none) and the chunked layout's page data.
+                    graph.db.useWriterConnection { t ->
+                        if (savedPosition == null) t.usePrepared("DELETE FROM reading_position WHERE bookId = ?") { it.bindText(1, id); it.step() }
+                        t.usePrepared("DELETE FROM book_cache WHERE bookId = ? AND kind LIKE 'section-stats.v1@%'") { it.bindText(1, id); it.step() }
+                    }
+                }
+                graph.forgetChunks(listOf(f.path)) // also evicts the warm chunked session, whose cache is deleted here
                 h.stop()
             }
         }

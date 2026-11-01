@@ -34,15 +34,25 @@ class Chunker(private val policy: ChunkPolicy = ChunkPolicy()) {
 
     private class Planned(val item: String, val doc: ChunkMap.SplitDoc, val plan: SplitPlan)
 
+    /**
+     * Whether [chunk] would look at the store at all: some spine document is a split candidate. False means [chunk]
+     * returns the identity without reading or writing the store, so a caller can skip creating one.
+     */
+    fun hasCandidates(zip: ZipReader, pkg: BookPackage): Boolean = !pkg.fixedLayout && candidates(zip, pkg).isNotEmpty() && slotsOf(pkg) != null
+
+    private fun candidates(zip: ZipReader, pkg: BookPackage): List<String> {
+        val navPaths = pkg.manifest.filter { "nav" in it.properties }.map { it.path }.toSet()
+        return pkg.spine.filter { s ->
+            s.present && s.mediaType.substringBefore(';').trim().equals(XHTML, ignoreCase = true) && s.path !in navPaths &&
+                (zip.entry(s.path)?.size ?: 0) > policy.thresholdBytes
+        }.map { it.path }.distinct()
+    }
+
     fun chunk(zip: ZipReader, pkg: BookPackage, store: ChunkStore): ChunkedBook {
         val slots = slotsOf(pkg)
         val identity = ChunkedBook(ChunkMap.identity(slots ?: pkg.spine.map { ChunkMap.Slot(it.path) }, policy.key), store, emptySet())
         if (slots == null || pkg.fixedLayout) return identity
-        val navPaths = pkg.manifest.filter { "nav" in it.properties }.map { it.path }.toSet()
-        val candidates = pkg.spine.filter { s ->
-            s.present && s.mediaType.substringBefore(';').trim().equals(XHTML, ignoreCase = true) && s.path !in navPaths &&
-                (zip.entry(s.path)?.size ?: 0) > policy.thresholdBytes
-        }.map { it.path }.distinct()
+        val candidates = candidates(zip, pkg)
         if (candidates.isEmpty()) return identity
         readCache(store, zip.centralDirectoryDigest, slots)?.let { return it }
 

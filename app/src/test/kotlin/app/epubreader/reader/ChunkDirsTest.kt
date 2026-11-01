@@ -25,10 +25,22 @@ class ChunkDirsTest {
         assertEquals(1, d.listFiles()!!.size)
     }
 
+    /** Review I1: a store only read (a complete cache, or nothing to read) makes no directory and no protect call. */
+    @Test fun nothing_is_created_before_the_first_write() {
+        val store = dirs.store(book, ChunkTestBook.small)
+        assertEquals(null, store.read("cache.json"))
+        store.clear()
+        assertFalse(dirs.dirOf(book.key).exists())
+        assertEquals(emptyList<File>(), protected)
+        store.write("cache.json", "{}".encodeToByteArray())
+        assertTrue(dirs.dir(book, ChunkTestBook.small).isDirectory)
+        assertEquals(1, protected.size)
+    }
+
     @Test fun a_new_policy_drops_the_other_policies_caches_of_that_file_only() {
         dirs.store(book, ChunkTestBook.small).write("x", byteArrayOf(1))
         dirs.store(other, ChunkTestBook.small).write("x", byteArrayOf(1))
-        dirs.store(book, ChunkPolicy())
+        dirs.store(book, ChunkPolicy()).write("x", byteArrayOf(1))
         assertFalse(dirs.dir(book, ChunkTestBook.small).exists())
         assertTrue(dirs.dir(book, ChunkPolicy()).isDirectory)
         assertTrue(dirs.dir(other, ChunkTestBook.small).exists())

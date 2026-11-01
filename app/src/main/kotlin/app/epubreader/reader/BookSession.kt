@@ -20,12 +20,14 @@ class BookSession(
     val id: String, val ref: SourceRef, val zip: ZipReader, val size: Long, val stamp: String,
     val pkg: BookPackage? = null,
     chunked: ChunkedBook? = null,
-    val policy: ChunkPolicy? = null,
+    val policy: ChunkPolicy = ChunkPolicy(),
     /** Runs the chunker again (same zip, policy and store): rebuilds a cache trimmed while the book is open. */
     private val rechunk: (() -> ChunkedBook)? = null,
 ) : AutoCloseable {
     @Volatile var chunked: ChunkedBook? = chunked
         private set
+    /** Its book's chunk cache was deleted with the book ([BookOpener.forget]): never rebuilt, so never recreated. */
+    @Volatile var forgotten = false
     private val rebuildLock = Any()
 
     val cdDigest: String get() = zip.centralDirectoryDigest
@@ -57,6 +59,7 @@ class BookSession(
     private fun rebuilt(seen: ChunkedBook): ChunkedBook = synchronized(rebuildLock) {
         val now = chunked!!
         if (now !== seen) return now
+        if (forgotten) throw ChunkCacheException("chunk cache deleted with its book")
         val r = rechunk ?: throw ChunkCacheException("chunk cache gone and no way to rebuild it")
         val b = r()
         if (b.map != seen.map) throw ChunkCacheException("rebuilt chunk map differs from the open book's")
