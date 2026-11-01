@@ -43,7 +43,7 @@ current session.
 | app to web | `setAnnotations` | `sessionId`, `items[] {id, cfi, color, style}` (M6, F-061: the book's annotations as virtual range CFIs, book order, replacing the session's set; sent once per open, after the first `painted`) |
 | app to web | `removeAnnotation` | `sessionId`, `id` (M6, F-061: the annotation was removed; its drawing is erased at once) |
 | web to app | `ready`, `pong` | `engine` / `id` |
-| web to app | `opened` | `sessionId`, `identifier` (unique-identifier text or null), `title`, `authors[]`, `dir`, `fixedLayout`, `sections`, `toc[] {label, href, depth, missing, index}` (`index`: spine section of the target, -1 if none; M5) |
+| web to app | `opened` | `sessionId`, `identifier` (unique-identifier text or null), `title`, `authors[]`, `dir`, `fixedLayout`, `sections`, `toc[] {label, href, depth, missing, index}` (`index`: spine section of the target, -1 if none; M5), `sizes[]` (C-073: per section, the byte size foliate's progress uses, 0 for non-linear ones; the app maps a slider fraction to its section with it) |
 | web to app | `relocate` | `sessionId`, `cfi`, `fraction`, `sectionIndex`, `tocHref`, `page`/`pages` (paged: 1-based text page in the section and its text pages; 0/0 scrolled), `sectionFraction` (M4), `bookmarks[]` (M6, optional: the `setBookmarks` entries on the visible page, same strings; omitted when none) |
 | web to app | `painted` | `sessionId` (two animation frames after `relocate`) |
 | web to app | `seeked` | `sessionId`, `id` (after the `relocate` of a `goTo` that carried `id`) |

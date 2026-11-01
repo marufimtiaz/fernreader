@@ -81,9 +81,29 @@ class PageTotals(private val probe: EventProbe = EventProbe.None) {
         recompute()
     }
 
+    /**
+     * C-073: the indicator for section [section] at [sectionFraction] (a seek target), from the same counts and
+     * estimates as the visible location's; [state] does not change.
+     */
+    fun previewAt(section: Int, sectionFraction: Double): PageIndicator {
+        val r = at ?: return PageIndicator(null, null, false, scope == IndicatorScope.CHAPTER)
+        return indicator(r, section, 0, sectionFraction)
+    }
+
     private fun recompute() {
         val r = at
         if (r == null) { _state.value = PageIndicator(null, null, false, scope == IndicatorScope.CHAPTER); return }
+        val ind = indicator(r, r.sectionIndex, r.page, r.sectionFraction)
+        _state.value = ind
+        val total = ind.total
+        if (!ind.chapterScope && total != null) {
+            if (done && reportedExact != gen) { reportedExact = gen; probe.ev("page_total_exact", "total=$total gen=$gen") }
+            else if (!done && reportedEstimate != gen) { reportedEstimate = gen; probe.ev("page_total_estimate", "total=$total gen=$gen") }
+        }
+    }
+
+    /** The indicator at [target] ([page] in it if known, else at [sectionFraction]); [r] is the visible location. */
+    private fun indicator(r: FromWeb.Relocate, target: Int, page: Int, sectionFraction: Double): PageIndicator {
         val cur = r.sectionIndex
         val visible = r.pages.takeIf { it > 0 }
         val st = stats
@@ -109,25 +129,20 @@ class PageTotals(private val probe: EventProbe = EventProbe.None) {
             val c = calibration ?: return null
             return if (s.chars >= MIN_CHARS) max(1, (s.chars / c + 0.5).roundToInt()) else max(1, s.images)
         }
-        val curPages = pagesOf(cur)
+        val targetPages = pagesOf(target)
         val inSection = when {
-            r.page > 0 -> r.page
-            curPages != null -> (floor(r.sectionFraction * curPages).toInt() + 1).coerceAtMost(curPages) // C-002
+            page > 0 -> page
+            targetPages != null -> (floor(sectionFraction * targetPages).toInt() + 1).coerceAtMost(targetPages) // C-002
             else -> null
         }
         if (scope == IndicatorScope.CHAPTER) {
-            _state.value = PageIndicator(inSection, curPages, exact = visible != null || counts.containsKey(cur), chapterScope = true)
-            return
+            return PageIndicator(inSection, targetPages, exact = (target == cur && visible != null) || counts.containsKey(target), chapterScope = true)
         }
-        val before = linear.takeIf { cur in it }?.filter { it < cur }?.map(::pagesOf)
-        val page = if (before == null || before.any { it == null } || inSection == null) null else before.sumOf { it!! } + inSection
+        val before = linear.takeIf { target in it }?.filter { it < target }?.map(::pagesOf)
+        val n = if (before == null || before.any { it == null } || inSection == null) null else before.sumOf { it!! } + inSection
         val all = linear.map(::pagesOf)
         val total = if ((sampleDone || done) && all.isNotEmpty() && all.none { it == null }) all.sumOf { it!! } else null
-        _state.value = PageIndicator(page?.let { p -> total?.let { p.coerceIn(1, it) } ?: p }, total, exact = done && total != null, chapterScope = false)
-        if (total != null) {
-            if (done && reportedExact != gen) { reportedExact = gen; probe.ev("page_total_exact", "total=$total gen=$gen") }
-            else if (!done && reportedEstimate != gen) { reportedEstimate = gen; probe.ev("page_total_estimate", "total=$total gen=$gen") }
-        }
+        return PageIndicator(n?.let { p -> total?.let { p.coerceIn(1, it) } ?: p }, total, exact = done && total != null, chapterScope = false)
     }
 
     private fun rate(samples: List<Pair<Int, Int>>): Double? {

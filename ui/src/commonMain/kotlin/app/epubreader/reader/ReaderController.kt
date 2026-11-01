@@ -57,6 +57,8 @@ data class ReaderUiState(
     val open: Boolean = false,
     val loading: Boolean = false,
     val title: String = "",
+    /** The book's authors from `opened` (C-073: the title dialog). */
+    val authors: List<String> = emptyList(),
     val toc: List<TocItem> = emptyList(),
     val currentTocHref: String? = null,
     /** Book fraction of the current location (seek slider, F-034). */
@@ -139,6 +141,10 @@ class ReaderController(
         var painted = false
         var stats: List<SectionStat>? = null
         var sections = 0
+        /** Section sizes from `opened`, for where a seek lands (C-073). */
+        var sizes: List<Long> = emptyList()
+        /** A slider seek was sent: its preview stays until the next `relocate` (where it landed). */
+        var seekSent = false
         /** The book's page-progression-direction from `opened` ("ltr" | "rtl"). */
         var dir = "ltr"
         /**
@@ -180,6 +186,9 @@ class ReaderController(
 
     private val _state = MutableStateFlow(ReaderUiState())
     val state: StateFlow<ReaderUiState> = _state
+    private val _seekPreview = MutableStateFlow<SeekPreview?>(null)
+    /** C-073: where the dragged slider would land (chapter and page); null when it is not dragged. */
+    val seekPreview: StateFlow<SeekPreview?> = _seekPreview
     private var session: Session? = null
     private var openJob: Job? = null
     private var closing: Job? = null
@@ -245,7 +254,7 @@ class ReaderController(
         close()
         totals.reset()
         searcher.reset()
-        _state.value = ReaderUiState(open = true, loading = true, source = ref)
+        _state.value = ReaderUiState(open = true, loading = true, source = ref); _seekPreview.value = null
         val previous = closing
         openJob = scope.launch {
             previous?.join() // the last position of the book just closed is stored before we read positions
@@ -323,9 +332,23 @@ class ReaderController(
 
     private fun onStats(s: Session) = totals.setStats(s.stats, s.sections)
 
-    /** F-034 seek slider: jump to [fraction] of the book. */
+    /** C-073: the slider is dragged to [fraction]: preview the chapter (contents entry) and page a release lands on. */
+    fun previewSeek(fraction: Double) {
+        val s = session ?: return
+        val f = fraction.coerceIn(0.0, 1.0)
+        val (section, inSection) = sectionAt(s.sizes, f) ?: run { _seekPreview.value = SeekPreview(f, null, PageIndicator(null, null, false, false)); return }
+        val st = _state.value
+        val entry = tocEntryAt(st.toc, section, inSection, st.currentTocHref.takeIf { s.at?.sectionIndex == section })
+        _seekPreview.value = SeekPreview(f, entry?.label?.trim()?.takeIf { it.isNotEmpty() }, totals.previewAt(section, inSection))
+    }
+
+    /** C-073: the drag ended without a seek: the bar shows the current position again. */
+    fun cancelSeek() { _seekPreview.value = null }
+
+    /** F-034 seek slider: jump to [fraction] of the book. A preview (C-073) stays until the jump has landed. */
     fun seek(fraction: Double) {
-        if (session == null) return
+        val s = session ?: return
+        s.seekSent = _seekPreview.value != null
         probe.ev("seek_cmd", "$fraction")
         reader.send(ToWeb.GoToFraction(fraction = fraction.coerceIn(0.0, 1.0)))
     }
@@ -348,7 +371,7 @@ class ReaderController(
         s?.annotationJob?.cancel()
         s?.let(::saveNote) // a sheet open when the book closes keeps its note
         searcher.reset()
-        _state.value = ReaderUiState()
+        _state.value = ReaderUiState(); _seekPreview.value = null
         if (s == null) return
         reader.send(ToWeb.Close())
         s.bookId?.let { id -> runCatching { search?.bookClosed(id) } } // an unfinished index is finished later (idle job)
@@ -428,7 +451,7 @@ class ReaderController(
     fun fileGone() {
         if (!_state.value.open) return
         close()
-        _state.value = ReaderUiState(open = true, error = ReaderError.FileChanged)
+        _state.value = ReaderUiState(open = true, error = ReaderError.FileChanged); _seekPreview.value = null
     }
 
     /**
@@ -441,6 +464,8 @@ class ReaderController(
         val s = session
         return when {
             st.externalLink != null -> { cancelExternalLink(); true }
+            // C-073: Back during a slider drag cancels it: the controls close (the slider with them), nothing seeks.
+            _seekPreview.value != null && s?.seekSent == false && st.chromeVisible -> { cancelSeek(); _state.update { it.copy(chromeVisible = false) }; true }
             // A selection first: Back never reaches the WebView (OnBackInvokedCallback), so it is dismissed here.
             s?.selection != null -> { s.selection = null; reader.send(ToWeb.ClearSelection()); true }
             st.highlightPicker != null -> { dismissHighlightPicker(); true }
@@ -878,8 +903,9 @@ class ReaderController(
                     reader.send(ToWeb.GoTo(target = s.map.cfiToVirtual(it.cfi), id = id))
                 }
                 s.sections = m.sections
+                s.sizes = m.sizes
                 s.dir = m.dir
-                _state.update { it.copy(title = m.title, toc = m.toc) }
+                _state.update { it.copy(title = m.title, authors = m.authors, toc = m.toc) }
                 watchBookmarks(s, rec.bookId)
                 watchAnnotations(s) // only if the first page was already painted
             }
@@ -896,6 +922,7 @@ class ReaderController(
                     _state.update { it.copy(currentTocHref = m.tocHref, fraction = m.fraction) }
                     publishBookmarks(s)
                     totals.onRelocate(m)
+                    if (s.seekSent) { s.seekSent = false; _seekPreview.value = null }
                 }
             }
             is FromWeb.PageBookmarks -> if (m.sessionId == s.id) { s.marks = m.cfis.toSet(); publishBookmarks(s) }

@@ -47,6 +47,23 @@ class PageTotalsTest {
         assertEquals(PageIndicator(page = 1 + 4 + 3, total = 22, exact = true, chapterScope = false), t.state.value)
     }
 
+    @Test fun preview_of_a_seek_target_uses_the_same_counts() {
+        val t = totals()
+        t.onCounts(counts(1, linear = linear))
+        t.onRelocate(at(2, 3, 8))
+        t.onCounts(counts(1, 0 to 1, 1 to 4, 2 to 8, 3 to 2, 4 to 7, sample = true, done = true))
+        // section 4 (7 pages), halfway: page 1 + 4 + 8 + 2 + floor(0.5 * 7) + 1
+        assertEquals(PageIndicator(page = 1 + 4 + 8 + 2 + 4, total = 22, exact = true, chapterScope = false), t.previewAt(4, 0.5))
+        // the visible section: its own pages; the end of a section is its last page
+        assertEquals(1 + 4 + 8, t.previewAt(2, 1.0).page)
+        assertEquals(PageIndicator(page = 1 + 4 + 3, total = 22, exact = true, chapterScope = false), t.state.value) // unchanged
+        t.scope = IndicatorScope.CHAPTER
+        assertEquals(PageIndicator(page = 2, total = 4, exact = true, chapterScope = true), t.previewAt(1, 0.3))
+    }
+
+    @Test fun preview_without_a_location_is_empty() =
+        assertEquals(PageIndicator(null, null, false, false), totals().previewAt(1, 0.5))
+
     @Test fun image_only_section_counts_its_images() {
         val t = PageTotals().apply { setStats(listOf(SectionStat(10, 3), SectionStat(1_000, 0)), 2) }
         t.onCounts(counts(1, linear = listOf(0, 1)))

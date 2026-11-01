@@ -46,6 +46,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import app.epubreader.ui.Copy
+import app.epubreader.reader.controls.BookInfoDialog
 import app.epubreader.reader.controls.ControlActions
 import app.epubreader.reader.controls.ReaderBottomBar
 import app.epubreader.reader.controls.ReaderTopBar
@@ -66,6 +67,8 @@ fun ReaderScreen(
     val s by c.state.collectAsState()
     val settings by c.settings.collectAsState()
     val page by c.page.collectAsState()
+    val preview by c.seekPreview.collectAsState()
+    var bookInfo by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { withFrameNanos { }; probe.ev("reader_frame", "") }
     // F-074: the reader's own surfaces (loading screen, bars, panels) follow the reading theme, not the app theme.
     MaterialTheme(colorScheme = ReadingTheme.of(settings.theme).colorScheme()) {
@@ -93,10 +96,12 @@ fun ReaderScreen(
         val actions = ControlActions(
             back = onBack, search = c::showSearch, bookmark = c::toggleBookmark, contents = c::showToc,
             display = c::showDisplay, settings = c::showSettings, seek = c::seek,
+            previewSeek = c::previewSeek, cancelSeek = c::cancelSeek, bookInfo = { bookInfo = true },
         )
         if (s.chromeVisible && s.error == null) {
-            ReaderTopBar(chapterTitle(s.toc, s.currentTocHref, s.title), s.title, s.bookmarked, actions, Modifier.align(Alignment.TopStart))
+            ReaderTopBar(s.title, s.bookmarked, actions, Modifier.align(Alignment.TopStart))
         }
+        if (bookInfo && s.error == null) BookInfoDialog(s.title, s.authors, onDismiss = { bookInfo = false })
         // F-041: the page marker, over the page's top-right corner; visible without the controls, never moves the text.
         if (s.bookmarked && !s.chromeVisible && !s.loading && s.error == null) {
             Icon(
@@ -117,7 +122,12 @@ fun ReaderScreen(
             }
         }
         if (s.chromeVisible && s.error == null) {
-            ReaderBottomBar(Copy.pageLabel(page), s.fraction, actions, Modifier.align(Alignment.BottomCenter))
+            // C-073: while the slider is dragged (and until its seek lands) the row shows the target's chapter and page.
+            val p = preview
+            ReaderBottomBar(
+                if (p != null) p.chapter else chapterLabel(s.toc, s.currentTocHref),
+                Copy.pageLabel(p?.page ?: page), p?.fraction ?: s.fraction, actions, Modifier.align(Alignment.BottomCenter),
+            )
         }
         if (s.displayVisible && s.error == null) {
             LaunchedEffect(Unit) { withFrameNanos { }; probe.ev("display_shown", "") }

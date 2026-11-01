@@ -80,6 +80,8 @@ import kotlinx.serialization.json.Json
     @Serializable @SerialName("opened") data class Opened(
         val v: Int = 1, val sessionId: String, val identifier: String? = null, val title: String, val authors: List<String>,
         val dir: String, val fixedLayout: Boolean, val sections: Int, val toc: List<TocItem>,
+        /** C-073: each section's size as foliate's progress uses it (bytes; 0 for non-linear or empty sections). */
+        val sizes: List<Long> = emptyList(),
     ) : FromWeb
     @Serializable @SerialName("relocate") data class Relocate(
         val v: Int = 1, val sessionId: String, val cfi: String, val fraction: Double, val sectionIndex: Int, val tocHref: String? = null,

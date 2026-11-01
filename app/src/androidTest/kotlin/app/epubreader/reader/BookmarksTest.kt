@@ -25,6 +25,9 @@ class BookmarksTest {
     private val inst = InstrumentationRegistry.getInstrumentation()
     private val dev = UiDevice.getInstance(inst)
 
+    /** Compose sends no event for a tab switch, so UiAutomation's node cache keeps the old tab's rows (API 34+). */
+    private fun clearCache() { dev.waitForIdle(300); if (android.os.Build.VERSION.SDK_INT >= 34) inst.uiAutomation.clearCache() }
+
     private fun showControls(h: ReaderHarness) {
         dev.click(dev.displayWidth / 2, dev.displayHeight / 2)
         assertTrue(dev.wait(Until.hasObject(By.desc(Copy.contents)), 3_000))
@@ -65,6 +68,7 @@ class BookmarksTest {
             dev.findObject(By.desc(Copy.contents)).click()
             assertTrue(dev.wait(Until.hasObject(By.text(Copy.bookmarksTab)), 3_000))
             dev.findObject(By.text(Copy.bookmarksTab)).click()
+            clearCache()
             val row = dev.wait(Until.hasObject(By.textContains(" · ")), 10_000)
             if (!row) { val o = java.io.ByteArrayOutputStream(); dev.dumpWindowHierarchy(o); android.util.Log.i("BMT", Regex("(content-desc|text)=\"([^\"]+)\"").findAll(o.toString()).joinToString(" | ") { it.value }.take(1500)) }
             assertTrue("row", row)
@@ -83,6 +87,7 @@ class BookmarksTest {
             dev.findObject(By.desc(Copy.contents)).click()
             assertTrue(dev.wait(Until.hasObject(By.text(Copy.bookmarksTab)), 3_000))
             dev.findObject(By.text(Copy.bookmarksTab)).click()
+            clearCache()
             assertTrue(dev.wait(Until.hasObject(By.desc(Copy.removeBookmark)), 3_000))
             dev.findObject(By.desc(Copy.removeBookmark)).click()
             // (UiAutomator's view of a changed Compose node can lag, so what disappears is checked in the state)
@@ -122,6 +127,7 @@ class BookmarksTest {
             assertTrue("title row names the book", dev.hasObject(By.text(title)))
             assertTrue(dev.hasObject(By.text(Copy.close)))
             dev.findObject(By.text(Copy.bookmarksTab)).click()
+            clearCache()
             assertTrue("bookmark row", dev.wait(Until.hasObject(By.desc(Copy.removeBookmark)), 5_000))
             dev.findObject(By.desc(Copy.removeBookmark)).click()
             withTimeout(5_000) { c.state.first { it.bookmarks.isEmpty() } }

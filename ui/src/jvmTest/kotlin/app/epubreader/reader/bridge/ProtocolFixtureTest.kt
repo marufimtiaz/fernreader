@@ -38,6 +38,7 @@ class ProtocolFixtureTest {
         val o = decodeFromWeb(fixture("opened")) as FromWeb.Opened
         assertEquals(listOf(false, true), o.toc.map { it.missing })
         assertEquals(listOf(0, -1), o.toc.map { it.index })
+        assertEquals(listOf(1200L, 0L, 3400L), o.sizes)
     }
 
     @Test fun every_to_web_message_encodes_like_its_fixture() {

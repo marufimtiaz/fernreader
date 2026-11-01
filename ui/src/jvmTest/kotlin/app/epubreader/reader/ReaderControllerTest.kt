@@ -260,6 +260,53 @@ class ReaderControllerTest {
         assertEquals(ToWeb.GoToFraction(fraction = 0.25), reader.sent.last())
     }
 
+    @Test fun dragging_the_slider_previews_the_target_and_cancel_returns_to_the_current_position() = runTest(dispatcher) {
+        val c = controller()
+        val toc3 = listOf(TocItem("One", "c0.xhtml", 0, index = 0), TocItem("Two", "c1.xhtml", 0, index = 1), TocItem("Three", "c2.xhtml", 0, index = 2))
+        c.open(ref); advanceUntilIdle()
+        reader.events.emit(opened().copy(toc = toc3, sizes = listOf(1_000L, 1_000L, 2_000L))); advanceUntilIdle()
+        assertEquals(listOf("B"), c.state.value.authors) // C-073: the title dialog names them
+        reader.events.emit(FromWeb.Relocate(sessionId = "s-1", cfi = "x", fraction = 0.1, sectionIndex = 0, tocHref = "c0.xhtml", page = 1, pages = 3)); advanceUntilIdle()
+        reader.events.emit(FromWeb.PageCounts(sessionId = "s-1", gen = 1, linear = listOf(0, 1, 2))); advanceUntilIdle()
+        reader.events.emit(FromWeb.PageCounts(sessionId = "s-1", gen = 1, counts = listOf(listOf(0, 3), listOf(1, 2), listOf(2, 4)), sample = true, done = true)); advanceUntilIdle()
+        assertNull(c.seekPreview.value)
+
+        c.previewSeek(0.75) // 3000 of 4000 bytes: halfway through section 2
+        assertEquals(SeekPreview(0.75, "Three", PageIndicator(3 + 2 + 3, 9, exact = true, chapterScope = false)), c.seekPreview.value)
+        c.previewSeek(0.3)
+        assertEquals("Two", c.seekPreview.value?.chapter)
+        c.cancelSeek()
+        assertNull(c.seekPreview.value)
+        assertTrue(reader.sent.none { it is ToWeb.GoToFraction }) // nothing moved
+
+        // released: the preview stays until the jump lands
+        c.previewSeek(0.75); c.seek(0.75)
+        assertEquals(ToWeb.GoToFraction(fraction = 0.75), reader.sent.last())
+        assertEquals("Three", c.seekPreview.value?.chapter)
+        reader.events.emit(FromWeb.Relocate(sessionId = "s-1", cfi = "y", fraction = 0.75, sectionIndex = 2, tocHref = "c2.xhtml", page = 3, pages = 4)); advanceUntilIdle()
+        assertNull(c.seekPreview.value)
+    }
+
+    @Test fun back_during_a_drag_cancels_it_and_closes_the_controls() = runTest(dispatcher) {
+        val c = controller()
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened().copy(sizes = listOf(1_000L, 0L, 500L))); advanceUntilIdle()
+        c.toggleChrome()
+        c.previewSeek(0.8)
+        assertEquals("One", c.seekPreview.value?.chapter) // section 2 has no entry: the last one before it
+        assertTrue(c.backInside())
+        assertNull(c.seekPreview.value)
+        assertFalse(c.state.value.chromeVisible)
+        assertTrue(reader.sent.none { it is ToWeb.GoToFraction })
+        assertTrue(c.state.value.open) // still reading
+    }
+
+    @Test fun without_section_sizes_the_preview_has_no_chapter() = runTest(dispatcher) {
+        val c = controller()
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
+        c.previewSeek(0.5)
+        assertEquals(SeekPreview(0.5, null, PageIndicator(null, null, false, false)), c.seekPreview.value)
+    }
+
     @Test fun reopen_sends_saved_position() = runTest(dispatcher) {
         val c = controller()
         c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()

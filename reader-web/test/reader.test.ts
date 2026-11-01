@@ -97,6 +97,12 @@ describe('Reader open', () => {
     expect(FakeView.all).toHaveLength(1)
   })
 
+  it('opened carries the section sizes foliate maps a seek fraction with: 0 for non-linear or empty sections (C-073)', async () => {
+    h.epubInit.mockImplementation(async () => ({ ...book(), sections: [{ id: 'a', size: 100 }, { id: 'b', size: 50, linear: 'no' }, { id: 'c', size: 0 }, { id: 'd', size: 300 }] }))
+    open('s1', null); await settle(); await settle()
+    expect(sent[0]).toMatchObject({ type: 'opened', sections: 4, sizes: [100, 0, 0, 300] })
+  })
+
   // C-048: foliate's own failure ("Failed to load container file", or a script error on an empty spine) is replaced
   // by a kind the app words clearly; other failures keep foliate's message.
   for (const kind of ['no_package', 'nothing_readable'] as const) {

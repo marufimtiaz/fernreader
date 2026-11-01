@@ -42,7 +42,7 @@ export type FromWeb =
   | { v: 1; type: 'pong'; id: number }
   | { v: 1; type: 'error'; sessionId: string | null; kind: string; message: string }
   | { v: 1; type: 'opened'; sessionId: string; identifier: string | null; title: string; authors: string[];
-      dir: 'ltr' | 'rtl'; fixedLayout: boolean; sections: number; toc: TocItem[] }
+      dir: 'ltr' | 'rtl'; fixedLayout: boolean; sections: number; toc: TocItem[]; sizes: number[] }
   | { v: 1; type: 'relocate'; sessionId: string; cfi: string; fraction: number; sectionIndex: number; tocHref: string | null;
       /** Paged: 1-based text page in the section and the section's text pages; 0 and 0 in scrolled mode. */
       page: number; pages: number; sectionFraction: number;

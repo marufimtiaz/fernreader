@@ -97,6 +97,9 @@ object Copy {
     const val back = "Back"
     const val display = "Display"
     const val seek = "Position in book"
+    /** C-073: what tapping the book title in the reader's top bar does (accessibility action label). */
+    const val bookDetails = "Show title and author"
+    fun authorsLine(authors: List<String>) = authors.joinToString(", ").ifBlank { unknownAuthor }
     /** "12,345": grouping by thousands, no locale needed for digits. */
     private fun n(x: Int) = x.toString().reversed().chunked(3).joinToString(",").reversed()
     fun pageLabel(p: app.epubreader.reader.PageIndicator): String? {

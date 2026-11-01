@@ -603,6 +603,8 @@ export class Reader {
       fixedLayout: book.rendition?.layout === 'pre-paginated',
       sections: book.sections.length,
       toc: flattenToc(book, this.has!),
+      // C-073: foliate's SectionProgress sizes, so the app can tell where a slider seek will land before it is sent
+      sizes: book.sections.map((s: any) => s.linear !== 'no' && s.size > 0 ? s.size : 0),
     })
   }
 
