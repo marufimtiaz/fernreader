@@ -3,6 +3,11 @@ package app.epubreader.reader
 import android.util.Log
 import app.epubreader.core.data.SourceRef
 import app.epubreader.core.data.newId
+import app.epubreader.core.epub.chunk.ChunkPolicy
+import app.epubreader.core.epub.chunk.ChunkStore
+import app.epubreader.core.epub.chunk.Chunker
+import app.epubreader.core.epub.pkg.LoadResult
+import app.epubreader.core.epub.pkg.PackageLoader
 import app.epubreader.core.epub.zip.ZipError
 import app.epubreader.core.epub.zip.ZipFormatException
 import app.epubreader.core.epub.zip.ZipReader
@@ -20,26 +25,40 @@ import java.io.IOException
  * Opens books for the reader on the I/O dispatcher (R-005). Keeps the most recently closed session open and
  * registered ("warm"): reopening the same, unchanged file reuses it, and the JS host reuses its parsed book for
  * the same session id (P-016, C-014). Opening any other book closes the warm session.
+ *
+ * M8 (P-014, P-023, P-061, R-006): a book with a spine document over [policy]'s threshold is split by the [Chunker]
+ * into the cache [chunkStore] gives for its file (built once, loaded on later opens), and the session serves the
+ * virtual book; [OpenResult.Ok.map] carries its ChunkMap to the reader. A book with no entry over the threshold pays
+ * nothing (no package parse, P-010/P-011). Any failure while chunking serves the book unsplit (identity map): stored
+ * positions are original ones either way.
  */
 class BookOpener(
     private val sources: Sources,
     private val server: BookContentServer,
     private val io: CoroutineDispatcher = Dispatchers.IO,
     private val warn: (String) -> Unit = { Log.w("EPR", it) },
+    /** The chunk cache of a book file under a policy (app: [ChunkDirs.store]); null = books are never split. */
+    private val chunkStore: ((SourceRef, ChunkPolicy) -> ChunkStore)? = null,
 ) : BookOpenerPort {
+    /**
+     * Chunk policy of the opens from now on. A test hook too: an instrumented test opens the same book unsplit (a
+     * threshold over the file's size) as a control. A warm session is reused only under the policy it was opened with.
+     */
+    @Volatile var policy: ChunkPolicy = ChunkPolicy()
     private val lock = Mutex()
     @Volatile private var current: BookSession? = null
     private var warm: BookSession? = null
 
     override suspend fun open(ref: SourceRef): OpenResult = withContext(io) {
         lock.withLock {
+            val policy = policy
             current?.let { retire(it) }
             current = null
             warm?.let { w ->
                 warm = null
-                if (w.ref == ref && w.stamp == runCatching { sources.stamp(ref) }.getOrNull()) {
+                if (w.ref == ref && w.policy == policy && w.stamp == runCatching { sources.stamp(ref) }.getOrNull()) {
                     current = w
-                    return@withContext OpenResult.Ok(w.id, w.cdDigest, w.size)
+                    return@withContext OpenResult.Ok(w.id, w.cdDigest, w.size, w.map)
                 }
                 server.unregister(w.id); w.closeQuietly()
             }
@@ -51,8 +70,8 @@ class BookOpener(
                 logFailure(ref, e, warn)
                 return@withContext OpenResult.Failed(OpenFailure.NO_ACCESS)
             }
-            val s = try {
-                BookSession(newId(), ref, ZipReader.open(opened.source), opened.size, sources.stamp(ref))
+            val (zip, stamp) = try {
+                ZipReader.open(opened.source) to sources.stamp(ref)
             } catch (e: Exception) {
                 runCatching { opened.source.close() }
                 if (e !is ZipFormatException) logFailure(ref, e, warn)
@@ -65,9 +84,31 @@ class BookOpener(
                     },
                 )
             }
+            val s = session(ref, zip, opened.size, stamp, policy)
             server.register(s)
             current = s
-            OpenResult.Ok(s.id, s.cdDigest, s.size)
+            OpenResult.Ok(s.id, s.cdDigest, s.size, s.map)
+        }
+    }
+
+    /** The session, split if it has to be; never throws (a chunking failure is logged and the book served unsplit). */
+    private fun session(ref: SourceRef, zip: ZipReader, size: Long, stamp: String, policy: ChunkPolicy): BookSession {
+        val id = newId()
+        val stores = chunkStore
+        if (stores == null || !mayNeedSplit(zip, policy)) return BookSession(id, ref, zip, size, stamp, policy = policy)
+        val pkg = try { (PackageLoader.load(zip) as? LoadResult.Ok)?.pkg } catch (e: Exception) { null }
+            ?: return BookSession(id, ref, zip, size, stamp, policy = policy)
+        val chunker = Chunker(policy)
+        return try {
+            val book = chunker.chunk(zip, pkg, stores(ref, policy))
+            // A rebuild asks for the store again: the directory may have been trimmed away, protection with it.
+            BookSession(id, ref, zip, size, stamp, pkg, book.takeUnless { it.map.isIdentity }, policy) { chunker.chunk(zip, pkg, stores(ref, policy)) }
+        } catch (e: Exception) {
+            warn("chunking failed, serving unsplit: ${ref.key}: $e")
+            BookSession(id, ref, zip, size, stamp, pkg, policy = policy)
+        } catch (e: OutOfMemoryError) {
+            warn("chunking ran out of memory, serving unsplit: ${ref.key}")
+            BookSession(id, ref, zip, size, stamp, pkg, policy = policy)
         }
     }
 
@@ -79,7 +120,7 @@ class BookOpener(
 
     override suspend fun sectionStats(sessionId: String): List<SectionStat>? = withContext(io) {
         val s = lock.withLock { current?.takeIf { it.id == sessionId } } ?: return@withContext null
-        try { sectionStats(s.zip) } catch (e: Exception) { null } // closed under us (Back) or unreadable
+        try { sectionStats(s) } catch (e: Exception) { null } // closed under us (Back), unreadable, or a lost chunk cache
     }
 
     /**
@@ -103,6 +144,19 @@ class BookOpener(
         try { close() } catch (e: Exception) { warn("closing ${ref.key} failed: $e") }
     }
 }
+
+/**
+ * Whether [zip] has an entry the chunker could split under [policy]: over the threshold and not a media or font file
+ * by its extension. False for almost every book, which then opens without a package parse (P-010/P-011).
+ */
+internal fun mayNeedSplit(zip: ZipReader, policy: ChunkPolicy): Boolean = zip.entries.any { e ->
+    !e.isDirectory && e.size > policy.thresholdBytes && e.name.substringAfterLast('/').substringAfterLast('.', "").lowercase() !in BINARY
+}
+
+private val BINARY = setOf(
+    "jpg", "jpeg", "png", "gif", "webp", "bmp", "tif", "tiff", "avif", "mp3", "mp4", "m4a", "m4v", "aac", "ogg", "oga",
+    "opus", "wav", "webm", "ttf", "otf", "woff", "woff2", "pdf", "zip",
+)
 
 private fun logFailure(ref: SourceRef, e: Exception, warn: (String) -> Unit) {
     if (e !is FileNotFoundException && e !is SecurityException) warn("open failed: ${ref.key}: $e")

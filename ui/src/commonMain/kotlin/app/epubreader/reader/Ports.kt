@@ -1,6 +1,7 @@
 package app.epubreader.reader
 
 import app.epubreader.core.data.SourceRef
+import app.epubreader.core.epub.PositionMap
 import app.epubreader.reader.bridge.FromWeb
 import app.epubreader.reader.bridge.ToWeb
 import kotlinx.coroutines.flow.Flow
@@ -16,7 +17,11 @@ interface ReaderPort {
 enum class OpenFailure { NO_ACCESS, NOT_A_ZIP, DAMAGED }
 
 sealed interface OpenResult {
-    data class Ok(val sessionId: String, val cdDigest: String, val size: Long) : OpenResult
+    /**
+     * [map]: the opened book's virtual/original position map (M8: its ChunkMap when a huge document was split, else
+     * the identity). Every position between the reader and storage goes through it (plan: Global Constraints).
+     */
+    data class Ok(val sessionId: String, val cdDigest: String, val size: Long, val map: PositionMap = PositionMap.Identity) : OpenResult
     data class Failed(val reason: OpenFailure) : OpenResult
 }
 
@@ -24,7 +29,10 @@ sealed interface OpenResult {
 interface BookOpenerPort {
     suspend fun open(ref: SourceRef): OpenResult
     suspend fun close(sessionId: String)
-    /** Text size of every spine item, in spine order (page estimates, F-034); null if the package can't be read. */
+    /**
+     * Text size of every section the reader shows, in reading order (page estimates, F-034): the spine items, or for a
+     * chunked book (M8) its virtual sections, parts included. Null if the package can't be read.
+     */
     suspend fun sectionStats(sessionId: String): List<SectionStat>? = null
 }
 
