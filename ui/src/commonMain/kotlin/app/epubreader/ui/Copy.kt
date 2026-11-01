@@ -40,6 +40,10 @@ object Copy {
     const val includeSubfolders = "Subfolders"
     const val expand = "Show subfolders"
     const val collapse = "Hide subfolders"
+    fun expandFolder(name: String) = "Show subfolders of $name"
+    fun collapseFolder(name: String) = "Hide subfolders of $name"
+    /** C-074: the drawer's link to the full folder tree when its folder list is long. */
+    const val showAllFolders = "Show all folders"
     /** A storage volume row shows as the device's storage, other rows by their own name. */
     fun folderName(name: String) = when {
         Regex("^/storage/emulated/\\d+$").matches(name) -> "Device storage"
@@ -138,7 +142,7 @@ object Copy {
     const val oneFolder = "Only one folder…"
     fun onlyIn(folder: String) = "Only in “$folder” and its subfolders"
     const val folderView = "Folder view"
-    const val folderViewSummary = "Browse books by the folders they are in (from the menu)"
+    const val folderViewSummary = "List the folders that hold books in the menu"
     const val hiddenBooks = "Hidden books"
     fun hiddenSummary(n: Int) = when (n) { 0 -> "None"; 1 -> "1 book removed from the library"; else -> "$n books removed from the library" }
     const val noHiddenBooks = "No hidden books. Books you remove from the library only (keeping their files) are listed here."

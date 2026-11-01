@@ -155,6 +155,32 @@ class LibraryViewsTest {
         assertEquals(listOf("", "Documents"), s.ui.value.folderTree.filter { it.name == "Books" }.map { it.parent })
     }
 
+    /** C-074: the drawer lists the folders with books (collapsed below the top level) while the folder view is on. */
+    @Test fun drawer_folders_follow_the_setting_expand_and_update_after_scans() = runTest {
+        assertTrue(state(folderView = false).ui.value.drawerFolders.rows.isEmpty())
+        val s = state()
+        assertEquals(listOf("Books", "Documents", "Download"), s.ui.value.drawerFolders.rows.map { it.node.name })
+        s.toggleDrawerFolder("$root/Documents"); runCurrent()
+        assertEquals(listOf("Books", "Documents", "Books", "Download"), s.ui.value.drawerFolders.rows.map { it.node.name })
+        assertEquals(listOf("Device storage", "Documents"), s.ui.value.drawerFolders.rows.filter { it.node.name == "Books" }.map { it.parentLine })
+        // the full-screen tree keeps its own folding (all open)
+        s.openView(LibraryView.Folders); runCurrent()
+        assertEquals(6, s.ui.value.folderTree.size)
+        // a folder that no longer holds books leaves the drawer
+        all.update { l -> l.filter { it.id != "dup" } }; runCurrent()
+        assertEquals(listOf("Books", "Download"), s.ui.value.drawerFolders.rows.map { it.node.name })
+        s.toggleDrawerFolder("$root/Documents"); runCurrent() // folding again a folder that is gone is harmless
+        assertEquals(listOf("Books", "Download"), s.ui.value.drawerFolders.rows.map { it.node.name })
+    }
+
+    @Test fun a_drawer_folder_opens_as_a_view_with_the_menu_button() = runTest {
+        val s = state()
+        s.setDrawer(true); s.openView(LibraryView.Folder("$root/Download")); runCurrent()
+        assertFalse(s.ui.value.drawerOpen); assertFalse(s.ui.value.nested)
+        assertEquals("Download", s.ui.value.viewTitle)
+        assertEquals(setOf("moby"), s.shown())
+    }
+
     @Test fun delete_selected_asks_ops_with_the_file_choice_and_reports() = runTest {
         val s = state()
         s.startSelection("moby"); s.toggleSelection("old"); s.deleteSelected(deleteFiles = false); runCurrent()

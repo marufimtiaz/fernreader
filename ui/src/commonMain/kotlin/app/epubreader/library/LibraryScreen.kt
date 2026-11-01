@@ -137,7 +137,7 @@ fun LibraryScreen(state: LibraryState, actions: LibraryActions, probe: EventProb
     ModalNavigationDrawer(
         drawerState = drawer, gesturesEnabled = ui.drawerOpen,
         drawerContent = {
-            Drawer(ui, onView = state::openView, onNewCollection = { state.setDrawer(false); dialog = Dialog.NewCollection },
+            Drawer(ui, onView = state::openView, onToggleFolder = state::toggleDrawerFolder, onNewCollection = { state.setDrawer(false); dialog = Dialog.NewCollection },
                 onSettings = { state.setDrawer(false); actions.onSettings() }, onAbout = { state.setDrawer(false); actions.onAbout() })
         },
     ) {
@@ -207,7 +207,8 @@ fun LibraryScreen(state: LibraryState, actions: LibraryActions, probe: EventProb
 }
 
 @Composable
-private fun Drawer(ui: LibraryUi, onView: (LibraryView) -> Unit, onNewCollection: () -> Unit, onSettings: () -> Unit, onAbout: () -> Unit) {
+private fun Drawer(ui: LibraryUi, onView: (LibraryView) -> Unit, onToggleFolder: (String) -> Unit, onNewCollection: () -> Unit,
+                   onSettings: () -> Unit, onAbout: () -> Unit) {
     ModalDrawerSheet {
         LazyColumn(Modifier.padding(horizontal = 12.dp)) {
             item { Text(Copy.appName, Modifier.padding(start = 16.dp, top = 20.dp, bottom = 12.dp), style = MaterialTheme.typography.titleLarge) }
@@ -215,12 +216,21 @@ private fun Drawer(ui: LibraryUi, onView: (LibraryView) -> Unit, onNewCollection
                 NavigationDrawerItem(label = { Text(Copy.allBooks) }, icon = { Icon(Glyphs.Books, null) }, selected = ui.view == LibraryView.All,
                     badge = { Text(ui.total.toString()) }, onClick = { onView(LibraryView.All) })
             }
-            if (ui.folderViewEnabled) item {
-                NavigationDrawerItem(label = { Text(Copy.folders) }, icon = { Icon(Glyphs.Folder, null) },
-                    selected = ui.view == LibraryView.Folders || ui.view is LibraryView.Folder, onClick = { onView(LibraryView.Folders) })
+            // C-074: the folders with books, one tap away (the folder-view setting hides the section)
+            val folders = ui.drawerFolders
+            if (ui.folderViewEnabled && folders.rows.isNotEmpty()) {
+                item { HorizontalDivider(Modifier.padding(vertical = 8.dp)) }
+                item { SectionLabel(Copy.folders) }
+                items(folders.rows, key = { "folder:" + it.node.path }) { f ->
+                    DrawerFolderRow(f, selected = ui.view == LibraryView.Folder(f.node.path), onOpen = { onView(LibraryView.Folder(f.node.path)) },
+                        onToggle = { onToggleFolder(f.node.path) })
+                }
+                if (folders.showAll) item {
+                    TextButton(onClick = { onView(LibraryView.Folders) }, Modifier.padding(start = 4.dp)) { Text(Copy.showAllFolders) }
+                }
             }
             item { HorizontalDivider(Modifier.padding(vertical = 8.dp)) }
-            item { Text(Copy.collections, Modifier.padding(start = 16.dp, top = 4.dp, bottom = 4.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            item { SectionLabel(Copy.collections) }
             items(ui.collections, key = { it.id }) { c ->
                 NavigationDrawerItem(label = { Text(c.name, maxLines = 1, overflow = TextOverflow.Ellipsis) }, icon = { Icon(Glyphs.Shelf, null) },
                     selected = ui.view == LibraryView.Collection(c.id), badge = { Text(c.count.toString()) }, onClick = { onView(LibraryView.Collection(c.id)) })
@@ -231,6 +241,37 @@ private fun Drawer(ui: LibraryUi, onView: (LibraryView) -> Unit, onNewCollection
             item { NavigationDrawerItem(label = { Text(Copy.about) }, icon = { Icon(Glyphs.Info, null) }, selected = false, onClick = onAbout) }
         }
     }
+}
+
+@Composable
+private fun SectionLabel(text: String) =
+    Text(text, Modifier.padding(start = 16.dp, top = 4.dp, bottom = 4.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+/** C-074: a folder in the drawer: the chevron folds its subfolders, the rest of the row opens it. */
+@Composable
+private fun DrawerFolderRow(f: DrawerFolder, selected: Boolean, onOpen: () -> Unit, onToggle: () -> Unit) {
+    val n = f.node
+    val name = Copy.folderName(n.name)
+    NavigationDrawerItem(
+        modifier = Modifier.padding(start = (16 * n.depth.coerceAtMost(4)).dp),
+        label = {
+            Column {
+                Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (f.parentLine != null) Text(f.parentLine, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1, overflow = TextOverflow.StartEllipsis)
+            }
+        },
+        icon = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (n.hasChildren) IconButton(onClick = onToggle, Modifier.size(32.dp)) {
+                    Icon(if (n.expanded) Glyphs.ChevronDown else Glyphs.ChevronRight, if (n.expanded) Copy.collapseFolder(name) else Copy.expandFolder(name), Modifier.size(20.dp))
+                } else Spacer(Modifier.size(32.dp))
+                Icon(Glyphs.Folder, null)
+            }
+        },
+        badge = { Text(Copy.folderCount(n.direct, n.total)) },
+        selected = selected, onClick = onOpen,
+    )
 }
 
 @Composable

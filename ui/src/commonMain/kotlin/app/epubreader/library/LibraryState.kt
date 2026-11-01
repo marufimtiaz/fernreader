@@ -61,8 +61,10 @@ data class LibraryUi(
     val drawerOpen: Boolean = false,
     /** The view was reached from another view (a folder from the folder list): the screen shows a way up. */
     val nested: Boolean = false,
-    val folderViewEnabled: Boolean = false,
+    val folderViewEnabled: Boolean = true,
     val folderTree: List<FolderNode> = emptyList(),
+    /** C-074: the drawer's folder rows (empty while the folder view is off). */
+    val drawerFolders: DrawerFolders = DrawerFolders(),
     val includeSubfolders: Boolean = false,
 )
 
@@ -82,13 +84,14 @@ class LibraryState(
     /** Where search and sort run (R-005: not the main thread). */
     compute: CoroutineDispatcher = Dispatchers.Default,
     private val ops: LibraryOps? = null,
-    /** F-017: whether the folder view is on (settings). */
-    folderView: Flow<Boolean> = flowOf(false),
+    /** F-017: whether the folder view is on (settings; on by default, C-074). */
+    folderView: Flow<Boolean> = flowOf(true),
 ) {
     private data class Prefs(val query: String = "", val layout: LibraryLayout = LibraryLayout.GRID, val sort: LibrarySort = LibrarySort.RECENT,
                              val dismissed: ScanEvent.Complete? = null, val missing: LibraryBook? = null, val loaded: Boolean = false,
                              val views: List<LibraryView> = listOf(LibraryView.All), val selected: Set<String> = emptySet(),
-                             val drawerOpen: Boolean = false, val includeSubfolders: Boolean = false, val collapsed: Set<String> = emptySet())
+                             val drawerOpen: Boolean = false, val includeSubfolders: Boolean = false, val collapsed: Set<String> = emptySet(),
+                             val drawerExpanded: Set<String> = emptySet())
     private val prefs = MutableStateFlow(Prefs())
     /** Every library book, unfiltered (pickers and the delete dialog's file count). */
     val allBooks: Flow<List<LibraryBook>> = books
@@ -101,6 +104,7 @@ class LibraryState(
         val inView = inView(all, view, p.includeSubfolders)
         val shown = arrange(inView, p.query, p.sort)
         val visible = all.mapTo(HashSet()) { it.id }
+        val counts = if (folderOn || view == LibraryView.Folders) folderCounts(all) else emptyMap()
         LibraryUi(
             books = shown, total = all.size, query = p.query, layout = p.layout, sort = p.sort, scan = s,
             failures = fails,
@@ -116,7 +120,8 @@ class LibraryState(
             collections = cols.map { c -> CollectionSummary(c.id, c.name, all.count { c.id in it.collectionIds }) },
             selected = p.selected.filterTo(LinkedHashSet()) { it in visible },
             drawerOpen = p.drawerOpen, nested = p.views.size > 2, folderViewEnabled = folderOn, includeSubfolders = p.includeSubfolders,
-            folderTree = if (view == LibraryView.Folders) FolderTree.build(folderCounts(all), p.collapsed) else emptyList(),
+            folderTree = if (view == LibraryView.Folders) FolderTree.build(counts, p.collapsed) else emptyList(),
+            drawerFolders = if (folderOn) DrawerFolders.build(counts, p.drawerExpanded) else DrawerFolders(),
         )
     }.flowOn(compute).stateIn(scope, SharingStarted.Eagerly, LibraryUi()) // R-005: sorting off the main thread
 
@@ -145,6 +150,8 @@ class LibraryState(
     fun setDrawer(open: Boolean) = edit { it.copy(drawerOpen = open) }
     fun setIncludeSubfolders(on: Boolean) = edit { it.copy(includeSubfolders = on) }
     fun toggleFolder(path: String) = edit { it.copy(collapsed = if (path in it.collapsed) it.collapsed - path else it.collapsed + path) }
+    /** C-074: folds or unfolds a folder's subfolders in the drawer (they start folded). */
+    fun toggleDrawerFolder(path: String) = edit { it.copy(drawerExpanded = if (path in it.drawerExpanded) it.drawerExpanded - path else it.drawerExpanded + path) }
     private val _messages = Channel<String>(Channel.BUFFERED)
     /** Short confirmations ("Added 3 books to “Classics”"), each shown once by the screen's snackbar. */
     val messages: ReceiveChannel<String> = _messages

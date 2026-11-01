@@ -34,7 +34,10 @@ object FolderTree {
     }
 
     /** [direct]: folder path → number of books directly inside. Rows in depth-first order, names sorted ignoring case. */
-    fun build(direct: Map<String, Int>, collapsed: Set<String>): List<FolderNode> {
+    fun build(direct: Map<String, Int>, collapsed: Set<String>): List<FolderNode> = build(direct) { it !in collapsed }
+
+    /** As above; a folder's subfolders are rows only where [isExpanded] holds for it. */
+    fun build(direct: Map<String, Int>, isExpanded: (String) -> Boolean): List<FolderNode> {
         val counts = HashMap<String, Int>()
         for ((f, n) in direct) { val k = f.trimEnd('/').ifEmpty { "/" }; counts[k] = (counts[k] ?: 0) + n }
         val nodes = HashSet<String>()
@@ -50,7 +53,7 @@ object FolderTree {
         fun visit(p: String, depth: Int) {
             val kids = children[p].orEmpty().sortedWith(byName)
             val rel = relative(p)
-            val expanded = p !in collapsed
+            val expanded = isExpanded(p)
             out += FolderNode(
                 path = p, name = if (rel.isEmpty()) p else rel.substringAfterLast('/'), parent = rel.substringBeforeLast('/', ""),
                 depth = depth, direct = counts[p] ?: 0, total = total(p), hasChildren = kids.isNotEmpty(), expanded = expanded,

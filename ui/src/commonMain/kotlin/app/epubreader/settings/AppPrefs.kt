@@ -16,7 +16,7 @@ enum class AppThemeMode { SYSTEM, LIGHT, DARK }
  */
 class AppPrefs(private val store: SettingsPort, private val scope: CoroutineScope, initialTheme: AppThemeMode = AppThemeMode.SYSTEM) {
     private val _theme = MutableStateFlow(initialTheme)
-    private val _folderView = MutableStateFlow(false)
+    private val _folderView = MutableStateFlow(true) // C-074: on by default
     val theme: StateFlow<AppThemeMode> = _theme
     val folderView: StateFlow<Boolean> = _folderView
 
@@ -26,7 +26,7 @@ class AppPrefs(private val store: SettingsPort, private val scope: CoroutineScop
     fun reload() {
         scope.launch {
             _theme.value = store.get(THEME)?.let { v -> AppThemeMode.entries.firstOrNull { it.name == v } } ?: AppThemeMode.SYSTEM
-            _folderView.value = store.get(FOLDER_VIEW) == "true"
+            _folderView.value = store.get(FOLDER_VIEW) != "false"
         }
     }
 
