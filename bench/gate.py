@@ -2,7 +2,8 @@
 """Milestone/release gate: medians of benchmark results vs performance.md Must values (C-015: Must only).
 
 Usage: python3 -I bench/gate.py RESULTS.jsonl bench/targets.json
-Every target is an upper bound (ms, MB, score, count, pct). Empty results fail. A result id fails when it has no target, fewer than
+Every target is an upper bound (ms, MB, score, count, pct), except `"info": true` targets: recorded next to a gated
+value (INFO, never a failure; e.g. P-020's command -> painted time, C-066). Empty results fail. A result id fails when it has no target, fewer than
 3 runs, or a median above the Must value. Exit code 1 if anything fails.
 """
 import json
@@ -25,6 +26,8 @@ def evaluate(rows, targets):
         t = targets.get(id_)
         if t is None:
             out[id_] = {"status": "FAIL", "median": m, "reason": "no target defined"}
+        elif t.get("info"):
+            out[id_] = {"status": "INFO", "median": m, "reason": "recorded, not gated"}
         elif len(vals) < 3:
             out[id_] = {"status": "FAIL", "median": m, "reason": f"only {len(vals)} runs (need >= 3)"}
         elif m > t["must"]:
@@ -47,7 +50,7 @@ def main(argv):
     bad = 0
     for id_, r in res.items():
         print(f"{r['status']:4}  {id_:24} median={r['median']:g}  {r['reason']}")
-        bad += r["status"] != "PASS"
+        bad += r["status"] == "FAIL"
     return 1 if bad else 0
 
 

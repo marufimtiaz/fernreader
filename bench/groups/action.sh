@@ -47,7 +47,8 @@ for RUN in 1 2 3; do
   $AD record start "$v" --scope device --hide-touches >/dev/null 2>&1; sleep 1.5
   bench_cmd fontStep "$step"; sleep 2.5
   $AD record stop >/dev/null 2>&1
-  emit P-020 "$(video_ms "$v")" "video; events cmd->painted=$(ev_delta cmd painted)"
+  emit P-020 "$(video_ms "$v")" "video: from the panel label's change (button feedback) to the reflowed page"
+  emit P-020.cmd_painted "$(ev_delta cmd painted)" "events: text size command -> reflowed page painted (C-066)"
   sleep 6 # the page counter of the new layout finishes before the next step
 done
 bench_cmd hideDisplay; sleep 1

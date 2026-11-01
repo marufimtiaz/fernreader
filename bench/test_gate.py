@@ -40,6 +40,15 @@ class GateTest(unittest.TestCase):
             write(self.rows(1900, 1900, 1900))
             self.assertEqual(gate.main([r, t]), 1)
 
+    def test_info_target_is_recorded_not_gated(self):
+        res = gate.evaluate(self.rows(900, 950, 1000, id="P-020.cmd_painted"), {"P-020.cmd_painted": {"info": True, "unit": "ms"}})
+        self.assertEqual(res["P-020.cmd_painted"]["status"], "INFO")
+        self.assertEqual(res["P-020.cmd_painted"]["median"], 950)
+        rows = self.rows(900, 950, 1000, id="P-020.cmd_painted")
+        with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as r, tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as t:
+            r.write("\n".join(json.dumps(x) for x in rows)); json.dump({"P-020.cmd_painted": {"info": True}}, t)
+        self.assertEqual(gate.main([r.name, t.name]), 0)
+
     def test_empty_results_fail(self):
         with tempfile.TemporaryDirectory() as d:
             r, t = os.path.join(d, "r.jsonl"), os.path.join(d, "t.json")

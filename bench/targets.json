@@ -10,6 +10,7 @@
   "P-015": {"must": 100, "unit": "ms", "stage": "milestone", "owner": "M2", "desc": "tap to reader frame + progress indicator"},
   "P-016": {"must": 1.0, "unit": "score", "stage": "milestone", "owner": "M2", "desc": "per book min(reopen/first ÷ 0.5, reopen_ms ÷ 400); worst book per run (C-014, C-023)"},
   "P-020": {"must": 100, "unit": "ms", "stage": "milestone", "owner": "M4", "desc": "text size change to reflowed page"},
+  "P-020.cmd_painted": {"info": true, "unit": "ms", "stage": "milestone", "owner": "M9", "desc": "P-020 from the text size command to the reflowed page painted (app events, C-066); judged with the video value"},
   "P-021": {"must": 5000, "unit": "ms", "stage": "milestone", "owner": "M4", "desc": "layout change to exact book-wide total (War and Peace only, C-016)"},
   "P-021.estimate_error_pct": {"must": 5, "unit": "pct", "stage": "milestone", "owner": "M4", "desc": "|estimate - exact| / exact, War and Peace (corpus-wide: release)"},
   "P-022": {"must": 900, "unit": "ms", "stage": "milestone", "owner": "M4", "desc": "rotation, War and Peace"},
