@@ -23,6 +23,7 @@ import app.epubreader.ui.Copy
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
+import org.junit.AfterClass
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Before
@@ -57,8 +58,38 @@ class BackupRestoreTest {
 
     @After fun tearDown() { dir.deleteRecursively() }
 
+    companion object {
+        /**
+         * C-049: the tests clear every table. Leave the run's library as it was prepared (one scan of the device), so later
+         * classes neither find this class's collections, settings and hidden books nor pay for a background full rescan.
+         */
+        @AfterClass @JvmStatic fun restoreTheLibrary(): Unit = runBlocking {
+            val graph = (InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as EpubReaderApp).graph
+            graph.db.clearAllTables()
+            graph.scanner.scan(ScanScope.Everywhere)
+        }
+    }
+
     private suspend fun scan() = graph.scanner.scan(ScanScope.Folder(dir.path))
     private suspend fun idOf(name: String) = graph.db.libraryDao().bookIdForPath(File(dir, name).path)!!
+
+    /**
+     * R-009: a backup written by an older app version (the frozen format-version-1 fixture of core:data, written by M7)
+     * restores on this build through the real open-with path: its collection and setting come back, and its books wait
+     * for their files (none of them is on this device).
+     */
+    @Test fun an_old_version_1_backup_restores(): Unit = runBlocking {
+        val old = File(dir, "backup-from-m7.json")
+        inst.context.assets.open("v1.json").use { input -> old.outputStream().use { input.copyTo(it) } }
+        ActivityScenario.launch<MainActivity>(Intent(Intent.ACTION_VIEW, Uri.fromFile(old), ctx, MainActivity::class.java)).use {
+            assertNotNull(device.wait(Until.findObject(By.text(Copy.restoreTitle)), 10_000))
+            device.findObject(By.text(Copy.restore)).click()
+            assertNotNull(device.wait(Until.findObject(By.text(Copy.restoredTitle)), 10_000))
+            device.findObject(By.text(Copy.ok)).click()
+        }
+        assertEquals(listOf("Classics"), graph.library.collections().first().map { it.name })
+        assertEquals("LIST", graph.settings.get(SettingsStore.LIBRARY_LAYOUT))
+    }
 
     @Test fun backup_clear_rescan_restore(): Unit = runBlocking {
         scan()

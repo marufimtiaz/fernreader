@@ -3,6 +3,7 @@ package app.epubreader
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
@@ -262,8 +263,9 @@ class MainActivity : ComponentActivity() {
         }
         if (savedInstanceState == null) openFromIntent(intent, cold = true)
         if (Probe.enabled) {
+            watchBackKeys()
             BenchCommands.register("openPath") { openBook(SourceRef.File(it)) }
-            BenchCommands.register("back") { goBack() }
+            BenchCommands.register("back") { backKeyAt = SystemClock.uptimeMillis(); goBack() }
             BenchCommands.register("rescan") { graph.scans.rescan() }
             BenchCommands.register("next") { reader.send(ToWeb.Next()) }
             BenchCommands.register("prev") { reader.send(ToWeb.Prev()) }
@@ -434,7 +436,11 @@ class MainActivity : ComponentActivity() {
                 when (view) {
                     View.COLD -> finish()
                     View.WARM -> { view = View.NONE; nav.pop(); moveTaskToBack(true) }
-                    View.NONE -> { nav.pop(); Probe.ev("home_shown") }
+                    View.NONE -> {
+                        nav.pop(); Probe.ev("home_shown")
+                        // R-005 (bench/robust_r005.sh): the first frame drawn with the library, after the Back key
+                        if (Probe.enabled) window.decorView.postOnAnimation { window.decorView.post { Probe.ev("home_frame", "since_back_key=${SystemClock.uptimeMillis() - backKeyAt}") } }
+                    }
                 }
             }
             true
@@ -453,6 +459,22 @@ class MainActivity : ComponentActivity() {
      */
     override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent): Boolean =
         volumeKey(keyCode, press = event.repeatCount == 0) || super.onKeyDown(keyCode, event)
+
+    /** Bench only (R-005): when the last Back went down (a key's input time stamp, or the `back` command's arrival). */
+    private var backKeyAt = 0L
+
+    /** Bench only (R-005): notes each Back key as the window receives it (predictive back never calls onKeyDown). */
+    private fun watchBackKeys() {
+        val inner = window.callback
+        window.callback = object : android.view.Window.Callback by inner {
+            override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+                if (event.keyCode == android.view.KeyEvent.KEYCODE_BACK && event.action == android.view.KeyEvent.ACTION_DOWN) {
+                    backKeyAt = event.eventTime; Probe.ev("back_key", "age=${SystemClock.uptimeMillis() - event.eventTime}")
+                }
+                return inner.dispatchKeyEvent(event)
+            }
+        }
+    }
 
     override fun onKeyUp(keyCode: Int, event: android.view.KeyEvent): Boolean =
         volumeKey(keyCode, press = false) || super.onKeyUp(keyCode, event)

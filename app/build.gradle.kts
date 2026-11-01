@@ -35,6 +35,8 @@ android {
         }
     }
     buildFeatures { compose = true; buildConfig = true }
+    // R-009: the instrumented old-backup restore reads the frozen v1 fixtures of core:data (never copied, never edited).
+    sourceSets.getByName("androidTest").assets.directories += "../core/data/src/jvmTest/resources/backup"
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
