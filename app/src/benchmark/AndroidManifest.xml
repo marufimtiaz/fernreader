@@ -1,7 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
     <application>
         <receiver android:name=".bench.BenchCommandReceiver" android:exported="true">
-            <intent-filter><action android:name="app.epubreader.BENCH" /></intent-filter>
+            <intent-filter><action android:name="app.fernreader.BENCH" /></intent-filter>
         </receiver>
     </application>
 </manifest>

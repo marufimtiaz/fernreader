@@ -44,7 +44,7 @@ class OpenWithTest {
 
     @Test fun contentUriWithoutPath() {
         TestBooks.write(ctx, "ow-content.epub", TestBooks.epub(id = "urn:uuid:ow-content"))
-        opens(Uri.parse("content://app.epubreader.test.books/ow-content.epub?pipe=1"))
+        opens(Uri.parse("content://app.fernreader.test.books/ow-content.epub?pipe=1"))
     }
 
     // Final review I4: open-with while the app runs reuses the one activity (one reader engine, one opener); Back
@@ -57,7 +57,7 @@ class OpenWithTest {
         lateinit var first: MainActivity
         sc.onActivity { first = it; it.openBook(app.epubreader.core.data.SourceRef.File(a1.path)) }
         withTimeout(20_000) { first.controller.state.first { it.open && !it.loading && it.error == null } }
-        ctx.startActivity(view(Uri.parse("content://app.epubreader.test.books/ow-b.epub")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        ctx.startActivity(view(Uri.parse("content://app.fernreader.test.books/ow-b.epub")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         withTimeout(20_000) { first.controller.state.first { it.title == "Book B" && !it.loading } }
         inst.runOnMainSync { assertEquals(Route.Reader, first.nav.top); first.goBack() }
         inst.runOnMainSync { assertTrue(first.nav.top != Route.Reader); assertTrue(!first.isFinishing); first.finish() }

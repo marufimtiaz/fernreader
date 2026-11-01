@@ -188,7 +188,11 @@ class Backup(
     }
 
     companion object {
-        const val FORMAT = "app.epubreader.backup"
+        /** C-054: the format id written since the rename to FernReader. */
+        const val FORMAT = "app.fernreader.backup"
+        /** The id written before the rename; restore still accepts it (same format, same versions). */
+        const val LEGACY_FORMAT = "app.epubreader.backup"
+        private val FORMATS = setOf(FORMAT, LEGACY_FORMAT)
         const val VERSION = 1
         /** How far ahead of this device's clock a restored stamp may be. */
         const val MAX_SKEW_MS = 86_400_000L
@@ -200,13 +204,13 @@ class Backup(
          */
         val migrations: Map<Int, (JsonObject) -> JsonObject> = emptyMap()
 
-        /** "epub-reader-backup-2026-10-31.json" for the system save dialog. */
-        fun fileName(year: Int, month: Int, day: Int) = "epub-reader-backup-%04d-%02d-%02d.json".format(year, month, day)
+        /** "fernreader-backup-2026-10-31.json" for the system save dialog. */
+        fun fileName(year: Int, month: Int, day: Int) = "fernreader-backup-%04d-%02d-%02d.json".format(year, month, day)
 
         fun parse(text: String): BackupFileV1 {
-            if (!text.contains(FORMAT)) throw BackupException.NotABackup("format") // cheap check before building a JSON tree
+            if (FORMATS.none(text::contains)) throw BackupException.NotABackup("format") // cheap check before building a JSON tree
             var o = runCatching { Json.parseToJsonElement(text) }.getOrNull() as? JsonObject ?: throw BackupException.NotABackup("not JSON")
-            if ((o["format"] as? kotlinx.serialization.json.JsonPrimitive)?.content != FORMAT) throw BackupException.NotABackup("format")
+            if ((o["format"] as? kotlinx.serialization.json.JsonPrimitive)?.content !in FORMATS) throw BackupException.NotABackup("format")
             var v = (o["version"] as? kotlinx.serialization.json.JsonPrimitive)?.intOrNull ?: throw BackupException.NotABackup("version")
             if (v > VERSION) throw BackupException.TooNew(v)
             if (v < 1) throw BackupException.NotABackup("version $v")

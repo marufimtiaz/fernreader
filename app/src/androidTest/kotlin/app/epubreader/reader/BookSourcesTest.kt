@@ -21,12 +21,12 @@ class BookSourcesTest {
     @Test fun file_path() { val f = TestBooks.write(ctx, "a.epub"); assertNotNull(opf(SourceRef.File(f.path))) }
 
     @Test fun content_uri_with_seekable_descriptor() {
-        TestBooks.write(ctx, "b.epub"); assertNotNull(opf(SourceRef.Content("content://app.epubreader.test.books/b.epub")))
+        TestBooks.write(ctx, "b.epub"); assertNotNull(opf(SourceRef.Content("content://app.fernreader.test.books/b.epub")))
     }
 
     @Test fun pipe_is_copied_then_opened() {
         TestBooks.write(ctx, "c.epub")
-        assertNotNull(opf(SourceRef.Content("content://app.epubreader.test.books/c.epub?pipe=1")))
+        assertNotNull(opf(SourceRef.Content("content://app.fernreader.test.books/c.epub?pipe=1")))
         assertTrue(ctx.cacheDir.resolve("opened").listFiles()!!.isNotEmpty())
     }
 
@@ -48,17 +48,17 @@ class BookSourcesTest {
         TestBooks.write(ctx, "e.epub")
         val opener = BookOpener(sources, BookContentServer())
         for (uri in listOf(
-            "content://app.epubreader.test.books/..%2F..%2Fdatabases%2Flibrary.db",
-            "content://app.epubreader.test.books/..%2Ftestbooks%2Fe.epub",
-            "content://app.epubreader.test.books/..",
+            "content://app.fernreader.test.books/..%2F..%2Fdatabases%2Flibrary.db",
+            "content://app.fernreader.test.books/..%2Ftestbooks%2Fe.epub",
+            "content://app.fernreader.test.books/..",
         )) {
             assertEquals(uri, OpenResult.Failed(OpenFailure.NO_ACCESS), opener.open(SourceRef.Content(uri)))
         }
-        assertTrue(opener.open(SourceRef.Content("content://app.epubreader.test.books/e.epub")) is OpenResult.Ok)
+        assertTrue(opener.open(SourceRef.Content("content://app.fernreader.test.books/e.epub")) is OpenResult.Ok)
     }
 
     @Test fun test_provider_is_not_exported() {
-        val info = ctx.packageManager.resolveContentProvider("app.epubreader.test.books", 0)!!
+        val info = ctx.packageManager.resolveContentProvider("app.fernreader.test.books", 0)!!
         assertEquals(false, info.exported)
     }
 }

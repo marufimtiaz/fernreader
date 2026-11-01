@@ -121,7 +121,7 @@ class BackupStateTest {
 
     @Test fun saving_reports_success_or_failure() = runTest {
         val s = BackupState(parse = { file }, restore = { error("") }, onRestored = {}, scope = backgroundScope)
-        s.saved("epub-reader-backup-2026-10-31.json"); assertEquals("epub-reader-backup-2026-10-31.json", s.ui.value.savedAs)
+        s.saved("fernreader-backup-2026-10-31.json"); assertEquals("fernreader-backup-2026-10-31.json", s.ui.value.savedAs)
         s.dismiss(); s.saveFailed(); assertEquals(BackupProblem.WRITE_FAILED, s.ui.value.problem)
     }
 }

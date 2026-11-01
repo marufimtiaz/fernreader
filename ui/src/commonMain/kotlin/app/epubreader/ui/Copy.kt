@@ -6,7 +6,7 @@ import app.epubreader.reader.ReaderError
 /** All user-facing text (our own wording). Moves to Compose resources when the app is translated. */
 object Copy {
     const val appTitle = "Books"
-    const val appName = "EPUB Reader"
+    const val appName = "FernReader"
     const val allBooks = "All books"
     const val folders = "Folders"
     const val collections = "Collections"
@@ -149,11 +149,11 @@ object Copy {
     const val aboutApp = "About this app"
     const val aboutSummary = "Version, privacy, licences"
     fun version(v: String) = "Version $v"
-    const val aboutBody = "An offline EPUB reader. It finds the books on this device and opens them quickly. Free software under the MIT licence."
+    const val aboutBody = "An offline EPUB reader. FernReader finds the books on this device and opens them quickly. Free software under the MIT licence."
     const val privacyTitle = "Privacy"
     val privacyPoints = listOf(
         "Everything works without an account and without a network connection.",
-        "The app does not connect to the internet.",
+        "FernReader does not connect to the internet. It has no network permission.",
         "No analytics, no tracking, no ads.",
         "Books are only read, never changed or uploaded. Backups are files you save yourself.",
     )

@@ -102,7 +102,7 @@ class BackupRestoreTest {
         graph.bookmarks.add(alice, "epubcfi(/6/4!/4/2/1:11)", 1, 0.4, "Chapter 1")
         val h = graph.annotations.add(alice, "epubcfi(/6/4!/4/2/4,/1:0,/1:9)", 1, "Paragraph", "Chapter 1", HighlightColors.GREEN, AnnotationStyle.HIGHLIGHT)
         graph.annotations.update(h.id, note = "M6 note")
-        val backup = File(dir, "epub-reader-backup-test.json").apply { writeText(graph.backup.export("test")) }
+        val backup = File(dir, "fernreader-backup-test.json").apply { writeText(graph.backup.export("test")) }
 
         graph.db.clearAllTables() // "clear app data"
         scan() // grant + rescan: new book ids

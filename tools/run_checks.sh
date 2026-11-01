@@ -3,7 +3,7 @@
 # Usage: tools/run_checks.sh [outdir]  -> <outdir>/<case>.png + .log (default docs/milestones/M6-checks)
 # Prerequisites: emulator with the corpus pushed (bench/push_corpus.sh), the benchmark build installed
 # (./gradlew :app:assemblePlayBenchmark; adb install -r -d app/build/outputs/apk/play/benchmark/app-play-benchmark.apk),
-# all-files access granted (adb shell appops set app.epubreader MANAGE_EXTERNAL_STORAGE allow).
+# all-files access granted (adb shell appops set app.fernreader MANAGE_EXTERNAL_STORAGE allow).
 # Review every PNG by eye afterwards; results go into docs/milestones/M6.md "Rendering compatibility (6.7)".
 set -u
 cd "$(dirname "$0")/.."

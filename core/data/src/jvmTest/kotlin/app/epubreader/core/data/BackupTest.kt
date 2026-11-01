@@ -54,7 +54,7 @@ class BackupTest {
     @Test fun the_file_has_the_versioned_envelope_and_no_book_files() = runTest {
         open(a, "k-alice", "Alice")
         val o = Json.parseToJsonElement(Backup(dbA, clock).export(appVersion = "1.0")).jsonObject
-        assertEquals("app.epubreader.backup", o["format"]!!.jsonPrimitive.content)
+        assertEquals("app.fernreader.backup", o["format"]!!.jsonPrimitive.content) // C-054
         assertEquals(1, o["version"]!!.jsonPrimitive.content.toInt())
         for (k in listOf("books", "positions", "bookmarks", "annotations", "collections", "collectionBooks", "settings")) assertTrue(k in o, k)
         assertEquals("k-alice", o["books"]!!.jsonArray.single().jsonObject["identityKey"]!!.jsonPrimitive.content)
@@ -140,7 +140,32 @@ class BackupTest {
         val b = Backup(dbA, clock)
         assertFailsWith<BackupException.NotABackup> { b.restore("{\"hello\": 1}") }
         assertFailsWith<BackupException.NotABackup> { b.restore("not json") }
+        assertFailsWith<BackupException.TooNew> { b.restore("{\"format\":\"app.fernreader.backup\",\"version\":99}") }
         assertFailsWith<BackupException.TooNew> { b.restore("{\"format\":\"app.epubreader.backup\",\"version\":99}") }
+        assertFailsWith<BackupException.NotABackup> { b.restore("{\"format\":\"app.otherreader.backup\",\"version\":1}") }
+    }
+
+    /** C-054: files written before the rename carry the old format id and must still restore. */
+    @Test fun the_frozen_v1_fixture_under_the_old_format_id_restores() = runTest {
+        val json = javaClass.getResource("/backup/v1.json")!!.readText()
+        assertEquals("app.epubreader.backup", Json.parseToJsonElement(json).jsonObject["format"]!!.jsonPrimitive.content)
+        val d = Device()
+        open(d.repo, "4d1c9a2b7e3f5a60-0123456789abcdef0123456789abcdef", "Alice's Adventures in Wonderland")
+        assertEquals(1, d.backup().restore(json).booksMatched)
+        assertEquals("app.epubreader.backup", Backup.parse(json).format)
+    }
+
+    /** C-054: a backup written now (new id) restores on another device. */
+    @Test fun a_backup_with_the_new_format_id_restores() = runTest {
+        open(a, "k-alice", "Alice")
+        val text = Backup(dbA, clock).export("1.0")
+        val d = Device()
+        open(d.repo, "k-alice", "Alice")
+        assertEquals(1, d.backup().restore(text).booksMatched)
+    }
+
+    @Test fun the_default_file_name_is_fernreader() {
+        assertEquals("fernreader-backup-2026-11-01.json", Backup.fileName(2026, 11, 1))
     }
 
     /** R-009: a v1 file written by M7 must restore in every later version. Never edit the fixture; add migrations. */

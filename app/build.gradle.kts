@@ -10,12 +10,27 @@ android {
     namespace = "app.epubreader"
     compileSdk = 37
     defaultConfig {
-        applicationId = "app.epubreader"
+        applicationId = "app.fernreader" // C-054; Kotlin packages and the namespace stay app.epubreader
         minSdk = 26
         targetSdk = 37
         versionCode = 1
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+    // Release signing (docs/release-checklist.md): no key lives in this repo. When the four `fernreader.signing.*`
+    // properties are set (in ~/.gradle/gradle.properties, or as FERNREADER_SIGNING_* environment variables), release
+    // builds are signed with that keystore; otherwise they stay unsigned (F-Droid signs its own builds).
+    val signingProp = { name: String ->
+        providers.gradleProperty("fernreader.signing.$name").orElse(providers.environmentVariable("FERNREADER_SIGNING_" + name.uppercase())).orNull
+    }
+    val releaseKeystore = signingProp("storeFile")
+    if (releaseKeystore != null) {
+        signingConfigs.create("release") {
+            storeFile = file(releaseKeystore)
+            storePassword = signingProp("storePassword")
+            keyAlias = signingProp("keyAlias")
+            keyPassword = signingProp("keyPassword")
+        }
     }
     flavorDimensions += "distribution"
     productFlavors {
@@ -24,6 +39,7 @@ android {
     }
     buildTypes {
         release {
+            if (releaseKeystore != null) signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }

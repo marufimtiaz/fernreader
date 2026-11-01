@@ -99,7 +99,7 @@ class MalformedBooksTest {
         for ((name, texts) in cases + empty) {
             val f = File(ctx.cacheDir, "testbooks").apply { mkdirs() }.resolve("r-$name")
             if (name == empty.first) f.writeBytes(ByteArray(0)) else corpus(name).copyTo(f, overwrite = true)
-            val uri = Uri.parse("content://app.epubreader.test.books/${f.name}")
+            val uri = Uri.parse("content://app.fernreader.test.books/${f.name}")
             val view = Intent(Intent.ACTION_VIEW, uri, ctx, MainActivity::class.java).apply { setDataAndType(uri, "application/epub+zip") }
             ActivityScenario.launch<MainActivity>(view).use { sc ->
                 lateinit var a: MainActivity

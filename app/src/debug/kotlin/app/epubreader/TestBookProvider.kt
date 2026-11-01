@@ -12,7 +12,7 @@ import java.io.FileNotFoundException
 import kotlin.concurrent.thread
 
 /**
- * Debug-only. Serves files from the app's cache dir as content://app.epubreader.test.books/<name>[?pipe=1].
+ * Debug-only. Serves files from the app's cache dir as content://app.fernreader.test.books/<name>[?pipe=1].
  * pipe=1 returns a non-seekable pipe (like many cloud providers). Lives in the debug build (not the test APK)
  * because test-APK components run in the test package's own process. Also used by M3's OpenWithTest.
  * Not exported (only this app's process uses it); names with a path part are rejected.
