@@ -612,10 +612,22 @@ export class Paginator extends HTMLElement {
     // after the last stacked slot: one screen of room while more sections follow, so a jump to a short section (or the
     // end of one) is not clamped by the scroll range into the section before it (C-080)
     #stackPad = Object.assign(document.createElement('div'), { className: 'stack-pad' })
+    #noStack = new Set() // sections that failed to load into the stack (error, other writing mode): its end there
+    #nextStacked(index, dir) {
+        const i = this.#linearFrom(index, dir)
+        return i == null || this.#noStack.has(i) ? null : i
+    }
     #padStack() {
         const last = Math.max(-1, ...this.#cache.keys())
-        const more = this.#stack && last >= 0 && this.#linearFrom(last, 1) != null
-        const h = more ? `${this.#container.clientHeight}px` : '0px'
+        const vh = this.#container.clientHeight
+        let h = 0
+        if (this.#stack && last >= 0) {
+            // more to come: a screen of room; the book's (or the stack's) last section: just enough that a section
+            // shorter than the screen can still be scrolled to the top, and no blank screen past the end
+            if (this.#nextStacked(last, 1) != null) h = vh
+            else h = Math.max(0, vh - (this.#cache.get(last)?.slot.offsetHeight ?? vh))
+        }
+        h = `${h}px`
         if (this.#stackPad.style.height !== h) this.#stackPad.style.height = h
         if (this.#stackPad.parentNode !== this.#container) this.#container.append(this.#stackPad)
     }
@@ -624,8 +636,9 @@ export class Paginator extends HTMLElement {
         this.#jumps++
         this.#restoring = true
         this.#screen = null
+        this.#noStack.clear()
         try { return await f() } finally {
-            await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))
+            await new Promise(r => { requestAnimationFrame(() => requestAnimationFrame(r)); setTimeout(r, 200) })
             this.#jumps--
             this.#ensureStack()
         }
@@ -648,7 +661,8 @@ export class Paginator extends HTMLElement {
         if (!doc || !frame) { this.#screen = null; return }
         const f = frame.getBoundingClientRect(), c = this.#container.getBoundingClientRect()
         const y = c.top + 1 - f.top
-        const el = y >= 0 && y < f.height ? doc.elementFromPoint(f.width / 2, y) : null
+        let el = y >= 0 && y < f.height ? doc.elementFromPoint(f.width / 2, y) : null
+        if (el === doc.body || el === doc.documentElement) el = null // a gap: no element to hold (the slot is held)
         this.#screen = el ? { view: e.view, el, top: this.#screenTop(e.view, el) } : null
     }
     /** A slot's height changed: the text on screen stays where it is (the captured element, else the current slot). */
@@ -673,8 +687,10 @@ export class Paginator extends HTMLElement {
         if (!entries.length) return
         const el = this.#container, vh = el.clientHeight || 1, top = el.scrollTop
         const first = entries[0], last = entries.at(-1)
-        if (last.loaded && last.slot.offsetTop + last.slot.offsetHeight < top + 4 * vh) this.#preloadIndex(this.#linearFrom(last.index, 1))
-        if (first.loaded && first.slot.offsetTop > top - 2 * vh) this.#preloadIndex(this.#linearFrom(first.index, -1))
+        if (entries.length < 12) { // a bound on live iframes, whatever the sections' sizes
+            if (last.loaded && last.slot.offsetTop + last.slot.offsetHeight < top + 4 * vh) this.#preloadIndex(this.#nextStacked(last.index, 1))
+            if (first.loaded && first.slot.offsetTop > top - 2 * vh) this.#preloadIndex(this.#nextStacked(first.index, -1))
+        }
         const near = new Set([this.#index, this.#linearFrom(this.#index, -1), this.#linearFrom(this.#index, 1)])
         for (const e of entries) {
             if (near.has(e.index) || !e.loaded) continue
@@ -772,7 +788,11 @@ export class Paginator extends HTMLElement {
             }))
             entry.loaded = true
             this.#ensureStack() // stack mode: the next one, if the text below is still short
-        })().catch(e => { if (!entry.mismatch) console.warn(e); if (this.#cache.get(index) === entry) this.#evict(index) })
+        })().catch(e => {
+            if (!entry.mismatch) console.warn(e)
+            if (this.#stack) this.#noStack.add(index) // not retried on every scroll event (C-079 review)
+            if (this.#cache.get(index) === entry) this.#evict(index)
+        })
     }
     /** [below]: only preload the next section (safe while the user scrolls; nothing above moves). */
     #afterSwap(below = false) {
@@ -953,8 +973,8 @@ export class Paginator extends HTMLElement {
 
         this.#observer.observe(this.#container)
         this.#container.addEventListener('scroll', () => this.dispatchEvent(new Event('scroll')))
-        // Stack mode: follow the section at the top while scrolling, keep the next one ready below; work above the
-        // viewport (eviction, preloading the previous section) waits until scrolling has stopped.
+        // Stack mode (C-079): follow the section at the top while scrolling and keep sections loaded ahead of the
+        // viewport both ways (#ensureStack; slots inserted or dropped above keep the text in place, #keepStack).
         this.#container.addEventListener('scroll', () => {
             if (!this.#stack || this.#jumping) return
             this.#followStack()
@@ -976,6 +996,9 @@ export class Paginator extends HTMLElement {
         this.addEventListener('touchmove', this.#onTouchMove.bind(this), opts)
         this.addEventListener('touchend', this.#onTouchEnd.bind(this))
         this.addEventListener('load', ({ detail: { doc } }) => {
+            // C-079: wheel and keys inside the book are the user's own scrolling too
+            doc.addEventListener('wheel', () => this.#userScroll(), { passive: true })
+            doc.addEventListener('keydown', () => this.#userScroll())
             doc.addEventListener('touchstart', this.#onTouchStart.bind(this), opts)
             doc.addEventListener('touchmove', this.#onTouchMove.bind(this), opts)
             doc.addEventListener('touchend', this.#onTouchEnd.bind(this))
@@ -1199,14 +1222,23 @@ export class Paginator extends HTMLElement {
         const settling = this.#stack
         if (settling) {
             this.#jumps++
-            if (switched) this.#restoring = true
+            if (switched) { this.#restoring = true; this.#noStack.clear() }
         }
-        this.#view.render(layout)
-        for (const e of this.#cache.values())
-            if (e.view !== this.#view && e.loaded) e.view.render(layout)
-        this.#scrollToAnchor(this.#anchor)
-        if (switched) this.#afterSwap()
-        if (settling) requestAnimationFrame(() => requestAnimationFrame(() => { this.#jumps--; this.#ensureStack() }))
+        try {
+            this.#view.render(layout)
+            for (const e of this.#cache.values())
+                if (e.view !== this.#view && e.loaded) e.view.render(layout)
+            this.#scrollToAnchor(this.#anchor)
+            if (switched) this.#afterSwap()
+        } finally {
+            // two frames (its own scroll events are past), or 200 ms if frames do not run (hidden WebView)
+            if (settling) {
+                let done = false
+                const end = () => { if (done) return; done = true; this.#jumps--; this.#ensureStack() }
+                requestAnimationFrame(() => requestAnimationFrame(end))
+                setTimeout(end, 200)
+            }
+        }
     }
     get scrolled() {
         return this.getAttribute('flow') === 'scrolled'
@@ -1562,6 +1594,9 @@ export class Paginator extends HTMLElement {
     async #turnPage(dir, distance) {
         if (this.#locked) return
         this.#locked = true
+        try { await this.#turnPageLocked(dir, distance) } finally { this.#locked = false }
+    }
+    async #turnPageLocked(dir, distance) {
         const prev = dir === -1
         if (this.#preload && this.#view && !this.scrolled) { // no view yet: the first `next()` of an open displays section 0
             const target = this.#adjacentIndex(dir)
@@ -1577,7 +1612,6 @@ export class Paginator extends HTMLElement {
                         if (before) await this.#slideIn(from, this.#cache.get(target), before, dir)
                     } finally {
                         if (before) this.#afterSwap()
-                        this.#locked = false
                     }
                     return
                 }
@@ -1589,7 +1623,6 @@ export class Paginator extends HTMLElement {
             anchor: prev ? () => 1 : () => 0,
         })
         if (shouldGo || !this.hasAttribute('animated')) await wait(100)
-        this.#locked = false
     }
     #lastSlide = []
     #sliding = null // { from, to } while a boundary slide runs

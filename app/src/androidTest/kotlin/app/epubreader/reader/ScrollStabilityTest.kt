@@ -167,4 +167,17 @@ class ScrollStabilityTest {
             } finally { h.a.controller.updateSettings { ReaderSettings() }; h.stop() }
         }
     }
+
+    /** C-080 (review I1): a jump to the book's last contents entry (a short final section) lands there and stays. */
+    @Test fun contents_jump_to_the_last_entry_lands_and_stays(): Unit = runBlocking {
+        ActivityScenario.launch(MainActivity::class.java).use { sc ->
+            val h = ReaderHarness(sc, this)
+            try {
+                h.ready(); h.openBook("/sdcard/Books/epub3-samples/accessible_epub_3.epub", "Accessible")
+                h.scrolled(); delay(1_500)
+                h.contentsJump("1. Introduction", "start")
+                h.contentsJump("About the Book", "to the last entry (the end of the last chapter)")
+            } finally { h.a.controller.updateSettings { ReaderSettings() }; h.stop() }
+        }
+    }
 }
