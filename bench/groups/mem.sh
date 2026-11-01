@@ -44,3 +44,35 @@ if [ "$RELEASE" = 1 ]; then
     bench_cmd back
   done
 fi
+
+# --release: P-062, PSS (app + renderer) while paging through 50 plates of the 200-image book (one plate per
+# chapter). Pages forward with `next` from the first chapter, counts plates by the spine step of each `relocate`
+# event's CFI, samples after plates 10, 20, 30, 40 and 50. P-062 = the highest sample; P-062.growth_pct = how far the
+# later samples rise above the plate-10 sample.
+if [ "$RELEASE" = 1 ]; then
+  IMG=$B/generated/stress-200-images.epub
+  spine() { $A logcat -d -s EPR:I | awk 'index($0, "EVT relocate ") { if (match($0, /epubcfi\(\/6\/[0-9]+/)) s = substr($0, RSTART + 11, RLENGTH - 11) } END { print (s == "" ? -1 : s) }'; }
+  for RUN in 1 2 3; do
+    $A shell am force-stop "$PKG"; $A shell am start -W -n "$PKG/$ACT" >/dev/null; sleep 3
+    bench_cmd openPath "$IMG"; sleep 6
+    $A logcat -c; bench_cmd tocIndex 0; sleep 2
+    first=$(spine); plates=1; last=$first; samples=(); turns=0
+    while [ "$plates" -lt 50 ] && [ "$turns" -lt 400 ]; do
+      bench_cmd next; sleep 0.8; turns=$((turns + 1))
+      s=$(spine)
+      if [ "$s" != "$last" ] && [ "$s" != -1 ]; then
+        plates=$((plates + 1)); last=$s; $A logcat -c
+        if [ $((plates % 10)) = 0 ]; then sleep 1; samples+=("$(mb)"); fi
+      fi
+    done
+    base=${samples[0]:-NA}; peak=NA; growth=NA
+    if [ "${#samples[@]}" = 5 ]; then
+      peak=$(printf '%s\n' "${samples[@]}" | sort -g | tail -1)
+      growth=$(printf '%s\n' "${samples[@]:1}" | awk -v b="$base" '{ if ($1 > m) m = $1 } END { g = (m - b) / b * 100; printf "%.1f", (g < 0 ? 0 : g) }')
+    fi
+    note="plates=$plates turns=$turns samples(10..50)=${samples[*]:-none} MB"
+    emit P-062 "$peak" "$note"
+    emit P-062.growth_pct "$growth" "$note"
+    bench_cmd back; sleep 2
+  done
+fi

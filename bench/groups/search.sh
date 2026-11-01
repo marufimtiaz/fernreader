@@ -5,7 +5,8 @@
 #   P-041 "Borodinó" in War and Peace: complete list (search_cmd -> search_done; 108 hits)
 #   P-042 "zygote" in War and Peace: "0 results" shown (search_cmd -> search_done; 0 hits)
 #   P-043 "augmented matrix" in Linear Algebra: first results (search_cmd -> search_first)
-# P-044 (huge chapter) is a release check (M9). Needs no agent-device: only broadcasts commands and reads logcat.
+# With --release, P-044 "MARKERWORDHUGE" in the huge single chapter (138 hits): first results (search_cmd ->
+# search_first) and all 138 (search_cmd -> search_done), 10 s after the open. Needs no agent-device: only broadcasts commands and reads logcat.
 source "$(dirname "$0")/../lib.sh"
 $A shell appops set "$PKG" MANAGE_EXTERNAL_STORAGE allow
 $A shell am force-stop "$PKG"; $A shell am start -W -n "$PKG/$ACT" >/dev/null; sleep 3
@@ -16,11 +17,11 @@ ev_extra() {
   $A logcat -d -s EPR:I | awk -v a="EVT $1 " 'index($0, a) { sub(/.*t=[0-9]+ ?/, ""); print; found=1; exit } END { if (!found) print "NA" }'
 }
 
-# run_search <id> <text> <from-event> <to-event> [expected-total]: one command, one emitted value.
+# run_search <id> <text> <from-event> <to-event> [expected-total] [wait_s]: one command, one emitted value.
 run_search() {
-  local id=$1 text=$2 to=$3 want=${4:-}
+  local id=$1 text=$2 to=$3 want=${4:-} wait=${5:-3}
   $A logcat -c
-  bench_cmd search "$text"; sleep 3
+  bench_cmd search "$text"; sleep "$wait"
   local note="query='$text'"
   if [ "$to" = search_done ]; then
     local total; total=$(ev_extra search_done)
@@ -43,3 +44,18 @@ for RUN in 1 2 3; do
   run_search P-043 "augmented matrix" search_first
   bench_cmd back; sleep 2
 done
+if [ "$RELEASE" = 1 ]; then
+  HUGE=$B/generated/stress-huge-single-chapter.epub
+  for RUN in 1 2 3; do
+    bench_cmd openPath "$HUGE"; sleep 10
+    $A logcat -c
+    bench_cmd search "MARKERWORDHUGE"; sleep 7
+    total=$(ev_extra search_done)
+    note="query='MARKERWORDHUGE' total=$total"; [ "$total" = 138 ] || note="$note WRONG_TOTAL(want 138)"
+    emit P-044.first "$(ev_delta search_cmd search_first)" "$note"
+    all=$(ev_delta search_cmd search_done); [ "$total" = 138 ] || all="wrong_total_$total" # all 138 or FAIL
+    emit P-044.all "$all" "$note"
+    bench_cmd hideSearch; sleep 1
+    bench_cmd back; sleep 2
+  done
+fi
