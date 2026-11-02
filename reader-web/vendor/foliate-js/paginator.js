@@ -796,7 +796,8 @@ export class Paginator extends HTMLElement {
         }
         const el = this.#container
         return { single: this.#single, head: r(this.#edgeHead), foot: r(this.#edgeFoot),
-            scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, viewport: el.clientHeight, current: this.#index }
+            scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, viewport: el.clientHeight, current: this.#index,
+            start: this.#view ? this.start : null, viewSize: this.#view ? this.viewSize : null }
     }
     /** Stack mode: the slot at the top of the viewport becomes the current section (no scrolling). */
     #followStack() {
@@ -1359,6 +1360,14 @@ export class Paginator extends HTMLElement {
         })
         const mode = this.#single ? 'single' : this.#stack ? 'stack' : this.#preload ? 'paged' : null
         const switched = this.#mode !== mode
+        // local patch (C-085): Continuous <-> One at a time changes no layout: the neighbours go or come (slots added
+        // or dropped keep the text on screen in place, #keepStack) and nothing is re-anchored
+        const stacked = m => m === 'stack' || m === 'single'
+        if (switched && stacked(mode) && stacked(this.#mode) && this.#cache.has(this.#index)) {
+            this.#mode = mode
+            this.#afterSwap()
+            return
+        }
         if (switched) { // paged <-> scrolled: neighbours are laid out again for the new flow
             for (const i of [...this.#cache.keys()]) if (i !== this.#index) this.#evict(i)
             const cur = this.#cache.get(this.#index)
