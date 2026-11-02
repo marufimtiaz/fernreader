@@ -6,7 +6,10 @@
 # M9 (--release) adds P-061 (huge chapter) and P-062 (50 plates of the 200-image book).
 source "$(dirname "$0")/../lib.sh"
 $A shell appops set "$PKG" MANAGE_EXTERNAL_STORAGE allow
-$A shell am force-stop "$PKG"; $A shell am start -W -n "$PKG/$ACT" >/dev/null; sleep 3
+$A shell am force-stop "$PKG"
+# a previous process's WebView renderer exits a moment after the app: it must not be counted (it inflated P-060/P-061)
+for _ in $(seq 1 40); do [ -z "$($A shell "ps -A -o NAME | grep $PKG" | tr -d '\r')" ] && break; sleep 0.5; done
+$A shell am start -W -n "$PKG/$ACT" >/dev/null; sleep 3
 bench_cmd openPath "$WP"; sleep 6
 for i in $(seq 1 20); do bench_cmd next; sleep 0.7; done; sleep 3
 mb() { PKG=$PKG "$ROOT/tools/mem_total.sh" | awk '{ sub(/^total_mb=/, "", $3); print ($3 == "" ? "NA" : $3) }'; }
@@ -24,6 +27,8 @@ if [ "$RELEASE" = 1 ]; then
   H=$B/generated/stress-huge-single-chapter.epub
   for RUN in 1 2 3; do
     $A shell am force-stop "$PKG"; $A shell pm clear "$PKG" >/dev/null
+    # the previous run's processes (its WebView renderer exits a moment after the app) must not be counted in this run
+    for _ in $(seq 1 40); do [ -z "$($A shell "ps -A -o NAME | grep $PKG" | tr -d '\r')" ] && break; sleep 0.5; done
     $A shell appops set "$PKG" MANAGE_EXTERNAL_STORAGE allow
     $A shell am start -W -n "$PKG/$ACT" >/dev/null; sleep 4
     $A logcat -c; bench_cmd openPath "$H"; peak=0; samples=0; end=$(( $(date +%s) + 30 ))
