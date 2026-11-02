@@ -30,7 +30,8 @@ import java.io.File
  * - every linear section's counted pages equal the pages the reader turns through (agreement; vertical-writing
  *   books, which show per-chapter totals, are checked the same way);
  * - every "≈ N" the indicator showed for a reflowable book with a book-wide total is within ±5 % of the exact total.
- * Books with more than [MAX_SECTIONS] linear sections are checked on that many evenly spaced sections (always the
+ * The estimate errors of [KNOWN_ESTIMATE] are accepted C-016 exceptions (gatekeeper, C-003): still reported in the
+ * table, not a failure. Books with more than [MAX_SECTIONS] linear sections are checked on that many evenly spaced sections (always the
  * first and the last). Fixed-layout books have no text pages and are skipped. Malformed books are R-002's.
  *
  * Long (~20 min): run it on its own, `-e class app.epubreader.release.CorpusPageCountTest` (docs/milestones/M9.md).
@@ -74,11 +75,11 @@ class CorpusPageCountTest {
         val worstPct: Double? = null, val mismatches: List<String> = emptyList(), val error: String? = null,
     ) {
         fun row() = "$name | $fixed | ${if (chapterScope) "chapter" else "book"} | $checked | ${total ?: "-"} | " +
-            "${worstPct?.let { "%.2f".format(it) } ?: "-"} | ${mismatches.size} | ${error ?: mismatches.take(3).joinToString("; ")}"
+            "${worstPct?.let { "%.2f".format(it) + if (it > 5.0 && name in KNOWN_ESTIMATE) " (known)" else "" } ?: "-"} | ${mismatches.size} | ${error ?: mismatches.take(3).joinToString("; ")}"
         fun problems(): List<String> = buildList {
             error?.let { add("$name: $it") }
             mismatches.forEach { add("$name: $it") }
-            if ((worstPct ?: 0.0) > 5.0) add("$name: estimate off by %.2f %% (exact $total)".format(worstPct))
+            if ((worstPct ?: 0.0) > 5.0 && name !in KNOWN_ESTIMATE) add("$name: estimate off by %.2f %% (exact $total)".format(worstPct))
         }
     }
 
@@ -122,5 +123,9 @@ class CorpusPageCountTest {
         } finally { seen.cancel(); ev.cancel() }
     }
 
-    private companion object { const val MAX_SECTIONS = 40 }
+    private companion object {
+        const val MAX_SECTIONS = 40
+        /** Books whose "≈ N" may be off by more than 5 % (accepted C-016 exceptions: jlreq ~33 %, linear-algebra ~6–9 %). */
+        val KNOWN_ESTIMATE = setOf("jlreq-in-japanese.epub", "linear-algebra.epub")
+    }
 }
