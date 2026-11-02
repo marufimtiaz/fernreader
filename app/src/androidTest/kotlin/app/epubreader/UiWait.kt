@@ -26,3 +26,19 @@ fun UiDevice.settled(selector: BySelector, timeoutMs: Long): UiObject2? {
     }
     return null
 }
+
+/**
+ * Polls [check] every 50 ms for up to [timeoutMs], clearing UiAutomator's accessibility cache before each poll. On
+ * API 34+ that cache can keep a Compose screen's old nodes after its content changed (a list that got a new first
+ * item, a drawer folder that unfolded), and `wait(Until…)` then sees the old screen until it gives up.
+ */
+fun waitFresh(timeoutMs: Long, check: () -> Boolean): Boolean {
+    val ua = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation
+    val end = SystemClock.uptimeMillis() + timeoutMs
+    while (true) {
+        if (android.os.Build.VERSION.SDK_INT >= 34) ua.clearCache()
+        if (check()) return true
+        if (SystemClock.uptimeMillis() >= end) return false
+        SystemClock.sleep(50)
+    }
+}
