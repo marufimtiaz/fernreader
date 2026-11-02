@@ -134,6 +134,7 @@ abstract class LibraryDao {
     @Query("SELECT * FROM book_file WHERE bookId = :bookId") abstract suspend fun filesOf(bookId: String): List<BookFileEntity>
     @Query("DELETE FROM book_file WHERE path = :path") abstract suspend fun deleteFile(path: String)
     @Query("DELETE FROM book_cache WHERE bookId = :bookId") abstract suspend fun deleteCache(bookId: String)
+    @Query("DELETE FROM book_pages WHERE bookId = :bookId") abstract suspend fun deletePages(bookId: String)
     /** The same rows read once (a reader connection): used while a scan holds the writer, see LibraryRepository. */
     @Query(LIBRARY_QUERY) abstract suspend fun librarySnapshot(): List<LibraryRow>
 

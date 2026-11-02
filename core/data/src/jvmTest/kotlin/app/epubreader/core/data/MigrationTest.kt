@@ -120,6 +120,29 @@ class MigrationTest {
         migrated.close()
     }
 
+    /** C-083: version 8 adds `book_pages` (C-061 reserved the number); everything else stays. */
+    @Test fun v7_to_v8_keeps_everything_and_adds_book_pages() {
+        val dbPath = Files.createTempDirectory("mig").resolve("m.db")
+        val helper = MigrationTestHelper(
+            schemaDirectoryPath = Path.of("schemas"), databasePath = dbPath,
+            driver = BundledSQLiteDriver(), databaseClass = AppDatabase::class,
+        )
+        helper.createDatabase(7).also {
+            insertM2Book(it)
+            it.execSQL("INSERT INTO book_cache (bookId, kind, digest, json) VALUES ('b1', 'section-stats.v1', 'd', '[]')")
+            it.execSQL("INSERT INTO bookmark (id, bookId, cfi, spineIndex, fraction, chapter, createdAt, updatedAt, deleted) VALUES ('m1', 'b1', 'epubcfi(/6/4!/4)', 1, 0.5, '', 1, 1, 0)")
+            it.execSQL("INSERT INTO annotation (id, bookId, cfi, spineIndex, text, chapter, color, style, note, createdAt, updatedAt, deleted) VALUES ('a1', 'b1', 'epubcfi(/6/4!/4,/1:0,/1:3)', 1, 'abc', '', 'yellow', 'highlight', 'n', 1, 1, 0)")
+        }.close()
+        val migrated = helper.runMigrationsAndValidate(8)
+        migrated.prepare("SELECT cfi FROM reading_position WHERE bookId = 'b1'").use { assertEquals(true, it.step()); assertEquals("epubcfi(/6/4!/4/2/1:0)", it.getText(0)) }
+        migrated.prepare("SELECT json FROM book_cache WHERE bookId = 'b1'").use { assertEquals(true, it.step()) }
+        migrated.prepare("SELECT COUNT(*) FROM bookmark").use { assertEquals(true, it.step()); assertEquals(1L, it.getLong(0)) }
+        migrated.prepare("SELECT note FROM annotation WHERE id = 'a1'").use { assertEquals(true, it.step()); assertEquals("n", it.getText(0)) }
+        migrated.prepare("SELECT COUNT(*) FROM book_pages").use { assertEquals(true, it.step()); assertEquals(0L, it.getLong(0)) }
+        migrated.execSQL("INSERT INTO book_pages (bookId, digest, version, source, pageCount, labels, starts, lengths) VALUES ('b1', 'd', 1, 'VIRTUAL', 1, NULL, '0.0', '10')")
+        migrated.close()
+    }
+
     companion object {
         /** A book as M2 recorded it after a picker open: identity from foliate, a content:// file row, a position. */
         fun insertM2Book(c: androidx.sqlite.SQLiteConnection, identityKey: String = "k", uri: String = "content://com.android.providers.downloads.documents/document/42") {

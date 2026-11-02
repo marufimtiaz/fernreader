@@ -69,6 +69,10 @@ class LibraryRepository(
     suspend fun cached(bookId: String, kind: String, digest: String): String? = db.bookCacheDao().get(bookId, kind, digest)
     suspend fun storeCache(bookId: String, kind: String, digest: String, json: String) = db.bookCacheDao().put(BookCacheEntity(bookId, kind, digest, json))
 
+    /** C-083: the book's stored pages for this file version ([digest]), or null (never computed, another file or version). */
+    suspend fun bookPages(bookId: String, digest: String): app.epubreader.core.epub.pages.BookPages? = db.bookPagesDao().get(bookId, digest)?.pages()
+    suspend fun storeBookPages(bookId: String, digest: String, pages: app.epubreader.core.epub.pages.BookPages) = db.bookPagesDao().put(BookPagesEntity.of(bookId, digest, pages))
+
     /**
      * At process start: sources that were readable only in the last session (a content:// grant that could not be
      * persisted) are gone; their entries leave the library. Reading data stays by book id for the next open.
@@ -140,6 +144,7 @@ class LibraryRepository(
             }
             failed += kept
             dao.deleteCache(id)
+            dao.deletePages(id)
             onCacheDeleted(id, files.map { it.path })
             if (kept == 0) {
                 val thumb = dao.byId(id)?.coverThumb?.takeIf { it.isNotEmpty() }
