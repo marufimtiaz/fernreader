@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { BATCH, BATCH_BYTES, batches, boxPages, splitSource, planBatch, readingOrder, stratifiedSample } from '../src/reader/counter'
+import { BATCH, BATCH_BYTES, batches, boxPages, checkSection, selfCheck, splitSource, planBatch, readingOrder, stratifiedSample } from '../src/reader/counter'
 
 describe('stratifiedSample (S1: 12 sections spread over the book)', () => {
   const linear = Array.from({ length: 368 }, (_, i) => i)
@@ -69,6 +69,37 @@ describe('planBatch (S1 risks: only sections the batch box reproduces exactly sh
   })
   it('a section whose document could not be read is counted alone', () => {
     expect(planBatch([{ index: 1, key: 'A' }, { index: 2, key: null }]).alone).toEqual([2])
+  })
+})
+
+describe('checkSection (C-003: the batch section that is also counted alone)', () => {
+  it('the largest section by markup size', () => {
+    expect(checkSection([3, 4, 6], i => ({ 3: 9_000, 4: 33_000, 6: 12_000 })[i])).toBe(4)
+  })
+  it('a tie takes the first in batch order; unknown sizes count as 0', () => {
+    expect(checkSection([5, 2, 9], i => (i === 9 ? undefined : 100))).toBe(5)
+    expect(checkSection([7, 8], () => undefined)).toBe(7)
+  })
+  it('a one-section batch checks that section', () => {
+    expect(checkSection([11], () => 1)).toBe(11)
+  })
+})
+
+describe('selfCheck (C-003: a batch whose checked section counts differently alone is recounted alone)', () => {
+  const counted: [number, number][] = [[3, 10], [4, 25], [6, 12]]
+  it('agreement keeps the batch counts', () => {
+    expect(selfCheck(counted, [4, 25], [0, 1])).toEqual({ mismatch: false, keep: counted, recount: [] })
+  })
+  it('a mismatch keeps only the alone count and recounts the other sections of the batch alone', () => {
+    expect(selfCheck(counted, [4, 26], [])).toEqual({ mismatch: true, keep: [[4, 26]], recount: [3, 6] })
+    expect(selfCheck(counted, [3, 9], [])).toEqual({ mismatch: true, keep: [[3, 9]], recount: [4, 6] })
+  })
+  it('a mismatch also recounts the sections earlier batches of this layout counted in a batch document (jlreq: found late)', () => {
+    expect(selfCheck(counted, [4, 26], [20, 0, 1])).toEqual({ mismatch: true, keep: [[4, 26]], recount: [3, 6, 20, 0, 1] })
+  })
+  it('a one-section batch: its alone count is kept either way, nothing else of it to recount', () => {
+    expect(selfCheck([[8, 5]], [8, 5], [])).toEqual({ mismatch: false, keep: [[8, 5]], recount: [] })
+    expect(selfCheck([[8, 5]], [8, 4], [])).toEqual({ mismatch: true, keep: [[8, 4]], recount: [] })
   })
 })
 
