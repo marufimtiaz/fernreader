@@ -29,5 +29,19 @@ class SectionStatsTest {
         assertEquals(listOf(SectionStat(3, 0), SectionStat(0, 0), SectionStat(0, 2)), sectionStats(z))
     }
 
+    /** C-083: the book-pages pass gives the stats pass's stats for an unchunked book (a first open reads it once). */
+    @Test fun the_book_pages_pass_gives_the_same_stats() {
+        val files = mapOf(
+            "META-INF/container.xml" to container, "OPS/p.opf" to opf,
+            "OPS/a.xhtml" to "<html><head><title>x</title></head><body>\n <p>a  \n b</p>\n</body></html>",
+            "OPS/b.xhtml" to "<html><body><img src='i.png'/><svg/></body></html>",
+        )
+        val s = BookSession("s", app.epubreader.core.data.SourceRef.File("/x.epub"), zip(files), 1, "t")
+        val r = bookPages(s, withStats = true)!!
+        assertEquals(sectionStats(zip(files)), r.stats)
+        assertEquals(1, r.pages.count)
+        assertNull(bookPages(s, withStats = false)!!.stats)
+    }
+
     @Test fun no_package_gives_no_stats() = assertNull(sectionStats(zip(mapOf("x.txt" to "x"))))
 }
