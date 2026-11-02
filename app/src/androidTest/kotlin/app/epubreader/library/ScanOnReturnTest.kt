@@ -8,12 +8,12 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
-import androidx.test.uiautomator.Until
 import app.epubreader.EpubReaderApp
 import app.epubreader.MainActivity
 import app.epubreader.TestBooks
 import app.epubreader.core.data.SettingsStore
 import app.epubreader.core.library.ScanScope
+import app.epubreader.waitFresh
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -103,9 +103,13 @@ class ScanOnReturnTest {
     }
 
     private lateinit var a: MainActivity
+    /** [text] on screen within [limitMs] of [t0] (polled with a fresh accessibility cache, [waitFresh]). */
     private fun shownWithin(text: String, t0: Long, limitMs: Long = 2_000): Long {
-        assertTrue("not shown: $text; top ${a.library.ui.value.books.take(3).map { it.title }}, ${a.library.ui.value.scan}", device.wait(Until.hasObject(By.text(text)), limitMs + 3_000))
-        return (SystemClock.uptimeMillis() - t0).also { assertTrue("$text shown after $it ms (limit $limitMs)", it <= limitMs) }
+        val found = waitFresh(t0 + limitMs + 3_000 - SystemClock.uptimeMillis()) { device.hasObject(By.text(text)) }
+        val ms = SystemClock.uptimeMillis() - t0
+        // the state is read after the wait (a message built before it showed the list from before the scan)
+        assertTrue("not shown: $text; ${a.library.ui.value.view}, top ${a.library.ui.value.books.take(3).map { it.title }}, ${a.library.ui.value.scan}", found)
+        return ms.also { assertTrue("$text shown after $it ms (limit $limitMs)", it <= limitMs) }
     }
 
     @Test fun book_copied_into_a_new_folder_while_away_shows_on_return(): Unit = runBlocking {
@@ -156,8 +160,15 @@ class ScanOnReturnTest {
         val book = source("view", "Zq Seen On View")
         ActivityScenario.launch(MainActivity::class.java).use { sc ->
             val a = launched(sc)
-            delay(2_500) // past the 2 s after the last scan, within which showing a view does not scan again
-            copy(book, File(folder, "view.epub")) // while the app is in front: no event reaches it
+            // The worst case, made certain: an automatic scan has just completed (in the full suite the app start scan
+            // finished within 2 s of the view opening, and the view used to skip its scan then). The book arrives
+            // right after it, while the app is in front (e.g. over USB): no event reaches the app.
+            delay(1_000); withTimeout(10_000) { graph.scans.state.first { !it.running } } // the app start scan is done
+            graph.scans.onForeground()
+            // (a scan can be over before a collector sees it running, and an equal result is no new state: no wait on either)
+            withTimeoutOrNull(2_000) { graph.scans.state.first { it.running } }
+            withTimeout(10_000) { graph.scans.state.first { !it.running } }
+            copy(book, File(folder, "view.epub"))
             val t0 = SystemClock.uptimeMillis()
             sc.onActivity { it.library.openView(LibraryView.Folder(folder.path)) }
             shownWithin("Zq Seen On View", t0)

@@ -61,20 +61,38 @@ class PageTurnInputTest {
     private suspend fun ReaderHarness.quiet() { delay(1_500); drain(); settle() }
 
     /**
-     * A quick swipe injected directly (down, two moves, up: about 50 ms), so a second one can end while the first turn
-     * still animates; UiDevice.swipe takes ~400 ms per swipe on the emulator.
+     * [count] quick leftward swipes (down, two moves, up: 48 ms each, 32 ms apart), built up front with explicit event
+     * times and injected back to back without waiting for each to be handled, so the test's own pacing on a busy
+     * emulator cannot stretch the gap between them (UiDevice.swipe takes ~400 ms per swipe; injecting one event at a
+     * time with a wait for each took 364 ms between the two ends in the full suite).
      */
-    private fun fastSwipeLeft() {
+    private fun fastSwipesLeft(count: Int) {
         val y = h / 2f
         val xs = listOf(w * 0.85f, w * 0.6f, w * 0.35f, w * 0.15f)
-        val down = SystemClock.uptimeMillis()
-        xs.forEachIndexed { i, x ->
-            val action = when (i) { 0 -> MotionEvent.ACTION_DOWN; xs.lastIndex -> MotionEvent.ACTION_UP; else -> MotionEvent.ACTION_MOVE }
-            val e = MotionEvent.obtain(down, down + i * 16L, action, x, y, 0).apply { source = InputDevice.SOURCE_TOUCHSCREEN }
-            inst.uiAutomation.injectInputEvent(e, true)
-            e.recycle()
-            if (i < xs.lastIndex) SystemClock.sleep(16)
+        val base = SystemClock.uptimeMillis() - count * 80L // all in the past: none waits for its time in the input queue
+        val events = (0 until count).flatMap { k ->
+            val down = base + k * 80L
+            xs.mapIndexed { i, x ->
+                val action = when (i) { 0 -> MotionEvent.ACTION_DOWN; xs.lastIndex -> MotionEvent.ACTION_UP; else -> MotionEvent.ACTION_MOVE }
+                MotionEvent.obtain(down, down + i * 16L, action, x, y, 0).apply { source = InputDevice.SOURCE_TOUCHSCREEN }
+            }
         }
+        for (e in events) { check(inst.uiAutomation.injectInputEvent(e, false)) { "injection refused: $e" }; e.recycle() }
+    }
+
+    /** Uptime at which each touch ACTION_UP reached the activity's window (the app's own view of the input). */
+    private fun ActivityScenario<MainActivity>.recordUps(): MutableList<Long> {
+        val ups = java.util.Collections.synchronizedList(mutableListOf<Long>())
+        onActivity { a ->
+            val orig = a.window.callback
+            a.window.callback = object : android.view.Window.Callback by orig {
+                override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+                    if (event.actionMasked == MotionEvent.ACTION_UP) ups += SystemClock.uptimeMillis()
+                    return orig.dispatchTouchEvent(event)
+                }
+            }
+        }
+        return ups
     }
 
     private fun swipeLeft() = dev.swipe((w * 0.85).toInt(), h / 2, (w * 0.15).toInt(), h / 2, 10)
@@ -103,16 +121,28 @@ class PageTurnInputTest {
         assertEquals(start, sc.pos())
     }
 
-    /** C-026: a second swipe that ends while the first turn still animates is not lost. */
+    /**
+     * C-026: a second swipe that ends while the first turn still animates (300 ms) is not lost. The gap is measured
+     * where the app receives the two ends; if the system delivered them late (a busy emulator), that attempt proves
+     * nothing about the window and is repeated (at most 3 attempts), but every attempt must move exactly two pages.
+     */
     @Test fun two_quick_swipes_move_two_pages(): Unit = run { hr, sc ->
-        val start = hr.openMid(warAndPeace(), sc)
-        fastSwipeLeft()
-        val firstEnd = SystemClock.uptimeMillis()
-        fastSwipeLeft()
-        val gap = SystemClock.uptimeMillis() - firstEnd
-        hr.quiet()
-        assertTrue("second swipe ended $gap ms after the first (should be inside the 300 ms animation)", gap < 300)
-        assertEquals(start.copy(page = start.page + 2), sc.pos())
+        var start = hr.openMid(warAndPeace(), sc)
+        val ups = sc.recordUps()
+        val gaps = mutableListOf<Long>()
+        for (attempt in 1..3) {
+            ups.clear()
+            fastSwipesLeft(2)
+            hr.quiet()
+            assertEquals("ends delivered: $ups", 2, ups.size)
+            gaps += ups[1] - ups[0]
+            val now = sc.pos()
+            assertEquals("attempt $attempt (gap ${gaps.last()} ms)", start.copy(page = start.page + 2), now)
+            if (gaps.last() < 300) break
+            if (now.pages - now.page < 3) start = hr.openMid(warAndPeace(), sc) else start = now
+        }
+        android.util.Log.i("EPR", "C-026 two quick swipes: delivered gaps $gaps ms")
+        assertTrue("the second swipe never reached the app inside the 300 ms animation: gaps $gaps ms", gaps.last() < 300)
     }
 
     @Test fun tap_zones_turn_pages_when_on(): Unit = run { hr, sc ->

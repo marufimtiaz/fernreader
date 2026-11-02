@@ -11,6 +11,7 @@ import app.epubreader.EpubReaderApp
 import app.epubreader.MainActivity
 import app.epubreader.core.library.ScanScope
 import app.epubreader.ui.Copy
+import app.epubreader.waitFresh
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -82,7 +83,7 @@ class DrawerFoldersUiTest {
             assertEquals(listOf("$sd/Books", "$sd/Documents/Books"), rows.filter { it.node.name == "Books" }.map { it.node.path })
             assertEquals(listOf(Copy.folderName(sd), "Documents"), rows.filter { it.node.name == "Books" }.map { it.parentLine })
             // on screen: "Documents" is the folder's name and the second Books' parent line
-            assertTrue(device.wait(Until.findObjects(By.text("Documents")), 5_000).orEmpty().size >= 2)
+            assertTrue(waitFresh(5_000) { device.findObjects(By.text("Documents")).size >= 2 }) // the unfolded rows, not a stale cache
             obj(By.desc(Copy.collapseFolder("Documents")), "collapse Documents").click()
 
             // Download: exactly the books whose file is directly in it

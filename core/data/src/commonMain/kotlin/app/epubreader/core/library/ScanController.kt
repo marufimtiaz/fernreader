@@ -7,14 +7,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlin.time.TimeSource
 
 /**
  * When scans run (F-003, F-012, C-075): a full scan right after access is granted, an incremental one on app start,
- * on every return to the foreground and whenever the library or one of its views becomes visible (skipped within
- * [debounceMs] of the last completed scan), and a manual rescan. One scan at a time; requests while one runs collapse
- * into a single follow-up scan (the running walk may already have passed a new folder). Automatic scans are quiet:
- * no progress unless they find something ([ScanState.showsProgress]).
+ * on every return to the foreground and whenever the library or one of its views becomes visible (even right after
+ * another scan: a book can arrive meanwhile while the app is in front, e.g. over USB), and a manual rescan. One scan
+ * at a time; requests while one runs collapse into a single follow-up scan (the running walk may already have passed
+ * a new folder), so a burst of view changes costs at most two scans. Automatic scans are quiet: no progress unless
+ * they find something ([ScanState.showsProgress]).
  */
 class ScanController(
     private val scan: suspend (ScanScope, (ScanEvent) -> Unit) -> ScanEvent.Complete,
@@ -24,13 +24,10 @@ class ScanController(
     private val probe: (String, String) -> Unit = { _, _ -> },
     private val onBookAdded: (bookId: String) -> Unit = {},
     private val onComplete: () -> Unit = {},
-    private val nowMs: () -> Long = { START.elapsedNow().inWholeMilliseconds },
-    private val debounceMs: Long = 2_000,
 ) {
     private val _state = MutableStateFlow(ScanState())
     val state: StateFlow<ScanState> = _state
     private val requests = Channel<Unit>(Channel.CONFLATED)
-    @kotlin.concurrent.Volatile private var lastCompleteAt: Long? = null
     /** Whether a pending request is a manual one (or after a grant): the collapsed follow-up then shows progress. */
     @kotlin.concurrent.Volatile private var loudPending = false
     /** The app start scan was requested: the library's first composition must not scan before the first frame. */
@@ -47,10 +44,7 @@ class ScanController(
     fun onForeground() = request(quiet = true)
     /** The library, a collection, the folder list or a folder came into view. */
     fun onViewShown() {
-        if (!started) return
-        val last = lastCompleteAt
-        if (!_state.value.running && last != null && nowMs() - last < debounceMs) return
-        request(quiet = true)
+        if (started) request(quiet = true)
     }
 
     private fun request(quiet: Boolean) {
@@ -79,10 +73,7 @@ class ScanController(
         } catch (e: Exception) { // a scan failure must never take the app down; the next trigger retries
             probe("scan_error", e.toString())
         } finally {
-            lastCompleteAt = nowMs()
             _state.update { it.copy(running = false) }
         }
     }
-
-    private companion object { val START = TimeSource.Monotonic.markNow() }
 }
