@@ -68,7 +68,13 @@ describe('planBatch (S1 risks: only sections the batch box reproduces exactly sh
     expect(planBatch([{ index: 1, key: 'B' }, { index: 2, key: 'A' }]).key).toBe('B')
   })
   it('a section whose document could not be read is counted alone', () => {
-    expect(planBatch([{ index: 1, key: 'A' }, { index: 2, key: null }]).alone).toEqual([2])
+    expect(planBatch([{ index: 1, key: 'A' }, { index: 3, key: 'A' }, { index: 2, key: null }]).alone).toEqual([2])
+  })
+  it('no key shared by two sections: every section is counted alone (a one-section document would be laid out twice, C-003)', () => {
+    const p = planBatch([{ index: 1, key: 'A' }, { index: 2, key: 'B' }, { index: 4, key: null }])
+    expect(p.batched).toEqual([])
+    expect(p.alone).toEqual([1, 2, 4])
+    expect(planBatch([{ index: 9, key: 'A' }])).toEqual({ key: 'A', batched: [], alone: [9] })
   })
 })
 
@@ -129,6 +135,26 @@ describe('splitSource (a section cut into what the batch document needs, without
   })
   it('no body: null (counted alone)', () => {
     expect(splitSource('<html><p>x</p></html>')).toBeNull()
+  })
+})
+
+describe('PageCounter batch mode', () => {
+  it('a batch of one section (the 10 MB chapter) is counted alone once: no batch document, no second layout for the self-check', async () => {
+    const { PageCounter } = await import('../src/reader/counter')
+    const sections = [{ load: async () => 'blob:0', size: 10_000_000 }]
+    const renderer = { pagedLayout: { width: 400, height: 800, gap: 28, columnWidth: 372, margin: 32 }, styles: '', busy: false }
+    const msgs: any[] = []
+    const counter = new PageCounter(sections, () => renderer, () => ({}) as any, 'en', 'ltr', m => msgs.push(m))
+    const alone: number[] = []
+    ;(counter as any).countAlone = async (i: number) => { alone.push(i); return 6277 }
+    ;(counter as any).layoutBatch = async () => { throw new Error('no batch document') }
+    const realFetch = globalThis.fetch
+    let fetched = 0
+    globalThis.fetch = (async () => { fetched++; throw new Error('no fetch') }) as any
+    try { await counter.start(1) } finally { globalThis.fetch = realFetch }
+    expect(fetched).toBe(0)
+    expect(alone).toEqual([0])
+    expect(msgs.filter(m => m.counts.length)).toEqual([{ gen: 1, counts: [[0, 6277]], sample: true, done: true }])
   })
 })
 
