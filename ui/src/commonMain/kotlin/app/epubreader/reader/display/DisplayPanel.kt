@@ -165,7 +165,7 @@ private fun SliderRow(label: String, value: String, v: Float, range: ClosedFloat
     }
 }
 
-/** F-031: the reading-mode choices, the same in the display panel, the Reader settings sheet and Settings → Reading. */
+/** F-031: the reading-mode choices; C-084: shown only here, in the display panel. */
 internal val FlowOptions = listOf(Flow.PAGED to Copy.flowPaged, Flow.SCROLLED to Copy.flowScrolled, Flow.AUTO to Copy.flowAuto)
 
 /** [enabled] false greys the row out and ignores taps; [hint] is shown under it (e.g. why it is off). */

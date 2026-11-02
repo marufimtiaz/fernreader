@@ -29,7 +29,7 @@ class SettingsEntriesTest {
 
     @Test fun every_m6_reader_setting_is_listed_in_its_section() {
         val byTitle = sections().associate { s -> s.title to s.items.map { it.id } }
-        assertEquals(listOf("reader.pageScope", "reader.flow", "reader.pageAnimation", "reader.swipeDirection", "reader.tapZones", "reader.volumeKeys"), byTitle[Copy.sectionReading])
+        assertEquals(listOf("reader.pageScope", "reader.pageAnimation", "reader.swipeDirection", "reader.tapZones", "reader.volumeKeys"), byTitle[Copy.sectionReading])
         assertEquals(listOf("reader.fullscreen", "reader.keepScreenOn", "reader.orientation"), byTitle[Copy.settingsScreen])
         assertEquals(listOf("reader.confirmLinks"), byTitle[Copy.settingsLinks])
         // the sections sit between Library and Backup
@@ -77,16 +77,11 @@ class SettingsEntriesTest {
         assertEquals(ReaderSettings().fontScale, reader.fontScale); assertTrue(reader.tapZones)
     }
 
-    /** F-031 (user report): Reading mode is in Settings → Reading, above the animation, and edits the same `flow`. */
-    @Test fun reading_mode_is_listed_and_edits_the_same_flow_value() {
-        assertEquals(Copy.layout, choice("reader.flow").title)
-        assertEquals(listOf(Copy.flowPaged, Copy.flowScrolled, Copy.flowAuto), choice("reader.flow").options.map { it.second })
-        assertEquals("PAGED", choice("reader.flow").selected)
-        choice("reader.flow").onSelect("SCROLLED")
-        assertEquals(Flow.SCROLLED, reader.flow)
-        assertEquals("SCROLLED", choice("reader.flow").selected) // a change made elsewhere (panel, sheet) shows here
-        reader = reader.copy(flow = Flow.AUTO)
-        assertEquals("AUTO", choice("reader.flow").selected)
+    /** C-084: Reading mode is only in the reader's display panel, not in Settings → Reading. */
+    @Test fun reading_mode_is_not_listed() {
+        val items = sections().flatMap { it.items }
+        assertTrue(items.none { it.id == "reader.flow" })
+        assertTrue(items.none { it is SettingItem.Choice && it.title == Copy.layout })
     }
 
     @Test fun page_animation_is_off_with_a_hint_in_scroll_mode_only() {

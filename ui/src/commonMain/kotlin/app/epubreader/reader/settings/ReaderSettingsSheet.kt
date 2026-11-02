@@ -23,7 +23,6 @@ import app.epubreader.core.data.PageAnimation
 import app.epubreader.core.data.ReaderSettings
 import app.epubreader.core.data.SwipeDirection
 import app.epubreader.core.data.VolumeKeys
-import app.epubreader.reader.display.FlowOptions
 import app.epubreader.reader.display.Label
 import app.epubreader.reader.display.Segments
 import app.epubreader.ui.Copy
@@ -53,8 +52,6 @@ fun ReaderSettingsSheet(
         ) {
             Text(Copy.readerSettings, style = MaterialTheme.typography.titleMedium)
             Header(Copy.settingsPageTurning)
-            // F-031: also here (and in Settings → Reading), not only in the display panel; all three edit `flow`.
-            Segments(Copy.layout, FlowOptions, s.flow) { f -> onChange { it.copy(flow = f) } }
             Segments(
                 Copy.pageAnimation, listOf(PageAnimation.SLIDE to Copy.animSlide, PageAnimation.NONE to Copy.animNone), s.pageAnimation,
                 enabled = s.pageAnimationApplies, hint = Copy.appliesToPageMode.takeUnless { s.pageAnimationApplies },
