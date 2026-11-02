@@ -6,7 +6,8 @@ import { polyfillMfenced } from './mathml'
  * Page counter (F-034, P-021; design: docs/spikes/S1-page-totals.md). Sections are laid out hidden, in batches, with the
  * paginator's exact column CSS, the same injected style sheet and the same settings, and their pages counted the way
  * foliate's View counts them. The first batch is a stratified sample (for the "≈ N" estimate); the rest follows in
- * reading order. Runs on the main thread between tasks; a newer layout generation cancels it.
+ * reading order. Each shared batch is self-checked against one section counted alone (C-003, [selfCheck]). Runs on the
+ * main thread between tasks; a newer layout generation cancels it.
  */
 
 /** [k] linear sections spread evenly over the book (the middle of each of k equal strata), in reading order. */
@@ -37,6 +38,30 @@ export function planBatch(metas: { index: number; key: string | null }[]): { key
     batched: metas.filter(m => m.key === key && key != null).map(m => m.index),
     alone: metas.filter(m => m.key !== key || key == null).map(m => m.index),
   }
+}
+
+/**
+ * C-003 self-check: the section of a shared batch that is also counted alone in a foliate View. The largest by markup
+ * [size] (unknown = 0; ties: the first): a layout difference between the batch document and the paginator grows with
+ * the number of pages, so the longest section shows it first, and checking one section costs at most one alone count
+ * per batch (≤ 1/24 of a full batch counted alone).
+ */
+export function checkSection(batched: number[], size: (i: number) => number | undefined): number {
+  let best = batched[0]
+  for (const i of batched) if ((size(i) ?? 0) > (size(best) ?? 0)) best = i
+  return best
+}
+
+/**
+ * C-003: the batch's [counted] pages against the [check] section's alone count. They agree: keep the batch counts.
+ * They differ: the batch document does not reproduce the paginator for this book, so keep only the alone count and
+ * [recount] the batch's other sections alone (and the caller counts the rest of the book alone).
+ */
+export function selfCheck(counted: [number, number][], check: [number, number]): { mismatch: boolean; keep: [number, number][]; recount: number[] } {
+  const [ci, alone] = check
+  const batch = counted.find(([i]) => i === ci)?.[1]
+  if (batch === alone) return { mismatch: false, keep: counted, recount: [] }
+  return { mismatch: true, keep: [check], recount: counted.map(([i]) => i).filter(i => i !== ci) }
 }
 
 /**
@@ -108,6 +133,11 @@ export class PageCounter {
   private host: HTMLElement | null = null
   private lang: string
   private dir: string
+  /**
+   * C-003: a self-check found that this book's batch documents count differently from the paginator; every later
+   * count of this book (this and later layout generations) counts each section alone.
+   */
+  private bookAlone = false
 
   constructor(
     private sections: Section[],
@@ -155,7 +185,7 @@ export class PageCounter {
     for (const batch of batches(order, sample.length, i => this.sections[i]?.size)) {
       if (!live()) return
       while (this.renderer()?.busy) { await sleep(40); if (!live()) return } // never during a page turn
-      const counts = this.opts.alone ? await this.countEachAlone(batch, live) : await this.countBatch(batch, live)
+      const counts = this.opts.alone || this.bookAlone ? await this.countEachAlone(batch, live) : await this.countBatch(batch, live)
       if (!counts || !live()) return
       at += batch.length
       if (at < sample.length) pending.push(...counts)
@@ -201,7 +231,20 @@ export class PageCounter {
       if (plan.batched.length) {
         const counted = await this.layoutBatch(plan.batched.map(i => [i, docs[batch.indexOf(i)]!] as const), r, live)
         if (!counted) return null
-        out.push(...counted)
+        // C-003 self-check: one section of the batch also counted alone, as the paginator lays it out
+        const ci = checkSection(plan.batched, i => this.sections[i]?.size)
+        while (this.renderer()?.busy) { await sleep(40); if (!live()) return null }
+        if (!live()) return null
+        const check = selfCheck(counted, [ci, await this.countAlone(ci, r)])
+        if (!live()) return null
+        out.push(...check.keep)
+        if (check.mismatch) {
+          this.bookAlone = true
+          console.warn('page counter: batch count differs from the paginator, counting this book alone', ci)
+          const rest = await this.countEachAlone(check.recount, live)
+          if (!rest) return null
+          out.push(...rest)
+        }
       }
       for (const i of plan.alone) {
         if (!live()) return null
