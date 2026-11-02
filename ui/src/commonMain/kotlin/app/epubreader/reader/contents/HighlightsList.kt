@@ -1,5 +1,8 @@
 package app.epubreader.reader.contents
 
+import app.epubreader.ui.BarIcon
+import app.epubreader.ui.IconLabel
+import app.epubreader.ui.theme.AppIcons
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -16,8 +19,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -65,7 +66,7 @@ fun HighlightsList(
                     Text(a.text, maxLines = 3, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(top = 2.dp))
                     a.note?.let { note -> Note(note) }
                 }
-                IconButton(onClick = { onRemove(a) }, modifier = Modifier.padding(top = 4.dp)) { Icon(Icons.Filled.Delete, Copy.removeHighlightFromList) }
+                BarIcon(AppIcons.Delete, Copy.removeHighlightFromList, Modifier.padding(top = 4.dp)) { onRemove(a) }
             }
             HorizontalDivider()
         }
@@ -94,5 +95,5 @@ private fun Note(note: String) {
         onTextLayout = { if (!full) cut = it.hasVisualOverflow },
     )
     // Offered only when the two-line preview does not show the whole note.
-    if (full || cut) TextButton(onClick = { full = !full }) { Text(if (full) Copy.hideFullNote else Copy.viewFullNote) }
+    if (full || cut) TextButton(onClick = { full = !full }) { if (full) IconLabel(AppIcons.ShowLess, Copy.hideFullNote) else IconLabel(AppIcons.ShowMore, Copy.viewFullNote) }
 }

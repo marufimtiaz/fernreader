@@ -34,7 +34,7 @@ import app.epubreader.reader.display.DisplayPanel
 import app.epubreader.reader.display.ReadingTheme
 import app.epubreader.reader.search.SearchPanel
 import app.epubreader.reader.contents.ContentsPanel
-import app.epubreader.reader.controls.BookmarkFilledIcon
+import app.epubreader.ui.theme.AppIcons
 import androidx.compose.material3.Icon
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.offset
@@ -106,7 +106,7 @@ fun ReaderScreen(
         // F-041: the page marker, over the page's top-right corner; visible without the controls, never moves the text.
         if (s.bookmarked && !s.chromeVisible && !s.loading && s.error == null) {
             Icon(
-                BookmarkFilledIcon, Copy.bookmarkedPage,
+                AppIcons.Bookmarked, Copy.bookmarkedPage,
                 Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(end = 12.dp).size(36.dp).offset(y = (-6).dp),
                 tint = MaterialTheme.colorScheme.primary,
             )

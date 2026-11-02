@@ -1,5 +1,7 @@
 package app.epubreader.reader.contents
 
+import app.epubreader.ui.BarIcon
+import app.epubreader.ui.theme.AppIcons
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -8,8 +10,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -46,7 +46,7 @@ fun BookmarksList(
                     val place = bookPage(b)?.let(Copy::bookPage) ?: bookmarkPage(b.fraction, indicator)?.let(Copy::bookmarkPage) ?: Copy.bookmarkPercent(bookmarkPercent(b.fraction))
                     Text("$place · ${formatDate(b.createdAt)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                IconButton(onClick = { onRemove(b) }) { Icon(Icons.Filled.Delete, Copy.removeBookmark) }
+                BarIcon(AppIcons.Delete, Copy.removeBookmark) { onRemove(b) }
             }
             HorizontalDivider()
         }
