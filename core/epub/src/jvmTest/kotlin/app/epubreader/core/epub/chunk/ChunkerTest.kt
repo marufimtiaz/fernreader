@@ -82,6 +82,21 @@ class ChunkerTest {
         assertEquals("OPS/big.part0.xhtml", d.parts[0].path)
     }
 
+    /** C-081: an SVG image inside a split document keeps its reference (plain `href` and `xlink:href`), unchanged. */
+    @Test fun svg_image_references_survive_chunking() {
+        val fig = "<div><svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" width=\"100%\" height=\"100%\" " +
+            "viewbox=\"0 0 900 1129\" preserveaspectratio=\"xMidYMid meet\"><image width=\"900\" height=\"1129\" href=\"img/cover.jpeg\"/>" +
+            "<image width=\"9\" height=\"9\" xlink:href=\"img/cover.jpeg\"/></svg></div>"
+        val (z, pkg) = ChunkBooks.book("\n" + ChunkBooks.paras(500) + fig + ChunkBooks.paras(500) + "\n")
+        val cb = chunk(z, pkg)
+        val parts = cb.map.docs.getValue("OPS/big.xhtml").parts
+        assertTrue(parts.size > 2)
+        val withFig = parts.map { cb.virtualEntry(it.path)!!.decodeToString() }.filter { "<svg" in it }
+        assertEquals(1, withFig.size)
+        assertTrue("href=\"img/cover.jpeg\"" in withFig[0] && "xlink:href=\"img/cover.jpeg\"" in withFig[0], withFig[0].substringAfter("<svg").take(400))
+        assertTrue("viewbox=\"0 0 900 1129\"" in withFig[0])
+    }
+
     @Test fun every_part_is_a_well_formed_document_with_the_original_head() {
         val (z, pkg) = ChunkBooks.book(ChunkBooks.paras(1000))
         val cb = chunk(z, pkg)

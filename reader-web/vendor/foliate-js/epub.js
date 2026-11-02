@@ -1,5 +1,18 @@
 import * as CFI from './epubcfi.js'
 
+/**
+ * LOCAL PATCH (C-081): XML is case-sensitive, so `viewbox`/`preserveaspectratio` written in lowercase on an `<svg>` are
+ * ignored by the engine (an HTML parser would fix their case). They are copied to `viewBox`/`preserveAspectRatio`
+ * when the proper-cased attribute is missing, so the picture scales to its box instead of being drawn at full size.
+ */
+const SVG_NS = 'http://www.w3.org/2000/svg'
+export const fixSvgAttributeCase = doc => {
+    for (const svg of doc.getElementsByTagNameNS(SVG_NS, 'svg'))
+        for (const [lower, proper] of [['viewbox', 'viewBox'], ['preserveaspectratio', 'preserveAspectRatio']])
+            if (svg.hasAttribute(lower) && !svg.getAttributeNames().includes(proper))
+                svg.setAttribute(proper, svg.getAttribute(lower))
+}
+
 const NS = {
     CONTAINER: 'urn:oasis:names:tc:opendocument:xmlns:container',
     XHTML: 'http://www.w3.org/1999/xhtml',
@@ -846,6 +859,11 @@ class Loader {
             for (const el of doc.querySelectorAll('[*|href]:not([href])'))
                 el.setAttributeNS(NS.XLINK, 'href', await this.loadHref(
                     el.getAttributeNS(NS.XLINK, 'href'), href, parents))
+            // LOCAL PATCH (C-081): an SVG 2 `<image href>` (no xlink) is a resource like any other; foliate only
+            // rewrote xlink:href, so such images (often a whole cover page) stayed unloadable and blank.
+            for (const el of doc.querySelectorAll('image[href]'))
+                if (el.namespaceURI === SVG_NS) await replace(el, 'href')
+            fixSvgAttributeCase(doc)
             for (const el of doc.querySelectorAll('[srcset]'))
                 el.setAttribute('srcset', await replaceSeries(el.getAttribute('srcset'),
                     /(\s*)(.+?)\s*((?:\s[\d.]+[wx])+\s*(?:,|$)|,\s+|$)/g,
