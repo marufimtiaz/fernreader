@@ -26,7 +26,6 @@ object Copy {
     const val selectAll = "Select all"
     fun selectedCount(n: Int) = "$n selected"
     const val addToCollection = "Add to collection"
-    const val addToCollectionShort = "Add to…"
     const val removeFromCollection = "Remove from collection"
     const val addBooks = "Add books"
     fun addCount(n: Int) = if (n == 0) "Add" else "Add $n"
@@ -341,6 +340,9 @@ object Copy {
         else -> "$total results"
     }
     const val contents = "Contents"
+    /** C-086: the contents list's fold icon of an entry with sub-entries (content description and tooltip). */
+    const val showSubentries = "Show sub-entries"
+    const val hideSubentries = "Hide sub-entries"
     const val close = "Close"
     const val untitledEntry = "Untitled"
     const val removeFromRecent = "Remove from library"

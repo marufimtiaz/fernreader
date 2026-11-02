@@ -31,7 +31,7 @@ import app.epubreader.core.data.CollectionEntity
 import app.epubreader.core.data.CollectionNames
 import app.epubreader.core.data.LibraryBook
 import app.epubreader.ui.Copy
-import app.epubreader.ui.theme.Glyphs
+import app.epubreader.ui.theme.AppIcons
 
 /** F-026: create or rename a collection. The name is required and must not be taken. */
 @Composable
@@ -63,14 +63,14 @@ fun CollectionPickerDialog(collections: List<CollectionSummary>, onPick: (String
             LazyColumn(Modifier.heightIn(max = 400.dp)) {
                 items(collections, key = { it.id }) { c ->
                     Row(Modifier.fillMaxWidth().clickable { onPick(c.id) }.padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Glyphs.Shelf, null, Modifier.size(20.dp))
+                        Icon(AppIcons.Collection, null, Modifier.size(20.dp))
                         Text(c.name, Modifier.padding(start = 16.dp).weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(c.count.toString(), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 item {
                     Row(Modifier.fillMaxWidth().clickable(onClick = onNew).padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Glyphs.Plus, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+                        Icon(AppIcons.Add, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
                         Text(Copy.newCollection, Modifier.padding(start = 16.dp), color = MaterialTheme.colorScheme.primary)
                     }
                 }

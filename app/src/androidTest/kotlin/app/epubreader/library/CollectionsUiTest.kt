@@ -58,13 +58,15 @@ class CollectionsUiTest {
             text("Zq Alice").longClick()
             text("Zq Frankenstein").click()
             text(Copy.selectedCount(2))
-            text(Copy.addToCollectionShort).click()
+            checkNotNull(device.wait(Until.findObject(By.desc(Copy.addToCollection)), 10_000)) { "no add-to-collection icon" }.click() // C-086: icon-only selection bar
             text(Copy.newCollection).click()
             device.wait(Until.findObject(By.clazz("android.widget.EditText").focused(true)), 2_000)
             device.findObjects(By.clazz("android.widget.EditText")).last().text = "Classics"
             text(Copy.save).click()
             val c = withTimeout(5_000) { graph.library.collections().first { l -> l.any { it.name == "Classics" } } }.single { it.name == "Classics" }
             withTimeout(5_000) { graph.library.library().first { l -> l.count { c.id in it.collectionIds } == 2 } }
+            // C-077: the bar is still the search field (no menu icon there); its close icon brings the menu icon back
+            checkNotNull(device.wait(Until.findObject(By.desc(Copy.closeSearch)), 5_000)) { "no close-search icon" }.click()
             checkNotNull(device.wait(Until.findObject(By.desc(Copy.openMenu)), 5_000)).click()
             text("Classics").click()
             assertTrue(device.wait(Until.hasObject(By.text("Zq Alice")), 5_000))
