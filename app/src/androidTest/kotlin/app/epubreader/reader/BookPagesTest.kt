@@ -86,7 +86,7 @@ class BookPagesTest {
                     else { assertEquals("i", p.label); assertEquals("Page i of 6", Copy.pageLabel(p)) }
                     // Chapter 2 (spine 1) starts on its own page: iii, or the virtual page holding its first text.
                     h.drain()
-                    h.send(ToWeb.GoTo(target = "c2.xhtml", id = 77)); h.next { e -> (e as? FromWeb.Seeked)?.takeIf { it.id == 77 } }
+                    h.tocJump("Chapter 2")
                     val c2 = withTimeout(5_000) { h.a.controller.shownPage.first { it.page != 1 } }
                     assertEquals("$kind chapter 2", want.label(want.indexAt(TextPos(1, 0))), c2.label ?: c2.page.toString())
                     sc.onActivity { it.goBack() }
@@ -106,10 +106,11 @@ class BookPagesTest {
                     h.drain()
                     h.open(TestBooks.write(inst.targetContext, "stay-$kind-${System.nanoTime()}.epub", TestBooks.pagesEpub(kind, paragraphs = 90)))
                     h.bookPage()
-                    repeat(7) { h.send(ToWeb.Next()) }; h.settle(); delay(300)
+                    repeat(7) { h.drain(); h.send(ToWeb.Next()); h.relocate() } // one turn at a time (the queue keeps 3)
+                    delay(300); h.settle()
                     val before = h.bookPage()
                     val screenBefore = h.a.controller.page.value
-                    Log.i("EPR", "C-083 $kind before: $before (screen $screenBefore)")
+                    Log.i("EPR", "C-083 $kind before: $before (screen $screenBefore) at ${h.at?.sectionIndex}:${h.at?.textOffset} block ${sc.js("window.__readerTest.firstVisibleBlock()").take(50)}")
                     assertTrue("$kind moved into the book: $before", (before.page ?: 0) > 1 || kind == TestBooks.Pages.NAV)
                     for ((what, f) in listOf<Pair<String, (ReaderSettings) -> ReaderSettings>>(
                         "text 140 %" to { s -> s.copy(fontScale = 1.4) },
@@ -120,7 +121,7 @@ class BookPagesTest {
                     )) {
                         h.change(f)
                         val now = h.bookPage()
-                        Log.i("EPR", "C-083 $kind after $what: $now (screen ${h.a.controller.page.value})")
+                        Log.i("EPR", "C-083 $kind after $what: $now (screen ${h.a.controller.page.value}) at ${h.at?.textOffset} block ${sc.js("window.__readerTest.firstVisibleBlock()").take(50)}")
                         assertEquals("$kind after $what", before, now)
                     }
                     sc.onActivity { it.goBack() }
