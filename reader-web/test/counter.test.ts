@@ -88,15 +88,18 @@ describe('checkSection (C-003: the batch section that is also counted alone)', (
 describe('selfCheck (C-003: a batch whose checked section counts differently alone is recounted alone)', () => {
   const counted: [number, number][] = [[3, 10], [4, 25], [6, 12]]
   it('agreement keeps the batch counts', () => {
-    expect(selfCheck(counted, [4, 25])).toEqual({ mismatch: false, keep: counted, recount: [] })
+    expect(selfCheck(counted, [4, 25], [0, 1])).toEqual({ mismatch: false, keep: counted, recount: [] })
   })
   it('a mismatch keeps only the alone count and recounts the other sections of the batch alone', () => {
-    expect(selfCheck(counted, [4, 26])).toEqual({ mismatch: true, keep: [[4, 26]], recount: [3, 6] })
-    expect(selfCheck(counted, [3, 9])).toEqual({ mismatch: true, keep: [[3, 9]], recount: [4, 6] })
+    expect(selfCheck(counted, [4, 26], [])).toEqual({ mismatch: true, keep: [[4, 26]], recount: [3, 6] })
+    expect(selfCheck(counted, [3, 9], [])).toEqual({ mismatch: true, keep: [[3, 9]], recount: [4, 6] })
   })
-  it('a one-section batch: its alone count is kept either way, nothing to recount', () => {
-    expect(selfCheck([[8, 5]], [8, 5])).toEqual({ mismatch: false, keep: [[8, 5]], recount: [] })
-    expect(selfCheck([[8, 5]], [8, 4])).toEqual({ mismatch: true, keep: [[8, 4]], recount: [] })
+  it('a mismatch also recounts the sections earlier batches of this layout counted in a batch document (jlreq: found late)', () => {
+    expect(selfCheck(counted, [4, 26], [20, 0, 1])).toEqual({ mismatch: true, keep: [[4, 26]], recount: [3, 6, 20, 0, 1] })
+  })
+  it('a one-section batch: its alone count is kept either way, nothing else of it to recount', () => {
+    expect(selfCheck([[8, 5]], [8, 5], [])).toEqual({ mismatch: false, keep: [[8, 5]], recount: [] })
+    expect(selfCheck([[8, 5]], [8, 4], [])).toEqual({ mismatch: true, keep: [[8, 4]], recount: [] })
   })
 })
 

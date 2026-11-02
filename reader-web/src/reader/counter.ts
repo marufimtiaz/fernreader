@@ -55,13 +55,15 @@ export function checkSection(batched: number[], size: (i: number) => number | un
 /**
  * C-003: the batch's [counted] pages against the [check] section's alone count. They agree: keep the batch counts.
  * They differ: the batch document does not reproduce the paginator for this book, so keep only the alone count and
- * [recount] the batch's other sections alone (and the caller counts the rest of the book alone).
+ * [recount] alone the batch's other sections and the sections [earlier] batches of this layout counted in a batch
+ * document (their checks passed, but the difference may show in other sections: jlreq); the caller counts the rest of
+ * the book alone.
  */
-export function selfCheck(counted: [number, number][], check: [number, number]): { mismatch: boolean; keep: [number, number][]; recount: number[] } {
+export function selfCheck(counted: [number, number][], check: [number, number], earlier: number[]): { mismatch: boolean; keep: [number, number][]; recount: number[] } {
   const [ci, alone] = check
   const batch = counted.find(([i]) => i === ci)?.[1]
   if (batch === alone) return { mismatch: false, keep: counted, recount: [] }
-  return { mismatch: true, keep: [check], recount: counted.map(([i]) => i).filter(i => i !== ci) }
+  return { mismatch: true, keep: [check], recount: [...counted.map(([i]) => i).filter(i => i !== ci), ...earlier] }
 }
 
 /**
@@ -182,10 +184,11 @@ export class PageCounter {
     const order = readingOrder(linear, sample)
     let at = 0
     let pending: [number, number][] = [] // the sample's counts, sent together (the estimate needs all of them)
+    const viaBatch: number[] = [] // sections this layout counted in a batch document (C-003: recounted on a mismatch)
     for (const batch of batches(order, sample.length, i => this.sections[i]?.size)) {
       if (!live()) return
       while (this.renderer()?.busy) { await sleep(40); if (!live()) return } // never during a page turn
-      const counts = this.opts.alone || this.bookAlone ? await this.countEachAlone(batch, live) : await this.countBatch(batch, live)
+      const counts = this.opts.alone || this.bookAlone ? await this.countEachAlone(batch, live) : await this.countBatch(batch, live, viaBatch)
       if (!counts || !live()) return
       at += batch.length
       if (at < sample.length) pending.push(...counts)
@@ -214,8 +217,12 @@ export class PageCounter {
     return out
   }
 
-  /** One hidden document holding every section of [batch] in its own column box. */
-  private async countBatch(batch: number[], live: () => boolean): Promise<[number, number][] | null> {
+  /**
+   * One hidden document holding every section of [batch] in its own column box, self-checked (C-003). [viaBatch]: the
+   * sections earlier batches of this layout counted in a batch document; this batch's are added. On a mismatch they
+   * are recounted alone and returned too (counts for sections outside [batch], overwriting the ones sent before).
+   */
+  private async countBatch(batch: number[], live: () => boolean, viaBatch: number[]): Promise<[number, number][] | null> {
     const r = this.renderer()
     if (!r) return null
     const layout = r.pagedLayout
@@ -235,10 +242,11 @@ export class PageCounter {
         const ci = checkSection(plan.batched, i => this.sections[i]?.size)
         while (this.renderer()?.busy) { await sleep(40); if (!live()) return null }
         if (!live()) return null
-        const check = selfCheck(counted, [ci, await this.countAlone(ci, r)])
+        const check = selfCheck(counted, [ci, await this.countAlone(ci, r)], viaBatch)
         if (!live()) return null
         out.push(...check.keep)
-        if (check.mismatch) {
+        if (!check.mismatch) viaBatch.push(...plan.batched)
+        else {
           this.bookAlone = true
           console.warn('page counter: batch count differs from the paginator, counting this book alone', ci)
           const rest = await this.countEachAlone(check.recount, live)
