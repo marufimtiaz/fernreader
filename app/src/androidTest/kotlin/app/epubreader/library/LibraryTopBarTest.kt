@@ -59,7 +59,7 @@ class LibraryTopBarTest {
         runBlocking {
             graph.settings.put(SettingsStore.LIBRARY_SORT, LibrarySort.RECENT.name)
             graph.settings.put(SettingsStore.LIBRARY_LAYOUT, LibraryLayout.GRID.name)
-            graph.scanner.scan(ScanScope.Folder(dir.path))
+            graph.scanner.scan(ScanScope.Folder(dir.parent!!)) // prune its rows (the deleted folder itself can't be listed)
         }
     }
 
@@ -104,7 +104,8 @@ class LibraryTopBarTest {
             // sort: the menu has the current order checked; choosing Title reorders the screen
             assertEquals(listOf("Zb Cherry"), screenOrder(all).take(1))
             obj(By.desc(Copy.sortBy), "sort icon").click()
-            obj(By.text(Copy.sortName(LibrarySort.RECENT)).checked(true), "current order checked")
+            // the menu item is the checked node; its label is a child text node
+            obj(By.checked(true).hasChild(By.text(Copy.sortName(LibrarySort.RECENT))), "current order checked")
             obj(By.text(Copy.sortName(LibrarySort.TITLE)), "Title").click()
             withTimeout(5_000) { a.library.ui.first { it.sort == LibrarySort.TITLE } }
             assertTrue(device.wait(Until.gone(By.text(Copy.sortName(LibrarySort.ADDED))), 5_000)) // the menu closed
