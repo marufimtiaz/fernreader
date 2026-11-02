@@ -1,5 +1,6 @@
 package app.epubreader.reader
 
+import android.os.SystemClock
 import android.util.Log
 import androidx.room.useWriterConnection
 import androidx.test.core.app.ActivityScenario
@@ -20,6 +21,7 @@ import app.epubreader.core.epub.pkg.PackageLoader
 import app.epubreader.core.epub.zip.ZipReader
 import app.epubreader.reader.bridge.FromWeb
 import app.epubreader.reader.search.SearchResult
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -52,6 +54,21 @@ class HugeChapterChunkTest {
     /** A threshold over the file's size: nothing is split (the control run). */
     private val unchunked = ChunkPolicy(thresholdBytes = Int.MAX_VALUE)
 
+    /**
+     * One timed step: logs `EPR step <label> <ms> ms` (logcat) and names the step in a timeout's failure, so a slow run
+     * shows which user-visible step took long.
+     */
+    private suspend fun <T> step(label: String, block: suspend () -> T): T {
+        val t0 = SystemClock.elapsedRealtime()
+        val r = try { block() } catch (e: TimeoutCancellationException) {
+            val ms = SystemClock.elapsedRealtime() - t0
+            Log.i("EPR", "step $label timed out after $ms ms")
+            throw AssertionError("$label: timed out after $ms ms", e)
+        }
+        Log.i("EPR", "step $label ${SystemClock.elapsedRealtime() - t0} ms")
+        return r
+    }
+
     private suspend fun ActivityScenario<MainActivity>.jsValue(expr: String): Any? =
         JSONTokener(js("JSON.stringify($expr)")).nextValue().let { if (it is String) JSONTokener(it).nextValue() else null }
     private suspend fun ActivityScenario<MainActivity>.str(expr: String): String? = jsValue(expr) as? String
@@ -80,13 +97,17 @@ class HugeChapterChunkTest {
     }
 
     /** Selects the range [cfi] and makes it a highlight through the controller (the F-060 path); returns the stored row. */
-    private suspend fun ReaderHarness.highlight(bookId: String, cfi: String): Annotation {
+    private suspend fun ReaderHarness.highlight(bookId: String, cfi: String, run: String): Annotation {
         val before = graph.annotations.annotations(bookId).first().map { it.id }.toSet()
         drain()
-        assertEquals("true", sc.js("window.__readerTest.selectCfi(${JSONObject.quote(cfi)})"))
-        next(5_000) { e -> (e as? FromWeb.Selection)?.takeIf { it.cfi != null } }
-        sc.onActivity { it.controller.highlightSelection() }
-        val row = withTimeout(5_000) { graph.annotations.annotations(bookId).first { l -> l.any { it.id !in before } } }.first { it.id !in before }
+        step("$run selectCfi->selection") {
+            assertEquals("true", sc.js("window.__readerTest.selectCfi(${JSONObject.quote(cfi)})"))
+            next(5_000) { e -> (e as? FromWeb.Selection)?.takeIf { it.cfi != null } }
+        }
+        val row = step("$run highlightSelection->row") {
+            sc.onActivity { it.controller.highlightSelection() }
+            withTimeout(5_000) { graph.annotations.annotations(bookId).first { l -> l.any { it.id !in before } } }.first { it.id !in before }
+        }
         sc.onActivity { it.controller.dismissHighlightPicker() }
         return row
     }
@@ -146,21 +167,25 @@ class HugeChapterChunkTest {
                 val controlSections = JSONArray(sc.js("window.__readerTest.linear()")).length()
                 withTimeout(180_000) { graph.search.progress(id).first { it.complete } }
 
-                val (hitC, total) = h.searchHit("MARKERWORDHUGE")
+                val (hitC, total) = step("control search") { h.searchHit("MARKERWORDHUGE") }
                 assertEquals(138, total) // P-044
-                val hitCfiC = h.jump(hitC)
+                val hitCfiC = step("control jump") { h.jump(hitC) }
                 assertEquals("MARKERWORDHUGE", sc.str("window.__readerTest.cfiText(${JSONObject.quote(hitCfiC)})"))
                 h.settle()
                 val pageBlockC = sc.str("window.__readerTest.firstVisibleBlock()")
                 assertNotNull("page start text", pageBlockC)
-                val hlC = h.highlight(id, hitCfiC).also { made += it.id }
+                val hlC = h.highlight(id, hitCfiC, "control").also { made += it.id }
                 assertEquals("MARKERWORDHUGE", hlC.text)
                 // The hit's outline and a highlight on exactly its range share foliate's overlay key: the highlight shows once
                 // the search highlight is cleared.
-                h.send(app.epubreader.reader.bridge.ToWeb.ClearSearchHighlight())
-                assertEquals(hlC.text, sc.drawnText(hlC.id))
-                sc.onActivity { it.controller.toggleBookmark() }
-                val bmC: Bookmark = withTimeout(5_000) { c.state.first { it.bookmarked && it.bookmarks.size == 1 } }.bookmarks.single().also { marks += it.id }
+                step("control row->drawn") {
+                    h.send(app.epubreader.reader.bridge.ToWeb.ClearSearchHighlight())
+                    assertEquals(hlC.text, sc.drawnText(hlC.id))
+                }
+                val bmC: Bookmark = step("control toggleBookmark->bookmarked") {
+                    sc.onActivity { it.controller.toggleBookmark() }
+                    withTimeout(5_000) { c.state.first { it.bookmarked && it.bookmarks.size == 1 } }
+                }.bookmarks.single().also { marks += it.id }
                 val stoppedAt = h.settle()
                 h.closeBook()
                 val posC = graph.library.position(id)!!
@@ -199,12 +224,14 @@ class HugeChapterChunkTest {
                 assertEquals(hlC.cfi, graph.annotations.annotations(id).first().single { it.id == hlC.id }.cfi) // not rewritten
                 sc.onActivity { it.controller.removeAnnotation(hlC.id) }
                 withTimeout(5_000) { while (sc.jsValue("window.__readerTest.annotation(${JSONObject.quote(hlC.id)})") is JSONObject) delay(100) }
-                val hlK = h.highlight(id, hitCfiK).also { made += it.id }
+                val hlK = h.highlight(id, hitCfiK, "chunked").also { made += it.id }
                 assertEquals(hlC.cfi, hlK.cfi)
                 assertEquals(hlC.spineIndex, hlK.spineIndex)
                 assertEquals(hlC.text, hlK.text)
-                h.send(app.epubreader.reader.bridge.ToWeb.ClearSearchHighlight())
-                assertEquals(hlC.text, sc.drawnText(hlK.id))
+                step("chunked row->drawn") {
+                    h.send(app.epubreader.reader.bridge.ToWeb.ClearSearchHighlight())
+                    assertEquals(hlC.text, sc.drawnText(hlK.id))
+                }
 
                 // The control's bookmark: the list's jump lands on its page, with the marker.
                 h.tocJump("Section 1"); h.settle()
@@ -223,8 +250,10 @@ class HugeChapterChunkTest {
                 // control's; byte-identical only if both layouts start the page at the same place (logged).
                 sc.onActivity { it.controller.toggleBookmark() }
                 withTimeout(5_000) { c.state.first { !it.bookmarked && it.bookmarks.isEmpty() } }
-                sc.onActivity { it.controller.toggleBookmark() }
-                val bmK = withTimeout(5_000) { c.state.first { it.bookmarked && it.bookmarks.size == 1 } }.bookmarks.single().also { marks += it.id }
+                val bmK = step("chunked toggleBookmark->bookmarked") {
+                    sc.onActivity { it.controller.toggleBookmark() }
+                    withTimeout(5_000) { c.state.first { it.bookmarked && it.bookmarks.size == 1 } }
+                }.bookmarks.single().also { marks += it.id }
                 Log.i("HugeChapterChunkTest", "bookmark control=${bmC.cfi} chunked=${bmK.cfi} identical=${bmC.cfi == bmK.cfi}")
                 assertEquals(bmC.spineIndex, bmK.spineIndex)
                 assertEquals(spineStep(bmC.cfi), spineStep(bmK.cfi))
