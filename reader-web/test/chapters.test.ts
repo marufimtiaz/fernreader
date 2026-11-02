@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { pullStep, pullThreshold, pullTurn } from '../vendor/foliate-js/paginator.js'
-import { chapterEdgeLabel, DEFAULT_CHAPTER_TEXTS, sectionTitle } from '../src/reader/chapters'
+import { chapterEdgeLabel, chapterSpan, DEFAULT_CHAPTER_TEXTS, sectionTitle } from '../src/reader/chapters'
 import type { TocItem } from '../src/bridge/protocol'
 
 // C-085 "Chapters: One at a time" (local paginator patch, PATCHES.md): a deliberate overscroll pull past a chapter's end
@@ -99,5 +99,25 @@ describe('chapter edge labels', () => {
   it('a title with "$" or "{title}" in it is inserted as is', () => {
     const t = [{ label: 'Costs $& {title}', href: 'a', depth: 0, missing: false, index: 0 }]
     expect(chapterEdgeLabel(t, 0, 1, DEFAULT_CHAPTER_TEXTS)).toBe('Next: Costs $& {title}')
+  })
+})
+
+// C-085 (gatekeeper): the parts of a huge document split by the app (M8) are one chapter in One at a time. The app sends
+// the virtual sections that continue the one before ("continued"); a chapter is a run of such sections.
+describe('chapterSpan: a chapter is a section and the parts that continue it', () => {
+  const continued = new Set([3, 4, 5, 8]) // 2..5 are parts of one document, 7..8 of another
+  it('a section that is not split is its own chapter', () => {
+    expect(chapterSpan(continued, 10, 0)).toEqual([0, 0])
+    expect(chapterSpan(continued, 10, 6)).toEqual([6, 6])
+    expect(chapterSpan(continued, 10, 9)).toEqual([9, 9])
+  })
+  it('every part of a split document gives the whole run', () => {
+    for (const i of [2, 3, 4, 5]) expect(chapterSpan(continued, 10, i)).toEqual([2, 5])
+    for (const i of [7, 8]) expect(chapterSpan(continued, 10, i)).toEqual([7, 8])
+  })
+  it('no parts (an unsplit book) and the book\'s ends', () => {
+    expect(chapterSpan(new Set(), 3, 1)).toEqual([1, 1])
+    expect(chapterSpan(new Set([1, 2]), 3, 2)).toEqual([0, 2])
+    expect(chapterSpan(new Set([0]), 2, 0)).toEqual([0, 0]) // a first section can't continue anything
   })
 })

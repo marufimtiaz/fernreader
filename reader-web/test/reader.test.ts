@@ -1046,3 +1046,21 @@ describe('Reader chapters (One at a time)', () => {
     expect(r.edgeLabel(0, 1)).toBe('Next chapter')
   })
 })
+
+// C-085 with M8: parts of a split huge document are one chapter for One at a time (the paginator's chapterSpan).
+describe('Reader chapters of a split document', () => {
+  it('the open\'s continued sections give the paginator one chapter span over the parts', async () => {
+    h.epubInit.mockImplementation(async () => ({ ...book(), sections: [{ id: 'a' }, { id: 'p0' }, { id: 'p1' }, { id: 'p2' }, { id: 'b' }] }))
+    send({ v: 1, type: 'open', sessionId: 's1', position: null, texts: { missingPart: 'm' }, continued: [2, 3] } as ToWeb); await settle(); await settle()
+    const r = FakeView.all.at(-1)!.renderer as any
+    expect(r.chapterSpan(2)).toEqual([1, 3])
+    expect(r.chapterSpan(1)).toEqual([1, 3])
+    expect(r.chapterSpan(4)).toEqual([4, 4])
+    expect(r.chapterSpan(0)).toEqual([0, 0])
+  })
+  it('without continued sections every section is its own chapter', async () => {
+    open('s1'); await settle(); await settle()
+    const r = FakeView.all.at(-1)!.renderer as any
+    expect(r.chapterSpan(1)).toEqual([1, 1])
+  })
+})

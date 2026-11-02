@@ -641,19 +641,25 @@ export class Paginator extends HTMLElement {
     #stackPad = Object.assign(document.createElement('div'), { className: 'stack-pad' })
     #noStack = new Set() // sections that failed to load into the stack (error, other writing mode): its end there
     #nextStacked(index, dir) {
-        if (this.#single) return null
         const i = this.#linearFrom(index, dir)
-        return i == null || this.#noStack.has(i) ? null : i
+        if (i == null || this.#noStack.has(i)) return null
+        // C-085: One at a time stacks only the parts of the current chapter (a huge document the host split)
+        if (this.#single) { const [f, l] = this.#span(index); return i >= f && i <= l ? i : null }
+        return i
     }
+    /** C-085: the first and last section of the chapter [index] is in; [chapterSpan] is the host's (parts of one document). */
+    chapterSpan = null
+    #span(index) { return this.chapterSpan?.(index) ?? [index, index] }
     #padStack() {
         const last = Math.max(-1, ...this.#cache.keys())
         const vh = this.#container.clientHeight
         let h = 0
-        if (this.#stack && !this.#single && last >= 0) {
+        if (this.#stack && last >= 0) {
             // more to come: a screen of room; the book's (or the stack's) last section: just enough that a section
             // shorter than the screen can still be scrolled to the top, and no blank screen past the end
+            // (One at a time, C-085: room only while parts of the chapter follow; at its end the Next control)
             if (this.#nextStacked(last, 1) != null) h = vh
-            else h = Math.max(0, vh - (this.#cache.get(last)?.slot.offsetHeight ?? vh))
+            else if (!this.#single) h = Math.max(0, vh - (this.#cache.get(last)?.slot.offsetHeight ?? vh))
         }
         h = `${h}px`
         if (this.#stackPad.style.height !== h) this.#stackPad.style.height = h
@@ -739,33 +745,47 @@ export class Paginator extends HTMLElement {
         el.append(b)
         return el
     }
-    /** One at a time: the edge controls go right around the current slot (text on screen kept in place); else away. */
+    /**
+     * One at a time: the edge controls go right before the chapter's first section and right after its last one (a
+     * chapter split into parts, C-085: around the whole run, each control only while that end's slot is laid out); the
+     * text on screen is kept in place. Otherwise they go away.
+     */
     #placeEdges() {
         const cur = this.#single ? this.#cache.get(this.#index) : null
         const head = this.#edgeHead, foot = this.#edgeFoot
         if (!cur && !head.isConnected && !foot.isConnected) return
+        const [f, l] = this.#span(this.#index)
         this.#keepStack(() => {
             if (!cur) { head.remove(); foot.remove(); return }
-            for (const [el, dir] of [[head, -1], [foot, 1]]) {
-                const target = this.#adjacentIndex(dir) // the book's first and last sections have none
+            for (const [el, dir, end] of [[head, -1, f], [foot, 1, l]]) {
+                const e = this.#cache.get(end)
+                if (!e?.loaded && e !== cur) { el.remove(); continue }
+                const target = this.#chapterTarget(dir) // the book's first and last sections have none
                 el.hidden = target == null
                 el.dataset.index = target ?? ''
                 const label = target == null ? '' : String(this.edgeLabel?.(target, dir) ?? '')
                 if (el.firstChild.textContent !== label) el.firstChild.textContent = label
+                if (dir < 0 && e.slot.previousSibling !== el) this.#container.insertBefore(el, e.slot)
+                if (dir > 0 && e.slot.nextSibling !== el) e.slot.after(el)
             }
-            if (cur.slot.previousSibling !== head) this.#container.insertBefore(head, cur.slot)
-            if (cur.slot.nextSibling !== foot) cur.slot.after(foot)
         })
     }
-    /** One at a time: opens the next section at its top ([dir] 1) or the previous one at its end (-1), as a jump. */
+    /** The section that opens the next chapter ([dir] 1: its first section) or the previous one (-1: its last section). */
+    #chapterTarget(dir) {
+        const [f, l] = this.#span(this.#index)
+        return this.#linearFrom(dir > 0 ? l : f, dir) ?? null
+    }
+    /** One at a time: opens the next chapter at its top ([dir] 1) or the previous one at its end (-1), as a jump. */
     #openAdjacent(dir) {
-        const index = this.#adjacentIndex(dir)
+        const index = this.#chapterTarget(dir)
         if (index == null || !this.#single) return
         return this.goTo({ index, anchor: dir > 0 ? 0 : 1 })
     }
     #pullDir() {
         const t = pullTurn(this.#pull, pullThreshold(this.#container.clientHeight))
-        return t && this.#adjacentIndex(t) != null ? t : 0
+        // only at the chapter's own end or top (its control laid out), not at the end of a part still loading
+        const edge = t > 0 ? this.#edgeFoot : this.#edgeHead
+        return t && edge.isConnected && this.#chapterTarget(t) != null ? t : 0
     }
     #armEdges(dir) {
         this.#edgeHead.classList.toggle('armed', dir < 0)
@@ -795,7 +815,7 @@ export class Paginator extends HTMLElement {
             return { label: el.firstChild.textContent, index: Number(el.dataset.index), x: b.left, y: b.top, w: b.width, h: b.height }
         }
         const el = this.#container
-        return { single: this.#single, head: r(this.#edgeHead), foot: r(this.#edgeFoot),
+        return { single: this.#single, head: r(this.#edgeHead), foot: r(this.#edgeFoot), span: this.#span(this.#index),
             scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, viewport: el.clientHeight, current: this.#index,
             start: this.#view ? this.start : null, viewSize: this.#view ? this.viewSize : null }
     }
@@ -846,6 +866,7 @@ export class Paginator extends HTMLElement {
         this.#keepStack(() => e.slot.remove())
         this.#padStack()
         this.sections[index]?.unload?.()
+        if (this.#single) this.#placeEdges() // C-085: a chapter's end slot went (its control goes with it)
     }
     #afterLoadFor(index) {
         return doc => {
@@ -888,6 +909,7 @@ export class Paginator extends HTMLElement {
                 detail: { doc: entry.view.document, index, attach: o => entry.view.overlayer = o },
             }))
             entry.loaded = true
+            if (this.#single) this.#placeEdges() // C-085: a part at the chapter's end or start is laid out
             this.#ensureStack() // stack mode: the next one, if the text below is still short
         })().catch(e => {
             if (!entry.mismatch) console.warn(e)
@@ -897,9 +919,12 @@ export class Paginator extends HTMLElement {
     }
     /** [below]: only preload the next section (safe while the user scrolls; nothing above moves). */
     #afterSwap(below = false) {
-        if (this.#single) { // C-085: the current section alone, between its edge controls
-            for (const i of [...this.#cache.keys()]) if (i !== this.#index) this.#evict(i)
+        if (this.#single) { // C-085: the current chapter alone (its parts, if split), between its edge controls
+            const [f, l] = this.#span(this.#index)
+            for (const i of [...this.#cache.keys()]) if (i < f || i > l) this.#evict(i)
             this.#placeEdges()
+            this.#preloadIndex(this.#nextStacked(this.#index, 1))
+            if (!below) this.#preloadIndex(this.#nextStacked(this.#index, -1))
             return
         }
         this.#placeEdges()

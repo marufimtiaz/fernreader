@@ -26,6 +26,7 @@ function validShape(m: Record<string, unknown>): boolean {
       const chapterTexts = ['nextChapter', 'previousChapter', 'nextChapterUntitled', 'previousChapterUntitled'] // C-085, optional
       return isStr(m.sessionId) && !!t && typeof t === 'object' && isStr(t.missingPart) &&
         chapterTexts.every(k => t[k] == null || isStr(t[k])) &&
+        (m.continued == null || (Array.isArray(m.continued) && (m.continued as unknown[]).every(i => Number.isInteger(i) && (i as number) > 0))) &&
         (m.position == null || isStr(m.position)) && (m.settings == null || validSettings(m.settings))
     }
     case 'goTo': return isStr(m.target) && (m.id == null || Number.isInteger(m.id))

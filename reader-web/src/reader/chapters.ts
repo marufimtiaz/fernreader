@@ -33,3 +33,15 @@ export function chapterEdgeLabel(toc: readonly TocItem[], index: number, dir: 1 
   if (title == null) return dir > 0 ? texts.nextChapterUntitled : texts.previousChapterUntitled
   return (dir > 0 ? texts.nextChapter : texts.previousChapter).split('{title}').join(title)
 }
+
+/**
+ * C-085 with M8: the chapter (first and last section) that section [index] belongs to. [continued] holds the virtual
+ * sections that are a later part of the document before them (a huge document split by the app); [count] sections.
+ */
+export function chapterSpan(continued: ReadonlySet<number>, count: number, index: number): [number, number] {
+  let first = index
+  while (first > 0 && continued.has(first)) first--
+  let last = index
+  while (last + 1 < count && continued.has(last + 1)) last++
+  return [first, last]
+}

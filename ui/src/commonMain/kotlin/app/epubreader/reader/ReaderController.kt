@@ -314,7 +314,8 @@ class ReaderController(
                     settingsLoaded.await()
                     session = s
                     probe.ev("open_sent", ref.key)
-                    reader.send(ToWeb.Open(sessionId = s.id, position = saved?.cfi?.let(s.map::cfiToVirtual), texts = texts, settings = web()))
+                    reader.send(ToWeb.Open(sessionId = s.id, position = saved?.cfi?.let(s.map::cfiToVirtual), texts = texts, settings = web(),
+                        continued = (s.map as? ChunkMap)?.continuedSections?.takeIf { it.isNotEmpty() }))
                 } catch (e: CancellationException) {
                     release(r.sessionId)
                     throw e

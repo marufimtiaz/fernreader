@@ -68,6 +68,9 @@ data class ChunkMap(
     }
     private val partOwner: Map<String, SplitDoc> by lazy { docs.values.flatMap { d -> d.parts.map { it.path to d } }.toMap() }
 
+    /** C-085: virtual sections that are a later part of a split document (they continue the section before). */
+    val continuedSections: List<Int> by lazy { vSections.indices.filter { vSections[it].part > 0 } }
+
     /** Virtual sections (zip paths of documents or parts), in reading order. */
     val virtualSpinePaths: List<String> by lazy { vSections.map { it.path } }
 
