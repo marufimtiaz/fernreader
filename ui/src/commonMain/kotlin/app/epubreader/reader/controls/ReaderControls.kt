@@ -105,7 +105,11 @@ fun BookInfoDialog(title: String, authors: List<String>, onDismiss: () -> Unit) 
  * While the slider is dragged, [chapter] and [pageLabel] are the target's (C-073: the caller passes the preview).
  */
 @Composable
-fun ReaderBottomBar(chapter: String?, pageLabel: String?, fraction: Double, a: ControlActions, modifier: Modifier = Modifier) {
+fun ReaderBottomBar(
+    chapter: String?, pageLabel: String?, fraction: Double, a: ControlActions, modifier: Modifier = Modifier,
+    /** C-083: tapping the page label opens "Go to page" (Book pages); null = not offered. */
+    onPageLabel: (() -> Unit)? = null,
+) {
     var drag by remember { mutableStateOf<Float?>(null) }
     // The bar going away mid-drag (Back, the controls hidden) is a cancelled drag: nothing seeks, the preview ends.
     DisposableEffect(Unit) { onDispose { if (drag != null) a.cancelSeek() } }
@@ -120,7 +124,9 @@ fun ReaderBottomBar(chapter: String?, pageLabel: String?, fraction: Double, a: C
                 Text(chapter ?: "", maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge,
                     modifier = Modifier.weight(1f))
                 Text(pageLabel ?: "", maxLines = 1, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 12.dp))
+                    modifier = Modifier.padding(start = 12.dp).then(
+                        if (onPageLabel != null) Modifier.clickable(onClickLabel = Copy.goToPage, onClick = onPageLabel) else Modifier,
+                    ))
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 val shown = drag ?: fraction.toFloat()

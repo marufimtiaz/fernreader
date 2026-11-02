@@ -44,7 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.epubreader.core.data.Align
 import app.epubreader.core.data.Flow
-import app.epubreader.core.data.IndicatorScope
+import app.epubreader.core.data.PageNumbers
 import app.epubreader.core.data.ReaderSettings
 import app.epubreader.core.data.ReadingThemeId
 import app.epubreader.ui.Copy
@@ -88,8 +88,9 @@ fun DisplayPanel(
             Segments(Copy.layout, FlowOptions, s.flow) { f ->
                 onChange { it.copy(flow = f) }
             }
-            Segments(Copy.pageNumbers, listOf(IndicatorScope.BOOK to Copy.scopeBook, IndicatorScope.CHAPTER to Copy.scopeChapter), s.pageIndicatorScope) { sc ->
-                onChange { it.copy(pageIndicatorScope = sc) }
+            // C-083: book pages (the default) or screen pages, for the whole book or the chapter.
+            Segments(Copy.pageNumbers, PageNumberOptions, s.pageNumbers, hint = Copy.pageNumbersHint(s.pageNumbers)) { p ->
+                onChange { it.copy(pageNumbers = p) }
             }
             BrightnessRow(s.brightness) { b -> onChange { it.copy(brightness = b) } }
         }
@@ -167,6 +168,9 @@ private fun SliderRow(label: String, value: String, v: Float, range: ClosedFloat
 
 /** F-031: the reading-mode choices, the same in the display panel, the Reader settings sheet and Settings → Reading. */
 internal val FlowOptions = listOf(Flow.PAGED to Copy.flowPaged, Flow.SCROLLED to Copy.flowScrolled, Flow.AUTO to Copy.flowAuto)
+
+/** C-083: the Page numbers choices in the display panel (short; the hint under them says what the selected one means). */
+internal val PageNumberOptions = listOf(PageNumbers.BOOK_PAGES to Copy.segmentBookPages, PageNumbers.SCREEN_BOOK to Copy.segmentScreenPages, PageNumbers.SCREEN_CHAPTER to Copy.segmentChapterPages)
 
 /** [enabled] false greys the row out and ignores taps; [hint] is shown under it (e.g. why it is off). */
 @Composable

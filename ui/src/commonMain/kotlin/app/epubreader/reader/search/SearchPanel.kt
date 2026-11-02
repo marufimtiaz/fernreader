@@ -67,7 +67,11 @@ private fun rowsOf(results: List<SearchResult>): List<ListRow> {
  * as batches arrive. Coloured by the active reading theme.
  */
 @Composable
-fun SearchPanel(search: ReaderSearch, onDismiss: () -> Unit) {
+fun SearchPanel(
+    search: ReaderSearch, onDismiss: () -> Unit,
+    /** C-083: a hit's book page label ([spineIndex], [offset] original) while Book pages are shown, else null. */
+    pageOf: (Int, Int) -> String? = { _, _ -> null },
+) {
     val st by search.state.collectAsState()
     val focus = remember { FocusRequester() }
     val keyboard = LocalFocusManager.current
@@ -109,6 +113,9 @@ fun SearchPanel(search: ReaderSearch, onDismiss: () -> Unit) {
                         )
                         is ListRow.Hit -> Column(Modifier.fillMaxWidth().clickable { search.select(row.result) }) {
                             Text(snippet(row.result), Modifier.padding(horizontal = 16.dp, vertical = 10.dp), style = MaterialTheme.typography.bodyMedium, maxLines = 4, overflow = TextOverflow.Ellipsis)
+                            pageOf(row.result.hit.spineIndex, row.result.hit.offset)?.let { label ->
+                                Text(Copy.bookPage(label), Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
                             HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
                         }
                     }

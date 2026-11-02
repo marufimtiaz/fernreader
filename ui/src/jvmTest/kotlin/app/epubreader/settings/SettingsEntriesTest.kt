@@ -1,7 +1,7 @@
 package app.epubreader.settings
 
 import app.epubreader.core.data.Flow
-import app.epubreader.core.data.IndicatorScope
+import app.epubreader.core.data.PageNumbers
 import app.epubreader.core.data.OrientationLock
 import app.epubreader.core.data.PageAnimation
 import app.epubreader.core.data.ReaderSettings
@@ -40,10 +40,10 @@ class SettingsEntriesTest {
     }
 
     @Test fun items_show_the_current_values() {
-        reader = ReaderSettings(pageIndicatorScope = IndicatorScope.CHAPTER, pageAnimation = PageAnimation.NONE, swipeDirection = SwipeDirection.RTL,
+        reader = ReaderSettings(pageNumbers = PageNumbers.SCREEN_CHAPTER, pageAnimation = PageAnimation.NONE, swipeDirection = SwipeDirection.RTL,
             tapZones = true, volumeKeys = VolumeKeys.REVERSED, fullscreen = false, keepScreenOn = false, orientation = OrientationLock.LANDSCAPE,
             confirmExternalLinks = false)
-        assertEquals("CHAPTER", choice("reader.pageScope").selected)
+        assertEquals("SCREEN_CHAPTER", choice("reader.pageScope").selected)
         assertEquals("NONE", choice("reader.pageAnimation").selected)
         assertEquals("RTL", choice("reader.swipeDirection").selected)
         assertTrue(toggle("reader.tapZones").checked)
@@ -72,7 +72,7 @@ class SettingsEntriesTest {
         toggle("reader.keepScreenOn").onChange(false); assertEquals(false, reader.keepScreenOn)
         choice("reader.orientation").onSelect("PORTRAIT"); assertEquals(OrientationLock.PORTRAIT, reader.orientation)
         toggle("reader.confirmLinks").onChange(false); assertEquals(false, reader.confirmExternalLinks)
-        choice("reader.pageScope").onSelect("CHAPTER"); assertEquals(IndicatorScope.CHAPTER, reader.pageIndicatorScope)
+        choice("reader.pageScope").onSelect("SCREEN_BOOK"); assertEquals(PageNumbers.SCREEN_BOOK, reader.pageNumbers)
         // one field at a time: the others are untouched
         assertEquals(ReaderSettings().fontScale, reader.fontScale); assertTrue(reader.tapZones)
     }

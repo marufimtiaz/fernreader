@@ -111,6 +111,7 @@ object Copy {
     fun pageLabel(p: app.epubreader.reader.PageIndicator): String? {
         val page = p.page ?: return null
         return when {
+            p.label != null -> if (p.total == null) "Page ${p.label}" else "Page ${p.label} of ${n(p.total)}"
             p.total == null -> "Page ${n(page)}"
             p.chapterScope -> "Page ${n(page)} of ${n(p.total)} in chapter"
             p.exact -> "Page ${n(page)} of ${n(p.total)}"
@@ -355,4 +356,30 @@ object Copy {
         OpenFailure.NOT_A_ZIP -> "This file isn't an EPUB book."
         OpenFailure.DAMAGED -> "This book file is damaged and can't be opened."
     }
+    // --- C-083 book pages ---
+    const val pageNumbersBookPages = "Book pages"
+    const val pageNumbersScreenBook = "Screen pages, whole book"
+    const val pageNumbersScreenChapter = "Screen pages, this chapter"
+    /** The display panel's three segments (short), explained by [pageNumbersHint] under them. */
+    const val segmentBookPages = "Book"
+    const val segmentScreenPages = "Screen"
+    const val segmentChapterPages = "Chapter"
+    fun pageNumbersHint(p: app.epubreader.core.data.PageNumbers) = when (p) {
+        app.epubreader.core.data.PageNumbers.BOOK_PAGES -> "Fixed numbers, the print edition's where the book has them. Text size and margins don't change them."
+        app.epubreader.core.data.PageNumbers.SCREEN_BOOK -> "Pages as they fit on this screen, counted through the whole book."
+        app.epubreader.core.data.PageNumbers.SCREEN_CHAPTER -> "Pages as they fit on this screen, counted in the current chapter."
+    }
+    fun pageNumbersName(p: app.epubreader.core.data.PageNumbers) = when (p) {
+        app.epubreader.core.data.PageNumbers.BOOK_PAGES -> pageNumbersBookPages
+        app.epubreader.core.data.PageNumbers.SCREEN_BOOK -> pageNumbersScreenBook
+        app.epubreader.core.data.PageNumbers.SCREEN_CHAPTER -> pageNumbersScreenChapter
+    }
+    /** A book page in the bookmark, highlight and search lists ("xii" as printed, or a number). */
+    fun bookPage(label: String) = "Page $label"
+    const val goToPage = "Go to page"
+    const val goToPageAction = "Go"
+    const val pageField = "Page"
+    /** Which pages exist, under the field: "i to 350" (first and last label). */
+    fun pageRange(first: String, last: String) = "$first to $last"
+    fun noSuchPage(input: String) = "This book has no page \u201c${input.trim()}\u201d."
 }

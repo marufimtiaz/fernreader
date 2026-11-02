@@ -16,6 +16,16 @@ enum class ReadingThemeId { LIGHT, DARK, BLACK, WARM }
 /** F-031: AUTO is paged in portrait and scrolled in landscape (C-004). */
 enum class Flow { PAGED, SCROLLED, AUTO }
 enum class IndicatorScope { BOOK, CHAPTER }
+/**
+ * C-083 "Page numbers": BOOK_PAGES (the default) = the book's own pages, print labels or fixed 1,800-character pages,
+ * the same at every setting; SCREEN_BOOK / SCREEN_CHAPTER = pages as laid out on this screen, for the whole book or the
+ * current chapter (the M4 "Whole book" / "This chapter").
+ */
+enum class PageNumbers {
+    BOOK_PAGES, SCREEN_BOOK, SCREEN_CHAPTER;
+    /** The screen-page counter's scope (BOOK_PAGES keeps counting screen pages for the slider preview and totals). */
+    val screenScope: IndicatorScope get() = if (this == SCREEN_CHAPTER) IndicatorScope.CHAPTER else IndicatorScope.BOOK
+}
 /** F-032/F-081: AUTO follows the book's page-progression-direction; LTR = swipe right-to-left is next; RTL = the reverse. */
 enum class SwipeDirection { AUTO, LTR, RTL }
 /** C-005: ON = volume-down next, volume-up previous; REVERSED swaps them. */
@@ -41,7 +51,7 @@ data class ReaderSettings(
     val flow: Flow = Flow.PAGED,
     /** null = follow the system brightness; otherwise the reader window's brightness, 0.05..1. */
     val brightness: Double? = null,
-    val pageIndicatorScope: IndicatorScope = IndicatorScope.BOOK,
+    val pageNumbers: PageNumbers = PageNumbers.BOOK_PAGES,
     val swipeDirection: SwipeDirection = SwipeDirection.AUTO,
     /** F-032: tapping the screen edges turns pages; off by default. */
     val tapZones: Boolean = false,
@@ -99,7 +109,10 @@ data class ReaderSettings(
                 theme = enum("theme", ReadingThemeId.entries.toTypedArray(), d.theme),
                 flow = enum("flow", Flow.entries.toTypedArray(), d.flow),
                 brightness = num("brightness"),
-                pageIndicatorScope = enum("pageIndicatorScope", IndicatorScope.entries.toTypedArray(), d.pageIndicatorScope),
+                // C-083: before "pageNumbers" the choice was "pageIndicatorScope": BOOK (the old default) takes the new
+                // default, Book pages; CHAPTER (a choice the reader made) stays screen pages of the chapter.
+                pageNumbers = str("pageNumbers")?.let { v -> PageNumbers.entries.firstOrNull { it.name == v } }
+                    ?: if (str("pageIndicatorScope") == IndicatorScope.CHAPTER.name) PageNumbers.SCREEN_CHAPTER else d.pageNumbers,
                 swipeDirection = enum("swipeDirection", SwipeDirection.entries.toTypedArray(), d.swipeDirection),
                 tapZones = bool("tapZones", d.tapZones),
                 volumeKeys = enum("volumeKeys", VolumeKeys.entries.toTypedArray(), d.volumeKeys),

@@ -34,7 +34,15 @@ interface BookOpenerPort {
      * chunked book (M8) its virtual sections, parts included. Null if the package can't be read.
      */
     suspend fun sectionStats(sessionId: String): List<SectionStat>? = null
+    /**
+     * C-083: the book's pages, computed from the book file (one pass over the original spine). With [withStats], an
+     * unchunked book's section stats from the same pass come along (null for a chunked one). Null if unreadable.
+     */
+    suspend fun bookPages(sessionId: String, withStats: Boolean = false): BookPagesResult? = null
 }
+
+/** C-083: [pages] of a book, and its section stats when they came from the same pass. */
+data class BookPagesResult(val pages: app.epubreader.core.epub.pages.BookPages, val stats: List<SectionStat>? = null)
 
 /** In-book search as the UI sees it (implemented in app over core/search's SearchIndexes). */
 interface SearchPort {

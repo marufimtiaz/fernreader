@@ -53,6 +53,10 @@ import kotlinx.serialization.json.Json
     @Serializable @SerialName("setAnnotations") data class SetAnnotations(val v: Int = 1, val sessionId: String, val items: List<WebAnnotation>) : ToWeb
     /** F-061: the annotation [id] is gone: its drawing is erased at once. */
     @Serializable @SerialName("removeAnnotation") data class RemoveAnnotation(val v: Int = 1, val sessionId: String, val id: String) : ToWeb
+    /** C-083 go to page: jump to text [offset] of (virtual) section [sectionIndex], a book page's start. */
+    @Serializable @SerialName("goToOffset") data class GoToOffset(val v: Int = 1, val sectionIndex: Int, val offset: Int) : ToWeb
+    /** C-083: where these virtual CFIs start in their sections' text; answered by [FromWeb.TextOffsets] with [id]. */
+    @Serializable @SerialName("textOffsets") data class TextOffsets(val v: Int = 1, val sessionId: String, val id: Int, val cfis: List<String>) : ToWeb
 }
 
 /** One annotation as the page draws it (F-061): [cfi] virtual range CFI, [color] a HighlightColors id, [style] "highlight" | "underline". */
@@ -89,6 +93,8 @@ import kotlinx.serialization.json.Json
         val page: Int = 0, val pages: Int = 0, val sectionFraction: Double = 0.0,
         /** F-041: the entries of the last [ToWeb.SetBookmarks] that lie on the visible page (same strings); null when none. */
         val bookmarks: List<String>? = null,
+        /** C-083: the visible range's start and end as offsets in the section's text (search-hit coordinates); -1 unknown. */
+        val textOffset: Int = -1, val textEnd: Int = -1,
     ) : FromWeb
     /** F-041: answer to [ToWeb.SetBookmarks] for the page now visible. */
     @Serializable @SerialName("pageBookmarks") data class PageBookmarks(val v: Int = 1, val sessionId: String, val cfis: List<String>) : FromWeb
@@ -117,6 +123,8 @@ import kotlinx.serialization.json.Json
      * F-060: the text selection settled: [text] exactly the document's Selection.toString(), [cfi] its virtual range CFI,
      * [sectionIndex] its (virtual) section. Cleared: [cfi] null, [text] empty, [sectionIndex] -1.
      */
+    /** C-083: answer to [ToWeb.TextOffsets]: [section, offset] per CFI in order (virtual), [-1, -1] when one did not resolve. */
+    @Serializable @SerialName("textOffsets") data class TextOffsets(val v: Int = 1, val sessionId: String, val id: Int, val offsets: List<List<Int>>) : FromWeb
     @Serializable @SerialName("selection") data class Selection(
         val v: Int = 1, val sessionId: String, val text: String = "", val cfi: String? = null, val sectionIndex: Int = -1,
     ) : FromWeb

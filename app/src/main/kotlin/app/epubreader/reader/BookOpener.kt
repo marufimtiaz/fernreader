@@ -142,6 +142,17 @@ class BookOpener(
         try { sectionStats(s) } catch (e: Exception) { null } // closed under us (Back), unreadable, or a lost chunk cache
     }
 
+    override suspend fun bookPages(sessionId: String, withStats: Boolean): BookPagesResult? = withContext(io) {
+        val s = lock.withLock { current?.takeIf { it.id == sessionId } } ?: return@withContext null
+        try {
+            bookPages(s, withStats)
+        } catch (e: Exception) {
+            null // closed under us (Back), or unreadable
+        } catch (e: OutOfMemoryError) {
+            warn("book pages ran out of memory: ${s.ref.key}"); null
+        }
+    }
+
     /**
      * Text of the current session's book for the search index builder (F-050); null if [sessionId] is not the current
      * session. Reads the package, so call it on an I/O thread. Later reads fail with BookUnavailableException when the

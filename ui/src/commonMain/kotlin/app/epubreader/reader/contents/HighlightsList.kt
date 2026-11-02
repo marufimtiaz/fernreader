@@ -47,7 +47,11 @@ import app.epubreader.ui.Copy
  * confirmation). Live: [annotations] follows the database.
  */
 @Composable
-fun HighlightsList(annotations: List<Annotation>, onOpen: (Annotation) -> Unit, onRemove: (Annotation) -> Unit) {
+fun HighlightsList(
+    annotations: List<Annotation>, onOpen: (Annotation) -> Unit, onRemove: (Annotation) -> Unit,
+    /** C-083: the highlight's book page label while Book pages are shown, else null (no page). */
+    bookPage: (Annotation) -> String? = { null },
+) {
     if (annotations.isEmpty()) { EmptyTab(Copy.noHighlights); return }
     LazyColumn(Modifier.fillMaxSize()) {
         items(annotations, key = { it.id }) { a ->
@@ -55,7 +59,8 @@ fun HighlightsList(annotations: List<Annotation>, onOpen: (Annotation) -> Unit, 
                 Mark(a, Modifier.padding(top = 16.dp))
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f).padding(vertical = 12.dp)) {
-                    Text(a.chapter.ifBlank { Copy.untitledEntry }, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    val chapter = a.chapter.ifBlank { Copy.untitledEntry }
+                    Text(bookPage(a)?.let { "$chapter · ${Copy.bookPage(it)}" } ?: chapter, maxLines = 1, overflow = TextOverflow.Ellipsis,
                         style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(a.text, maxLines = 3, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(top = 2.dp))
                     a.note?.let { note -> Note(note) }

@@ -29,7 +29,7 @@ class ReaderSettingsTest {
     }
 
     @Test fun round_trip() {
-        val s = ReaderSettings(1.4, ReaderSettings.LITERATA, 1.8, 3, Align.JUSTIFY, ReadingThemeId.WARM, Flow.AUTO, 0.4, IndicatorScope.CHAPTER)
+        val s = ReaderSettings(1.4, ReaderSettings.LITERATA, 1.8, 3, Align.JUSTIFY, ReadingThemeId.WARM, Flow.AUTO, 0.4, PageNumbers.SCREEN_CHAPTER)
         assertEquals(s, ReaderSettings.decode(s.encode()))
     }
 
@@ -76,7 +76,7 @@ class ReaderSettingsTest {
         val s = ReaderSettings.decode(m5)
         assertEquals(1.4, s.fontScale)
         assertEquals(ReadingThemeId.WARM, s.theme)
-        assertEquals(ReaderSettings(1.4, ReaderSettings.LITERATA, 1.8, 3, Align.JUSTIFY, ReadingThemeId.WARM, Flow.AUTO, 0.4, IndicatorScope.CHAPTER), s)
+        assertEquals(ReaderSettings(1.4, ReaderSettings.LITERATA, 1.8, 3, Align.JUSTIFY, ReadingThemeId.WARM, Flow.AUTO, 0.4, PageNumbers.SCREEN_CHAPTER), s)
     }
 
     @Test fun highlight_colour_defaults_to_yellow_round_trips_and_rejects_unknown_ids() {
@@ -86,5 +86,17 @@ class ReaderSettingsTest {
         assertEquals(HighlightColors.YELLOW, ReaderSettings.decode("""{"highlightColor":"neon"}""").highlightColor)
         assertEquals(HighlightColors.YELLOW, ReaderSettings.decode("""{"highlightColor":3}""").highlightColor)
         assertEquals(HighlightColors.YELLOW, ReaderSettings(highlightColor = "x").clamped().highlightColor)
+    }
+
+    /** C-083: Book pages is the default; old stored scopes keep working (BOOK was the old default, CHAPTER a choice). */
+    @Test fun page_numbers_default_and_old_scope_values() {
+        assertEquals(PageNumbers.BOOK_PAGES, ReaderSettings().pageNumbers)
+        assertEquals(PageNumbers.BOOK_PAGES, ReaderSettings.decode("""{"pageIndicatorScope":"BOOK"}""").pageNumbers)
+        assertEquals(PageNumbers.SCREEN_CHAPTER, ReaderSettings.decode("""{"pageIndicatorScope":"CHAPTER"}""").pageNumbers)
+        assertEquals(PageNumbers.SCREEN_BOOK, ReaderSettings.decode("""{"pageIndicatorScope":"CHAPTER","pageNumbers":"SCREEN_BOOK"}""").pageNumbers)
+        assertEquals(PageNumbers.BOOK_PAGES, ReaderSettings.decode("""{"pageNumbers":"PAGES_OF_DOOM"}""").pageNumbers)
+        for (p in PageNumbers.entries) assertEquals(p, ReaderSettings.decode(ReaderSettings(pageNumbers = p).encode()).pageNumbers)
+        assertEquals(IndicatorScope.CHAPTER, PageNumbers.SCREEN_CHAPTER.screenScope)
+        assertEquals(IndicatorScope.BOOK, PageNumbers.BOOK_PAGES.screenScope)
     }
 }

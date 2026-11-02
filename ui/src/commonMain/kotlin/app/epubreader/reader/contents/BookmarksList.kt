@@ -34,6 +34,8 @@ import app.epubreader.ui.Copy
 fun BookmarksList(
     bookmarks: List<Bookmark>, indicator: PageIndicator, formatDate: (Long) -> String,
     onOpen: (Bookmark) -> Unit, onRemove: (Bookmark) -> Unit,
+    /** C-083: the bookmark's book page label while Book pages are shown (null: the estimate below). */
+    bookPage: (Bookmark) -> String? = { null },
 ) {
     if (bookmarks.isEmpty()) { EmptyTab(Copy.noBookmarks); return }
     LazyColumn(Modifier.fillMaxSize()) {
@@ -41,7 +43,7 @@ fun BookmarksList(
             Row(Modifier.fillMaxWidth().clickable { onOpen(b) }.padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f).padding(vertical = 12.dp)) {
                     Text(b.chapter.ifBlank { Copy.untitledEntry }, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyLarge)
-                    val place = bookmarkPage(b.fraction, indicator)?.let(Copy::bookmarkPage) ?: Copy.bookmarkPercent(bookmarkPercent(b.fraction))
+                    val place = bookPage(b)?.let(Copy::bookPage) ?: bookmarkPage(b.fraction, indicator)?.let(Copy::bookmarkPage) ?: Copy.bookmarkPercent(bookmarkPercent(b.fraction))
                     Text("$place · ${formatDate(b.createdAt)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 IconButton(onClick = { onRemove(b) }) { Icon(Icons.Filled.Delete, Copy.removeBookmark) }

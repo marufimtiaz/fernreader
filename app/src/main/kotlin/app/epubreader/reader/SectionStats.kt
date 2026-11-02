@@ -2,6 +2,7 @@ package app.epubreader.reader
 
 import app.epubreader.core.epub.chunk.ChunkCacheException
 import app.epubreader.core.epub.markup.TextDecoding
+import app.epubreader.core.epub.pages.BookPagesBuilder
 import app.epubreader.core.epub.pkg.LoadResult
 import app.epubreader.core.epub.pkg.PackageLoader
 import app.epubreader.core.epub.text.TextExtractor
@@ -27,6 +28,18 @@ fun sectionStats(s: BookSession): List<SectionStat>? {
         pkg.spine.map { item -> stat { if (item.present) s.zip.entry(item.path)?.let(s.zip::readBytes) else null } }
     } ?: sectionStats(s.zip)
     return c.map.virtualSpinePaths.map { path -> stat { s.virtualEntry(path) ?: s.zip.entry(path)?.let(s.zip::readBytes) } }
+}
+
+/**
+ * C-083: the book's pages, from the original spine (a chunked book's parts are never read: its pages are the
+ * unchunked book's). With [withStats] and an unchunked session, the same pass gives the section stats (so a first
+ * open reads the book once for both). Null without a readable package. Call on an I/O thread.
+ */
+fun bookPages(s: BookSession, withStats: Boolean): BookPagesResult? {
+    val pkg = s.pkg ?: (PackageLoader.load(s.zip) as? LoadResult.Ok)?.pkg ?: return null
+    val stats = if (withStats && s.chunked == null) arrayOfNulls<SectionStat>(pkg.spine.size) else null
+    val pages = BookPagesBuilder.build(s.zip, pkg) { i, ex -> stats?.set(i, ex?.let { SectionStat(it.compactLength, it.imageCount) } ?: SectionStat(0, 0)) }
+    return BookPagesResult(pages, stats?.map { it ?: SectionStat(0, 0) })
 }
 
 /** Stats of one section's bytes (null = missing, counts as empty). */

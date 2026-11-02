@@ -1,7 +1,7 @@
 package app.epubreader.settings
 
 import app.epubreader.core.data.Flow
-import app.epubreader.core.data.IndicatorScope
+import app.epubreader.core.data.PageNumbers
 import app.epubreader.core.data.OrientationLock
 import app.epubreader.core.data.PageAnimation
 import app.epubreader.core.data.ReaderSettings
@@ -58,8 +58,8 @@ fun settingsSections(i: SettingsInputs): List<SettingsSection> = listOf(
         SettingItem.Action("library.hidden", Copy.hiddenBooks, Copy.hiddenSummary(i.hiddenCount), i.onHiddenBooks),
     )),
     SettingsSection(Copy.sectionReading, listOf(
-        SettingItem.Choice("reader.pageScope", Copy.pageNumbers, listOf(IndicatorScope.BOOK.name to Copy.scopeBook, IndicatorScope.CHAPTER.name to Copy.scopeChapter),
-            i.reader.pageIndicatorScope.name, { v -> i.onReader { it.copy(pageIndicatorScope = IndicatorScope.valueOf(v)) } }),
+        SettingItem.Choice("reader.pageScope", Copy.pageNumbers, PageNumbers.entries.map { it.name to Copy.pageNumbersName(it) },
+            i.reader.pageNumbers.name, { v -> i.onReader { it.copy(pageNumbers = PageNumbers.valueOf(v)) } }),
         SettingItem.Choice("reader.flow", Copy.layout, listOf(Flow.PAGED.name to Copy.flowPaged, Flow.SCROLLED.name to Copy.flowScrolled, Flow.AUTO.name to Copy.flowAuto),
             i.reader.flow.name, { v -> i.onReader { it.copy(flow = Flow.valueOf(v)) } }),
         SettingItem.Choice("reader.pageAnimation", Copy.pageAnimation, listOf(PageAnimation.SLIDE.name to Copy.animSlide, PageAnimation.NONE.name to Copy.animNone),

@@ -66,7 +66,8 @@ fun ReaderScreen(
 ) {
     val s by c.state.collectAsState()
     val settings by c.settings.collectAsState()
-    val page by c.page.collectAsState()
+    val page by c.shownPage.collectAsState() // C-083: book or screen pages, as the setting says
+    val bookPages = settings.pageNumbers == app.epubreader.core.data.PageNumbers.BOOK_PAGES
     val preview by c.seekPreview.collectAsState()
     var bookInfo by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { withFrameNanos { }; probe.ev("reader_frame", "") }
@@ -127,6 +128,7 @@ fun ReaderScreen(
             ReaderBottomBar(
                 if (p != null) p.chapter else chapterLabel(s.toc, s.currentTocHref),
                 Copy.pageLabel(p?.page ?: page), p?.fraction ?: s.fraction, actions, Modifier.align(Alignment.BottomCenter),
+                onPageLabel = if (bookPages && page.page != null && p == null) c::showGoToPage else null,
             )
         }
         if (s.displayVisible && s.error == null) {
@@ -137,9 +139,10 @@ fun ReaderScreen(
         if (s.tocVisible) ContentsPanel(
             s.title, s.contentsTab, c::selectContentsTab, s.toc, s.currentTocHref, c::onTocSelected,
             s.bookmarks, page, formatDate, c::onBookmarkSelected, c::removeBookmark, c::hideToc, probe,
-            highlights = { HighlightsList(s.annotations, c::onAnnotationSelected) { a -> c.removeAnnotation(a.id) } },
+            highlights = { HighlightsList(s.annotations, c::onAnnotationSelected, { a -> c.removeAnnotation(a.id) }, bookPage = { a -> s.bookPageLabels[a.cfi].takeIf { bookPages } }) },
+            bookPage = { b -> s.bookPageLabels[b.cfi].takeIf { bookPages } },
         )
-        if (s.searchVisible && s.error == null) SearchPanel(c.searcher, onDismiss = c::hideSearch)
+        if (s.searchVisible && s.error == null) SearchPanel(c.searcher, onDismiss = c::hideSearch, pageOf = c::searchHitPage)
         // F-060: after Highlight/Underline, one more tap gives the new annotation another of the six colours.
         s.highlightPicker?.let { p ->
             LaunchedEffect(p) { kotlinx.coroutines.delay(8_000); c.dismissHighlightPicker() } // it goes away on its own too
@@ -163,6 +166,8 @@ fun ReaderScreen(
                     Notice.BookmarkAdded -> Copy.bookmarkAdded; Notice.BookmarkRemoved -> Copy.bookmarkRemoved; Notice.HighlightRemoved -> Copy.highlightRemoved })
             }
         }
+        // C-083: "Go to page" from the page label in the bottom bar (Book pages).
+        if (s.goToPageVisible && s.error == null) GoToPageDialog(c.bookPageRange(), c::goToPage, c::hideGoToPage)
         // F-044: confirmation naming the link's host; Back or a tap outside cancels.
         s.externalLink?.let { l ->
             AlertDialog(

@@ -11,6 +11,7 @@ import app.epubreader.core.data.OpenedBookInfo
 import app.epubreader.core.data.PositionWriter
 import app.epubreader.core.data.Align
 import app.epubreader.core.data.Flow
+import app.epubreader.core.data.PageNumbers
 import app.epubreader.core.data.PageAnimation
 import app.epubreader.core.data.SwipeDirection
 import app.epubreader.core.data.ReaderSettings
@@ -36,6 +37,9 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
@@ -85,6 +89,10 @@ data class ReaderUiState(
     /** F-061: the sheet of a tapped highlight (colour, style, note, remove); Back or a tap on the page closes it. */
     val annotationSheet: AnnotationSheet? = null,
     val notice: Notice? = null,
+    /** C-083: book page labels of the bookmarks and highlights, by their stored (original) CFI; filled as they resolve. */
+    val bookPageLabels: Map<String, String> = emptyMap(),
+    /** C-083: the "Go to page" dialog is shown (Book pages only). */
+    val goToPageVisible: Boolean = false,
     val error: ReaderError? = null,
     val source: SourceRef? = null,
 )
@@ -182,6 +190,9 @@ class ReaderController(
         var drawn: MutableMap<String, WebAnnotation>? = null
         /** The annotation removed last, for Undo. */
         var removed: Annotation? = null
+        /** C-083: list CFIs (original) asked of the web side for their book pages, and the open requests by id. */
+        val pagesAsked = HashSet<String>()
+        val pageRequests = HashMap<Int, List<String>>()
     }
 
     private val _state = MutableStateFlow(ReaderUiState())
@@ -198,11 +209,22 @@ class ReaderController(
     private val totals = PageTotals(probe)
     /** Page indicator: "page N", then "page N of ≈ M", then exact (F-034, C-016, C-017). */
     val page: StateFlow<PageIndicator> = totals.state
+    private val bookNumbers = BookPageNumbers()
+    /** C-083: the book page at the visible location (null page until the book's pages are known). */
+    val bookPage: StateFlow<PageIndicator> = bookNumbers.state
+    /** C-083: the book's pages could not be computed (an unreadable book): Book pages falls back to screen pages. */
+    private val bookPagesMissing = MutableStateFlow(false)
+    private var listRequests = 0
     /** Counted pages of a section in the current layout (diagnostics for the C-003 agreement test). */
     fun countedPages(index: Int): Int? = totals.counted(index)
     private val _settings = MutableStateFlow(ReaderSettings())
     /** Display settings (F-070..F-075), one value for every book. */
     val settings: StateFlow<ReaderSettings> = _settings
+    /** C-083: what the indicator, the bar and the lists show: book pages or screen pages, as the Page numbers setting says. */
+    val shownPage: StateFlow<PageIndicator> = combine(_settings, totals.state, bookNumbers.state, bookPagesMissing) { set, screen, book, missing ->
+        if (set.pageNumbers == PageNumbers.BOOK_PAGES && !missing) book else screen
+    }.stateIn(scope, SharingStarted.Eagerly, PageIndicator(null, null, false, false))
+    private val bookPagesShown: Boolean get() = _settings.value.pageNumbers == PageNumbers.BOOK_PAGES && bookNumbers.pages != null
     /** F-050 search state for the open book (reset when another opens). */
     val searcher = ReaderSearch(
         scope, search, searchHistory, probe,
@@ -219,7 +241,7 @@ class ReaderController(
     private val settingsLoaded: Deferred<Unit> = scope.async {
         try {
             settingsStore?.get(ReaderSettings.KEY)?.let { _settings.value = ReaderSettings.decode(it) }
-            totals.scope = _settings.value.pageIndicatorScope
+            totals.scope = _settings.value.pageNumbers.screenScope
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -253,6 +275,7 @@ class ReaderController(
     fun open(ref: SourceRef) {
         close()
         totals.reset()
+        bookNumbers.reset(); bookPagesMissing.value = false
         searcher.reset()
         _state.value = ReaderUiState(open = true, loading = true, source = ref); _seekPreview.value = null
         val previous = closing
@@ -308,8 +331,29 @@ class ReaderController(
             val id = s.bookId ?: return@launch
             try {
                 val kind = statsKind(s.map)
-                val stats = library.cached(id, kind, s.cdDigest)?.let { runCatching { BridgeJson.decodeFromString(STATS, it) }.getOrNull() }
-                    ?: opener.sectionStats(s.id)?.also { library.storeCache(id, kind, s.cdDigest, BridgeJson.encodeToString(STATS, it)) }
+                var stats = library.cached(id, kind, s.cdDigest)?.let { runCatching { BridgeJson.decodeFromString(STATS, it) }.getOrNull() }
+                // C-083: the book pages, stored with the book once computed; the computing pass also gives the section
+                // stats of an unchunked book, so a first open reads the book once for both.
+                val pages = try {
+                    library.bookPages(id, s.cdDigest) ?: opener.bookPages(s.id, withStats = stats == null)?.let { r ->
+                        if (stats == null && r.stats != null && s.map === PositionMap.Identity) {
+                            stats = r.stats
+                            library.storeCache(id, kind, s.cdDigest, BridgeJson.encodeToString(STATS, r.stats))
+                        }
+                        library.storeBookPages(id, s.cdDigest, r.pages)
+                        r.pages
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    failed("loading book pages", e, showIfOpen = false); null
+                }
+                if (session !== s) return@launch
+                bookNumbers.setPages(pages, s.map)
+                bookPagesMissing.value = pages == null
+                probe.ev("book_pages_ready", pages?.let { "${it.source} ${it.count}" } ?: "none")
+                requestListPages(s)
+                if (stats == null) stats = opener.sectionStats(s.id)?.also { library.storeCache(id, kind, s.cdDigest, BridgeJson.encodeToString(STATS, it)) }
                 if (session !== s) return@launch
                 s.stats = stats
                 probe.ev("stats_ready", "${stats?.size}")
@@ -339,7 +383,8 @@ class ReaderController(
         val (section, inSection) = sectionAt(s.sizes, f) ?: run { _seekPreview.value = SeekPreview(f, null, PageIndicator(null, null, false, false)); return }
         val st = _state.value
         val entry = tocEntryAt(st.toc, section, inSection, st.currentTocHref.takeIf { s.at?.sectionIndex == section })
-        _seekPreview.value = SeekPreview(f, entry?.label?.trim()?.takeIf { it.isNotEmpty() }, totals.previewAt(section, inSection))
+        val page = if (bookPagesShown) bookNumbers.previewAt(section, inSection) else totals.previewAt(section, inSection)
+        _seekPreview.value = SeekPreview(f, entry?.label?.trim()?.takeIf { it.isNotEmpty() }, page)
     }
 
     /** C-073: the drag ended without a seek: the bar shows the current position again. */
@@ -371,6 +416,7 @@ class ReaderController(
         s?.annotationJob?.cancel()
         s?.let(::saveNote) // a sheet open when the book closes keeps its note
         searcher.reset()
+        bookNumbers.reset()
         _state.value = ReaderUiState(); _seekPreview.value = null
         if (s == null) return
         reader.send(ToWeb.Close())
@@ -402,8 +448,9 @@ class ReaderController(
         val next = change(before).clamped()
         if (next == before) return
         _settings.value = next
-        totals.scope = next.pageIndicatorScope
-        if (web(before) != web(next)) { probe.ev("layout_change", ""); reader.send(ToWeb.SetSettings(settings = web())) }
+        totals.scope = next.pageNumbers.screenScope
+        if (next.pageNumbers != before.pageNumbers) session?.let(::requestListPages)
+        if (web(before) != web(next)) { bookNumbers.pinHere(); probe.ev("layout_change", ""); reader.send(ToWeb.SetSettings(settings = web())) }
         saveJob?.cancel()
         saveJob = closeScope.launch {
             kotlinx.coroutines.delay(300)
@@ -416,7 +463,7 @@ class ReaderController(
         if (value == landscape) return
         val before = web()
         landscape = value
-        if (web() != before) { probe.ev("layout_change", "flow"); reader.send(ToWeb.SetSettings(settings = web())) }
+        if (web() != before) { bookNumbers.pinHere(); probe.ev("layout_change", "flow"); reader.send(ToWeb.SetSettings(settings = web())) }
     }
 
     /** The settings as the web side applies them (AUTO flow resolved by orientation). */
@@ -588,6 +635,44 @@ class ReaderController(
         if (session !== s) return
         val on = s.bookmarkList.any { s.map.cfiToVirtual(it.cfi) in s.marks }
         _state.update { it.copy(bookmarks = s.bookmarkList, bookmarked = on, notice = notice ?: it.notice) }
+        requestListPages(s)
+    }
+
+    /**
+     * C-083: asks the web side where the bookmarks and highlights not yet known start (their book pages for the lists),
+     * only while Book pages are shown. One request per change; each CFI is asked once per session.
+     */
+    private fun requestListPages(s: Session) {
+        if (session !== s || !bookPagesShown) return
+        val want = (s.bookmarkList.map { it.cfi } + s.annotationList.map { it.cfi }).distinct().filter { it !in s.pagesAsked }
+        if (want.isEmpty()) return
+        s.pagesAsked += want
+        val id = ++listRequests
+        s.pageRequests[id] = want
+        reader.send(ToWeb.TextOffsets(sessionId = s.id, id = id, cfis = want.map(s.map::cfiToVirtual)))
+    }
+
+    /** C-083: the book page label of a search hit ([spineIndex], [offset] original), when Book pages are shown. */
+    fun searchHitPage(spineIndex: Int, offset: Int): String? = if (bookPagesShown) bookNumbers.labelAt(TextPos(spineIndex, offset)) else null
+
+    /** C-083: "Go to page" (the page label in the bottom bar), offered while Book pages are shown. */
+    fun showGoToPage() { if (session != null && bookPagesShown) _state.update { it.copy(goToPageVisible = true) } }
+    fun hideGoToPage() = _state.update { it.copy(goToPageVisible = false) }
+    /** The first and the last book page label ("Go to page" shows the range). */
+    fun bookPageRange(): Pair<String, String>? = bookNumbers.pages?.let { it.label(0) to it.label(it.count - 1) }
+
+    /**
+     * C-083 go to page: [input] is a page label as the book prints it ("xii", any case) or, for virtual pages, a
+     * number. Jumps to that page's start and returns true; false (nothing happens) if the book has no such page.
+     */
+    fun goToPage(input: String): Boolean {
+        val s = session ?: return false
+        if (!bookPagesShown) return false
+        val (index, at) = bookNumbers.goTo(input) ?: return false
+        probe.ev("goto_page", "${index + 1}")
+        _state.update { it.copy(goToPageVisible = false, chromeVisible = false) }
+        reader.send(ToWeb.GoToOffset(sectionIndex = at.spineIndex, offset = at.offset))
+        return true
     }
 
     /** Follows the book's bookmarks: every change goes to the web side (which reports the ones on the page) and to the state. */
@@ -709,6 +794,7 @@ class ReaderController(
                 port.annotations(bookId).collect { list ->
                     if (session !== s) return@collect
                     s.annotationList = list
+                    requestListPages(s)
                     val web = LinkedHashMap<String, WebAnnotation>().apply { for (a in list) put(a.id, webAnnotation(s, a)) }
                     val drawn = s.drawn
                     if (drawn == null) {
@@ -922,11 +1008,21 @@ class ReaderController(
                     _state.update { it.copy(currentTocHref = m.tocHref, fraction = m.fraction) }
                     publishBookmarks(s)
                     totals.onRelocate(m)
+                    bookNumbers.onRelocate(m)
                     if (s.seekSent) { s.seekSent = false; _seekPreview.value = null }
                 }
             }
             is FromWeb.PageBookmarks -> if (m.sessionId == s.id) { s.marks = m.cfis.toSet(); publishBookmarks(s) }
             is FromWeb.PageCounts -> if (m.sessionId == s.id) totals.onCounts(m)
+            is FromWeb.TextOffsets -> if (m.sessionId == s.id) {
+                val cfis = s.pageRequests.remove(m.id) ?: return
+                val labels = HashMap<String, String>()
+                for ((cfi, o) in cfis.zip(m.offsets)) {
+                    if (o.size != 2 || o[0] < 0) continue
+                    bookNumbers.labelAt(s.map.textToOriginal(TextPos(o[0], o[1])))?.let { labels[cfi] = it }
+                }
+                if (labels.isNotEmpty()) _state.update { it.copy(bookPageLabels = it.bookPageLabels + labels) }
+            }
             is FromWeb.Seeked -> if (m.sessionId == s.id && m.id == s.seek) { s.seek = null; probe.ev("seeked", "") }
             is FromWeb.Painted -> if (m.sessionId == s.id) {
                 probe.ev("painted", "")

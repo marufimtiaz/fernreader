@@ -8,8 +8,11 @@ import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.roundToInt
 
-/** What the page indicator shows: "page N", "page N of ≈ M" or "page N of M" (F-034, C-016, C-017). */
-data class PageIndicator(val page: Int?, val total: Int?, val exact: Boolean, val chapterScope: Boolean)
+/**
+ * What the page indicator shows: "page N", "page N of ≈ M" or "page N of M" (F-034, C-016, C-017). C-083 book pages
+ * have [label] when the book's print labels are shown (e.g. "xii"; [page] is then its 1-based place in the list).
+ */
+data class PageIndicator(val page: Int?, val total: Int?, val exact: Boolean, val chapterScope: Boolean, val label: String? = null)
 
 /**
  * Page number and book total for the open book (F-034, P-021). Counts come from the web side's hidden-layout counter

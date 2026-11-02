@@ -43,6 +43,8 @@ fun ContentsPanel(
     onOpenBookmark: (Bookmark) -> Unit, onRemoveBookmark: (Bookmark) -> Unit,
     onDismiss: () -> Unit, probe: EventProbe,
     highlights: @Composable () -> Unit = { EmptyTab(Copy.noHighlights) },
+    /** C-083: a bookmark's book page label (Book pages), else null. */
+    bookPage: (Bookmark) -> String? = { null },
 ) {
     Surface(Modifier.fillMaxSize()) {
         Column(Modifier.safeDrawingPadding()) {
@@ -62,7 +64,7 @@ fun ContentsPanel(
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 when (tab) {
                     ContentsTab.Contents -> if (toc.isEmpty()) EmptyTab(Copy.noContents) else TocList(toc, currentHref, onSelect, probe)
-                    ContentsTab.Bookmarks -> BookmarksList(bookmarks, indicator, formatDate, onOpenBookmark, onRemoveBookmark)
+                    ContentsTab.Bookmarks -> BookmarksList(bookmarks, indicator, formatDate, onOpenBookmark, onRemoveBookmark, bookPage)
                     ContentsTab.Highlights -> highlights()
                 }
             }
