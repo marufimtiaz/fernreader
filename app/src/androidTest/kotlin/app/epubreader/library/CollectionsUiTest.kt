@@ -53,8 +53,8 @@ class CollectionsUiTest {
 
     @Test fun classics_with_alice_and_frankenstein_then_library_only_delete(): Unit = runBlocking {
         ActivityScenario.launch(MainActivity::class.java).use { sc ->
-            text(Copy.searchHint).click()
-            device.findObject(By.clazz("android.widget.EditText")).text = "Zq "
+            checkNotNull(device.wait(Until.findObject(By.desc(Copy.search)), 10_000)) { "no search icon" }.click() // C-077: the bar's search icon
+            checkNotNull(device.wait(Until.findObject(By.clazz("android.widget.EditText")), 5_000)) { "no search field" }.text = "Zq "
             text("Zq Alice").longClick()
             text("Zq Frankenstein").click()
             text(Copy.selectedCount(2))

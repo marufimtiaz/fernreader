@@ -20,6 +20,35 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.snapshotFlow
 import app.epubreader.ui.theme.Glyphs
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.PlainTooltip
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.rememberTooltipState
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.ImeAction
+import app.epubreader.ui.theme.BarIcons
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -48,7 +77,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -115,6 +143,7 @@ private sealed interface Dialog {
  * F-020..F-028, F-016: the home screen with its navigation drawer. Opaque (the Surface also blocks touches to the
  * reader WebView below).
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen(state: LibraryState, actions: LibraryActions, probe: EventProbe) {
     val ui by state.ui.collectAsState()
@@ -133,6 +162,13 @@ fun LibraryScreen(state: LibraryState, actions: LibraryActions, probe: EventProb
     LaunchedEffect(ui.drawerOpen) { if (ui.drawerOpen) drawer.open() else drawer.close() }
     LaunchedEffect(drawer) { snapshotFlow { drawer.currentValue }.collect { state.setDrawer(it == DrawerValue.Open) } }
     LaunchedEffect(state) { for (m in state.messages) snackbar.showSnackbar(m) } // one at a time, each shown in full
+    // C-077: pull-to-refresh runs the manual rescan; its indicator stays until that scan ends (or never starts, no access)
+    var pulled by remember { mutableStateOf(false) }
+    LaunchedEffect(pulled) {
+        if (!pulled) return@LaunchedEffect
+        if (withTimeoutOrNull(2_000) { state.ui.first { it.scan.running } } != null) state.ui.first { !it.scan.running }
+        pulled = false
+    }
 
     ModalNavigationDrawer(
         drawerState = drawer, gesturesEnabled = ui.drawerOpen,
@@ -150,7 +186,7 @@ fun LibraryScreen(state: LibraryState, actions: LibraryActions, probe: EventProb
                     if (ui.scan.showsProgress) LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp)) else Spacer(Modifier.height(2.dp))
                     val folder = ui.view as? LibraryView.Folder
                     if (folder != null) FolderBar(folder.path, ui.includeSubfolders, state::setIncludeSubfolders)
-                    Box(Modifier.weight(1f)) {
+                    PullToRefreshBox(pulled, onRefresh = { pulled = true; actions.onRescan() }, Modifier.weight(1f)) {
                         when {
                             !ui.loaded -> Unit
                             ui.total == 0 && ui.view == LibraryView.All -> EmptyLibrary(ui.scan.running, actions.onRescan, actions.onOpenPicker)
@@ -274,52 +310,81 @@ private fun DrawerFolderRow(f: DrawerFolder, selected: Boolean, onOpen: () -> Un
     )
 }
 
+/**
+ * C-077: the library's top app bar: menu (or up) and the view's title; search, sort and layout icons; an overflow menu.
+ * The search icon turns the bar into the search field (Back or its close icon collapses it and clears the query).
+ * The folder tree has no books to search or sort, so it shows the title and the overflow menu only.
+ */
 @Composable
 private fun Header(ui: LibraryUi, state: LibraryState, actions: LibraryActions, onDialog: (Dialog) -> Unit) {
     var sortOpen by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
     val collection = (ui.view as? LibraryView.Collection)?.let { v -> ui.collections.firstOrNull { it.id == v.id } }
-    Column(Modifier.padding(start = 4.dp, end = 8.dp, top = 8.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (ui.nested) IconButton(onClick = { state.back() }) { Icon(Glyphs.Back, Copy.back) }
-            else IconButton(onClick = { state.setDrawer(true) }) { Icon(Glyphs.Menu, Copy.openMenu) }
-            Text(ui.viewTitle ?: if (ui.view == LibraryView.Folders) Copy.folders else Copy.appTitle, Modifier.weight(1f),
-                style = MaterialTheme.typography.headlineSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    val books = ui.view != LibraryView.Folders
+    Row(Modifier.fillMaxWidth().height(64.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (ui.searchOpen && books) {
+            SearchField(ui.query, state::setQuery, Modifier.weight(1f))
+            BarIcon(Icons.Filled.Close, Copy.closeSearch, state::closeSearch)
+            return@Row
+        }
+        if (ui.nested) BarIcon(Icons.AutoMirrored.Filled.ArrowBack, Copy.back) { state.back() }
+        else BarIcon(Icons.Filled.Menu, Copy.openMenu) { state.setDrawer(true) }
+        Text(ui.viewTitle ?: if (ui.view == LibraryView.Folders) Copy.folders else Copy.allBooks, Modifier.weight(1f).padding(start = 4.dp),
+            style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        if (books) {
+            BarIcon(Icons.Filled.Search, Copy.search, state::openSearch)
             Box {
-                IconButton(onClick = { menuOpen = true }) { Icon(Glyphs.More, Copy.more) }
-                DropdownMenu(menuOpen, onDismissRequest = { menuOpen = false }) {
-                    if (collection != null) {
-                        DropdownMenuItem(text = { Text(Copy.addBooks) }, onClick = { menuOpen = false; onDialog(Dialog.AddBooks) })
-                        DropdownMenuItem(text = { Text(Copy.renameCollection) }, onClick = { menuOpen = false; onDialog(Dialog.Rename(collection.id, collection.name)) })
-                        DropdownMenuItem(text = { Text(Copy.deleteCollection) }, onClick = { menuOpen = false; onDialog(Dialog.DeleteCollection(collection.id, collection.name)) })
-                        HorizontalDivider()
+                BarIcon(BarIcons.Sort, Copy.sortBy) { sortOpen = true }
+                DropdownMenu(sortOpen, onDismissRequest = { sortOpen = false }) {
+                    LibrarySort.entries.forEach { s ->
+                        val current = s == ui.sort
+                        DropdownMenuItem(text = { Text(Copy.sortName(s)) }, onClick = { state.setSort(s); sortOpen = false },
+                            modifier = Modifier.semantics { selected = current },
+                            leadingIcon = { if (current) Icon(Icons.Filled.Check, null) else Spacer(Modifier.size(24.dp)) })
                     }
-                    DropdownMenuItem(text = { Text(Copy.rescan) }, onClick = { menuOpen = false; actions.onRescan() })
-                    DropdownMenuItem(text = { Text(Copy.openBook) }, onClick = { menuOpen = false; actions.onOpenPicker() })
                 }
             }
+            if (ui.layout == LibraryLayout.GRID) BarIcon(Icons.AutoMirrored.Filled.List, Copy.showAsList, state::toggleLayout)
+            else BarIcon(BarIcons.Grid, Copy.showAsGrid, state::toggleLayout)
         }
-        if (ui.view != LibraryView.Folders) {
-            OutlinedTextField(
-                ui.query, state::setQuery, Modifier.fillMaxWidth().padding(start = 12.dp, end = 8.dp), singleLine = true,
-                placeholder = { Text(Copy.searchHint) },
-            )
-            Row(Modifier.fillMaxWidth().padding(start = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box {
-                    TextButton(onClick = { sortOpen = true }) { Text(Copy.sortLabel(ui.sort)) }
-                    DropdownMenu(sortOpen, onDismissRequest = { sortOpen = false }) {
-                        LibrarySort.entries.forEach { s ->
-                            DropdownMenuItem(text = { Text(Copy.sortName(s)) }, onClick = { state.setSort(s); sortOpen = false })
-                        }
-                    }
+        Box {
+            BarIcon(Icons.Filled.MoreVert, Copy.more) { menuOpen = true }
+            DropdownMenu(menuOpen, onDismissRequest = { menuOpen = false }) {
+                if (collection != null) {
+                    DropdownMenuItem(text = { Text(Copy.addBooks) }, onClick = { menuOpen = false; onDialog(Dialog.AddBooks) })
+                    DropdownMenuItem(text = { Text(Copy.renameCollection) }, onClick = { menuOpen = false; onDialog(Dialog.Rename(collection.id, collection.name)) })
+                    DropdownMenuItem(text = { Text(Copy.deleteCollection) }, onClick = { menuOpen = false; onDialog(Dialog.DeleteCollection(collection.id, collection.name)) })
+                    HorizontalDivider()
                 }
-                Spacer(Modifier.weight(1f))
-                TextButton(onClick = { state.setLayout(if (ui.layout == LibraryLayout.GRID) LibraryLayout.LIST else LibraryLayout.GRID) }) {
-                    Text(if (ui.layout == LibraryLayout.GRID) Copy.listView else Copy.gridView)
-                }
+                DropdownMenuItem(text = { Text(Copy.rescan) }, onClick = { menuOpen = false; actions.onRescan() })
+                if (books) DropdownMenuItem(text = { Text(Copy.selectAll) }, enabled = ui.books.isNotEmpty(), onClick = { menuOpen = false; state.selectAll() })
+                DropdownMenuItem(text = { Text(Copy.openBook) }, onClick = { menuOpen = false; actions.onOpenPicker() })
             }
         }
     }
+}
+
+/** C-077: an icon button with its content description and a long-press tooltip of the same text. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BarIcon(icon: ImageVector, label: String, onClick: () -> Unit) {
+    TooltipBox(TooltipDefaults.rememberPlainTooltipPositionProvider(), tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()) {
+        IconButton(onClick = onClick) { Icon(icon, label) }
+    }
+}
+
+/** C-077: the search field in the bar; takes focus (and the keyboard) when it appears. */
+@Composable
+private fun SearchField(query: String, onQuery: (String) -> Unit, modifier: Modifier) {
+    val focus = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    LaunchedEffect(Unit) { focus.requestFocus(); keyboard?.show() }
+    val clear = Color.Transparent
+    TextField(query, onQuery, modifier.focusRequester(focus), singleLine = true, placeholder = { Text(Copy.searchHint) },
+        leadingIcon = { Icon(Icons.Filled.Search, null) },
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
+        colors = TextFieldDefaults.colors(focusedContainerColor = clear, unfocusedContainerColor = clear,
+            focusedIndicatorColor = clear, unfocusedIndicatorColor = clear))
 }
 
 /** F-024: selection mode replaces the header. */

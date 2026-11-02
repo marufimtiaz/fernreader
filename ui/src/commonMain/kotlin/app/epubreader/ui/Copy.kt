@@ -5,7 +5,6 @@ import app.epubreader.reader.ReaderError
 
 /** All user-facing text (our own wording). Moves to Compose resources when the app is translated. */
 object Copy {
-    const val appTitle = "Books"
     const val appName = "FernReader"
     const val allBooks = "All books"
     const val folders = "Folders"
@@ -66,8 +65,12 @@ object Copy {
     const val libraryEmpty = "No books found on this device yet. Rescan after adding EPUB files, or open one directly."
     const val looking = "Looking for books…"
     const val searchHint = "Search title or author"
-    const val listView = "List"
-    const val gridView = "Grid"
+    /** C-077 top bar: content descriptions and tooltips of its icons. */
+    const val closeSearch = "Close search"
+    const val sortBy = "Sort"
+    /** The layout icon shows the layout it switches to. */
+    const val showAsList = "Show as list"
+    const val showAsGrid = "Show as grid"
     const val more = "More"
     const val rescan = "Rescan"
     const val details = "Details"
@@ -82,7 +85,6 @@ object Copy {
         app.epubreader.library.LibrarySort.TITLE -> "Title"
         app.epubreader.library.LibrarySort.AUTHOR -> "Author"
     }
-    fun sortLabel(s: app.epubreader.library.LibrarySort) = "Sort: " + sortName(s)
     fun failReason(name: String) = when (name) {
         "NOT_A_ZIP" -> "Not an EPUB file (not a zip archive)"
         "DAMAGED_ARCHIVE" -> "Damaged or incomplete archive"

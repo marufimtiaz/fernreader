@@ -181,6 +181,58 @@ class LibraryViewsTest {
         assertEquals(setOf("moby"), s.shown())
     }
 
+    // --- C-077 top bar -------------------------------------------------------------------------------------------
+
+    @Test fun search_icon_opens_the_field_and_closing_clears_the_query() = runTest {
+        val s = state()
+        assertFalse(s.ui.value.searchOpen)
+        s.openSearch(); s.setQuery("moby"); runCurrent()
+        assertTrue(s.ui.value.searchOpen); assertEquals(setOf("moby"), s.shown())
+        s.closeSearch(); runCurrent()
+        assertFalse(s.ui.value.searchOpen); assertEquals("", s.ui.value.query); assertEquals(5, s.ui.value.books.size)
+    }
+
+    @Test fun back_ends_selection_then_closes_search_then_leaves_the_view() = runTest {
+        val s = state()
+        s.openView(LibraryView.Folder("$root/Download")); s.setIncludeSubfolders(true)
+        s.openSearch(); s.setQuery("old"); s.startSelection("old"); runCurrent()
+        assertTrue(s.back()); runCurrent()
+        assertTrue(s.ui.value.selected.isEmpty()); assertTrue(s.ui.value.searchOpen); assertEquals("old", s.ui.value.query)
+        assertTrue(s.back()); runCurrent()
+        assertFalse(s.ui.value.searchOpen); assertEquals("", s.ui.value.query); assertEquals(setOf("moby", "old"), s.shown())
+        assertEquals(LibraryView.Folder("$root/Download"), s.ui.value.view)
+        assertTrue(s.back()); runCurrent(); assertEquals(LibraryView.All, s.ui.value.view)
+        assertFalse(s.back())
+    }
+
+    @Test fun another_view_closes_the_search() = runTest {
+        val s = state()
+        s.openSearch(); s.setQuery("a"); s.openView(LibraryView.Folder("$root/Download")); runCurrent()
+        assertFalse(s.ui.value.searchOpen); assertEquals("", s.ui.value.query)
+    }
+
+    @Test fun sort_menu_choice_orders_the_view_and_persists() = runTest {
+        val settings = FakeSettings()
+        val s = LibraryState(all, MutableStateFlow(emptyList()), MutableStateFlow(ScanState()), settings, {}, backgroundScope,
+            compute = Dispatchers.Unconfined, ops = ops).also { runCurrent() }
+        assertEquals(LibrarySort.RECENT, s.ui.value.sort)
+        s.setSort(LibrarySort.TITLE); runCurrent()
+        assertEquals(LibrarySort.TITLE, s.ui.value.sort)
+        assertEquals(listOf("alice", "dup", "frank", "moby", "old"), s.ui.value.books.map { it.id })
+        assertEquals(LibrarySort.TITLE.name, settings.map[app.epubreader.core.data.SettingsStore.LIBRARY_SORT])
+    }
+
+    @Test fun layout_icon_toggles_grid_and_list_and_persists() = runTest {
+        val settings = FakeSettings()
+        val s = LibraryState(all, MutableStateFlow(emptyList()), MutableStateFlow(ScanState()), settings, {}, backgroundScope,
+            compute = Dispatchers.Unconfined, ops = ops).also { runCurrent() }
+        assertEquals(LibraryLayout.GRID, s.ui.value.layout)
+        s.toggleLayout(); runCurrent()
+        assertEquals(LibraryLayout.LIST, s.ui.value.layout); assertEquals("LIST", settings.map[app.epubreader.core.data.SettingsStore.LIBRARY_LAYOUT])
+        s.toggleLayout(); runCurrent()
+        assertEquals(LibraryLayout.GRID, s.ui.value.layout)
+    }
+
     @Test fun delete_selected_asks_ops_with_the_file_choice_and_reports() = runTest {
         val s = state()
         s.startSelection("moby"); s.toggleSelection("old"); s.deleteSelected(deleteFiles = false); runCurrent()

@@ -39,7 +39,7 @@ class OnboardingTest {
     @Test fun pregranted_skips_explanation() {
         access("allow")
         ActivityScenario.launch(MainActivity::class.java).use { sc ->
-            assertNotNull(device.wait(Until.findObject(By.text(Copy.appTitle)), 5_000))
+            assertNotNull(device.wait(Until.findObject(By.text(Copy.allBooks)), 5_000))
             sc.onActivity { assertEquals(Route.Library, it.nav.top) }
             assertEquals(false, device.hasObject(By.text(Copy.onboardingTitle)))
         }
@@ -55,7 +55,7 @@ class OnboardingTest {
             access("allow")
             sc.moveToState(Lifecycle.State.STARTED) // leave and come back, as from the system settings screen
             sc.moveToState(Lifecycle.State.RESUMED)
-            assertNotNull(device.wait(Until.findObject(By.text(Copy.appTitle)), 5_000))
+            assertNotNull(device.wait(Until.findObject(By.text(Copy.allBooks)), 5_000))
             sc.onActivity { assertSame(before, it); assertEquals(Route.Library, it.nav.top) }
             assertEquals(true, scanned)
         }

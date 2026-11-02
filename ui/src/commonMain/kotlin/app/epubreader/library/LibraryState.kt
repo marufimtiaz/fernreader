@@ -42,6 +42,8 @@ data class LibraryUi(
     val books: List<LibraryBook> = emptyList(),
     val total: Int = 0,
     val query: String = "",
+    /** C-077: the top bar shows the search field instead of the title and icons. */
+    val searchOpen: Boolean = false,
     val layout: LibraryLayout = LibraryLayout.GRID,
     val sort: LibrarySort = LibrarySort.RECENT,
     val scan: ScanState = ScanState(),
@@ -91,7 +93,7 @@ class LibraryState(
                              val dismissed: ScanEvent.Complete? = null, val missing: LibraryBook? = null, val loaded: Boolean = false,
                              val views: List<LibraryView> = listOf(LibraryView.All), val selected: Set<String> = emptySet(),
                              val drawerOpen: Boolean = false, val includeSubfolders: Boolean = false, val collapsed: Set<String> = emptySet(),
-                             val drawerExpanded: Set<String> = emptySet())
+                             val drawerExpanded: Set<String> = emptySet(), val searchOpen: Boolean = false)
     private val prefs = MutableStateFlow(Prefs())
     /** Every library book, unfiltered (pickers and the delete dialog's file count). */
     val allBooks: Flow<List<LibraryBook>> = books
@@ -106,7 +108,7 @@ class LibraryState(
         val visible = all.mapTo(HashSet()) { it.id }
         val counts = if (folderOn || view == LibraryView.Folders) folderCounts(all) else emptyMap()
         LibraryUi(
-            books = shown, total = all.size, query = p.query, layout = p.layout, sort = p.sort, scan = s,
+            books = shown, total = all.size, query = p.query, searchOpen = p.searchOpen, layout = p.layout, sort = p.sort, scan = s,
             failures = fails,
             failureNoticeVisible = fails.isNotEmpty() && !s.running && s.lastComplete != null && s.lastComplete !== p.dismissed,
             loaded = p.loaded, missing = p.missing, // shown once the saved layout/sort are known (no flash)
@@ -144,9 +146,11 @@ class LibraryState(
     // --- F-028 navigation: a small stack of views inside the library route -------------------------------------
 
     /** From the drawer: [v] on top of all books. */
-    fun openView(v: LibraryView) = edit { it.copy(views = if (v == LibraryView.All) listOf(v) else listOf(LibraryView.All, v), selected = emptySet(), drawerOpen = false, query = "") }
+    fun openView(v: LibraryView) = edit {
+        it.copy(views = if (v == LibraryView.All) listOf(v) else listOf(LibraryView.All, v), selected = emptySet(), drawerOpen = false, query = "", searchOpen = false)
+    }
     /** Deeper (a folder from the folder list). */
-    fun pushView(v: LibraryView) = edit { it.copy(views = it.views + v, selected = emptySet(), query = "") }
+    fun pushView(v: LibraryView) = edit { it.copy(views = it.views + v, selected = emptySet(), query = "", searchOpen = false) }
     fun setDrawer(open: Boolean) = edit { it.copy(drawerOpen = open) }
     fun setIncludeSubfolders(on: Boolean) = edit { it.copy(includeSubfolders = on) }
     fun toggleFolder(path: String) = edit { it.copy(collapsed = if (path in it.collapsed) it.collapsed - path else it.collapsed + path) }
@@ -157,12 +161,13 @@ class LibraryState(
     val messages: ReceiveChannel<String> = _messages
     private fun say(m: String) { _messages.trySend(m) }
 
-    /** System Back inside the library: closes the drawer, ends selection, leaves a view. False: nothing left to undo. */
+    /** System Back inside the library: closes the drawer, ends selection, closes the search, leaves a view. False: nothing left to undo. */
     fun back(): Boolean {
         val p = prefs.value
         when {
             p.drawerOpen -> edit { it.copy(drawerOpen = false) }
             p.selected.isNotEmpty() -> edit { it.copy(selected = emptySet()) }
+            p.searchOpen -> closeSearch()
             p.views.size > 1 -> edit { it.copy(views = it.views.dropLast(1), query = "") }
             else -> return false
         }
@@ -221,6 +226,12 @@ class LibraryState(
     }
 
     fun setQuery(q: String) { prefs.value = prefs.value.copy(query = q) }
+    /** C-077: the search icon expands the bar into the search field. */
+    fun openSearch() = edit { it.copy(searchOpen = true) }
+    /** C-077: Back or the field's close icon collapses it and clears the query. */
+    fun closeSearch() = edit { it.copy(searchOpen = false, query = "") }
+    /** C-077: the layout icon switches between grid and list. */
+    fun toggleLayout() = setLayout(if (prefs.value.layout == LibraryLayout.GRID) LibraryLayout.LIST else LibraryLayout.GRID)
     fun setLayout(l: LibraryLayout) { prefs.value = prefs.value.copy(layout = l); scope.launch { settings.put(SettingsStore.LIBRARY_LAYOUT, l.name) } }
     fun setSort(s: LibrarySort) { prefs.value = prefs.value.copy(sort = s); scope.launch { settings.put(SettingsStore.LIBRARY_SORT, s.name) } }
     fun dismissFailures() { prefs.value = prefs.value.copy(dismissed = ui.value.scan.lastComplete) }
