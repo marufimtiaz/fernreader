@@ -26,17 +26,20 @@ export function readingOrder(linear: number[], sample: number[]): number[] {
 /**
  * Which sections of a batch share the hidden document: those with the batch's most common [key] (head style sheets plus
  * `html`/`body` attributes, which the batch document copies). Others are counted alone in a foliate View, exact by
- * construction (S1 "Risks"). A null key (unreadable document) is counted alone.
+ * construction (S1 "Risks"). A null key (unreadable document) is counted alone. A key no other section shares is
+ * counted alone too: a one-section document would be laid out a second time by the C-003 self-check (the 10 MB
+ * chapter: twice the time and two such layouts in memory at once).
  */
 export function planBatch(metas: { index: number; key: string | null }[]): { key: string | null; batched: number[]; alone: number[] } {
   const freq = new Map<string, number>()
   for (const m of metas) if (m.key != null) freq.set(m.key, (freq.get(m.key) ?? 0) + 1)
   let key: string | null = null
   for (const [k, n] of freq) if (key == null || n > freq.get(key)!) key = k
+  const shared = key != null && freq.get(key)! > 1
   return {
     key,
-    batched: metas.filter(m => m.key === key && key != null).map(m => m.index),
-    alone: metas.filter(m => m.key !== key || key == null).map(m => m.index),
+    batched: metas.filter(m => shared && m.key === key).map(m => m.index),
+    alone: metas.filter(m => !shared || m.key !== key).map(m => m.index),
   }
 }
 
@@ -227,6 +230,8 @@ export class PageCounter {
     if (!r) return null
     const layout = r.pagedLayout
     if (!layout || !(layout.width > 0 && layout.height > 0)) return null // no viewport yet: nothing to count
+    // One section shares nothing: counted alone, without fetching its markup for a batch document (planBatch)
+    if (batch.length === 1) return [[batch[0], await this.countAlone(batch[0], r)]]
     const docs = await Promise.all(batch.map(async i => {
       try { return splitSource(await (await fetch(await this.sections[i].load())).text()) } catch { return null }
     }))
