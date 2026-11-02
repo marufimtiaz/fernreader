@@ -2,6 +2,7 @@ import '../../vendor/foliate-js/view.js'
 import { EPUB } from '../../vendor/foliate-js/epub.js'
 import { Overlayer } from '../../vendor/foliate-js/overlayer.js'
 import type { Bridge } from '../bridge/bridge'
+import type { TocItem } from '../bridge/protocol'
 import { makeLoader, packageProblem } from './loader'
 
 import { flattenToc } from './toc'
@@ -17,6 +18,7 @@ import { visibleBookmarks } from './bookmarks'
 import { readSelection, SelectionReporter } from './selection'
 import { AnnotationStore, annotationDraw, taggedDraw, type AnnotationChange, type AnnotationItem } from './annotations'
 import { applySettings as applyStyles, DEFAULT_SETTINGS, readerCss, THEMES, type WebSettings } from './styles'
+import { chapterEdgeLabel, DEFAULT_CHAPTER_TEXTS, type ChapterTexts } from './chapters'
 
 /** The book identifier the app records on open (with the cd digest it is the book's identity, M2). */
 const identifierOf = (book: any): string | null => book.metadata?.identifier || null
@@ -59,6 +61,8 @@ export class Reader {
   private seeking = false
   /** Display settings for every view (the open one, the warm one, preloaded sections). */
   private settings: WebSettings = DEFAULT_SETTINGS
+  /** C-085: the app's texts for the One at a time chapter controls (from `open`). */
+  private chapterTexts: ChapterTexts = DEFAULT_CHAPTER_TEXTS
   private readonly css = readerCss(new URL('./', location.href).href)
   /** Page counts for the open book (F-034); one generation per layout. */
   private counter: PageCounter | null = null
@@ -135,6 +139,11 @@ export class Reader {
       },
       searchHighlight: () => this.search?.cfi ?? null,
       slots: () => this.view?.renderer?.debugSlots ?? null,
+      /**
+       * C-085: One at a time's chapter controls: `{single, head, foot, scrollTop, scrollHeight, viewport, current}`; head
+       * and foot are `{label, index, x, y, w, h}` (host viewport CSS px) or null when not shown; with dpr/vw/vh.
+       */
+      edges: () => { const e = this.view?.renderer?.debugEdges; return e ? { ...e, dpr: window.devicePixelRatio, vw: window.innerWidth, vh: window.innerHeight } : null },
       /** C-071: frames of the last boundary slide (`{ t, old, next }`, CSS px), [] if none ran. */
       slide: () => this.view?.renderer?.debugSlide ?? null,
       /** C-071: the slide's on-screen geometry now (container, both pages' iframes, old page attached), null if none runs. */
@@ -320,6 +329,12 @@ export class Reader {
       switch (m.type) {
         case 'open':
           if (m.settings) this.settings = m.settings
+          this.chapterTexts = {
+            nextChapter: m.texts.nextChapter ?? DEFAULT_CHAPTER_TEXTS.nextChapter,
+            previousChapter: m.texts.previousChapter ?? DEFAULT_CHAPTER_TEXTS.previousChapter,
+            nextChapterUntitled: m.texts.nextChapterUntitled ?? DEFAULT_CHAPTER_TEXTS.nextChapterUntitled,
+            previousChapterUntitled: m.texts.previousChapterUntitled ?? DEFAULT_CHAPTER_TEXTS.previousChapterUntitled,
+          }
           void this.open(m.sessionId, m.position, m.texts.missingPart); break
         case 'setSettings': this.setSettings(m.settings); break
         case 'goToFraction': this.enqueue({ kind: 'fraction', fraction: m.fraction }); break
@@ -414,6 +429,10 @@ export class Reader {
       await view.open(book)
       if (stale()) return
       const r = view.renderer
+      // C-085: the One at a time controls name the chapter they open (its contents entry)
+      let toc: TocItem[] | null = null
+      const has = this.has!
+      r.edgeLabel = (index: number, dir: 1 | -1) => chapterEdgeLabel(toc ??= flattenToc(book, has), index, dir, this.chapterTexts)
       this.layoutAttributes(r)
       // Swipes come to the host as `swipe` events and turn pages through the queue (F-032, C-026), not foliate's drag.
       r.setAttribute('host-swipe', '')
@@ -600,10 +619,15 @@ export class Reader {
     const set = (k: string, v: string) => { if (r.getAttribute(k) !== v) r.setAttribute(k, v) }
     set('margin', '32px')
     set('gap', `${s.marginPercent}%`)
+    // C-085: before `flow`, so switching to Scroll lays out the chosen chapter mode once (each change re-renders)
+    if (s.chapters === 'one-at-a-time') set('chapter-stop', '')
+    else r.removeAttribute('chapter-stop')
     set('flow', s.flow)
     if (s.pageAnimation === 'none') r.removeAttribute('animated') // F-032: no slide
     else set('animated', '')
     document.body.style.background = THEMES[s.theme]?.bg ?? ''
+    r.style?.setProperty('--er-edge-fg', THEMES[s.theme]?.fg ?? '') // C-085: the chapter controls in the theme's colours
+    r.style?.setProperty('--er-edge-rule', THEMES[s.theme]?.rule ?? '')
     // F-061: highlight fills read a little stronger on the dark themes (foliate's overlayer opacity variable).
     document.body.style.setProperty('--overlayer-highlight-opacity', THEMES[s.theme]?.dark ? '0.4' : '0.3')
   }

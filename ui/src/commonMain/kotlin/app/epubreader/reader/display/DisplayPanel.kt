@@ -47,6 +47,7 @@ import app.epubreader.core.data.Flow
 import app.epubreader.core.data.PageNumbers
 import app.epubreader.core.data.ReaderSettings
 import app.epubreader.core.data.ReadingThemeId
+import app.epubreader.core.data.ScrollChapters
 import app.epubreader.ui.Copy
 import kotlin.math.roundToInt
 
@@ -61,6 +62,8 @@ fun DisplayPanel(
     fonts: Map<String, FontFamily>,
     onChange: ((ReaderSettings) -> ReaderSettings) -> Unit,
     modifier: Modifier = Modifier,
+    /** C-004: Auto reading mode scrolls in landscape. */
+    landscape: Boolean = false,
 ) {
     Surface(
         modifier.fillMaxWidth(),
@@ -87,6 +90,9 @@ fun DisplayPanel(
             }
             Segments(Copy.layout, FlowOptions, s.flow) { f ->
                 onChange { it.copy(flow = f) }
+            }
+            if (s.scrolls(landscape)) Segments(Copy.scrollChapters, ChaptersOptions, s.scrollChapters) { v ->
+                onChange { it.copy(scrollChapters = v) }
             }
             // C-083: book pages (the default) or screen pages, for the whole book or the chapter.
             Segments(Copy.pageNumbers, PageNumberOptions, s.pageNumbers, hint = Copy.pageNumbersHint(s.pageNumbers)) { p ->
@@ -166,7 +172,13 @@ private fun SliderRow(label: String, value: String, v: Float, range: ClosedFloat
     }
 }
 
-/** F-031: the reading-mode choices, the same in the display panel, the Reader settings sheet and Settings → Reading. */
+/** C-085: scroll mode's chapter choices, shown under Reading mode only while the book scrolls ([scrolls]). */
+internal val ChaptersOptions = listOf(ScrollChapters.CONTINUOUS to Copy.chaptersContinuous, ScrollChapters.ONE_AT_A_TIME to Copy.chaptersOneAtATime)
+
+/** C-085: the reading mode is Scroll, or Auto resolving to scroll ([landscape], C-004). */
+internal fun ReaderSettings.scrolls(landscape: Boolean): Boolean = flow == Flow.SCROLLED || flow == Flow.AUTO && landscape
+
+/** F-031: the reading-mode choices; C-084: shown only here, in the display panel. */
 internal val FlowOptions = listOf(Flow.PAGED to Copy.flowPaged, Flow.SCROLLED to Copy.flowScrolled, Flow.AUTO to Copy.flowAuto)
 
 /** C-083: the Page numbers choices in the display panel (short; the hint under them says what the selected one means). */

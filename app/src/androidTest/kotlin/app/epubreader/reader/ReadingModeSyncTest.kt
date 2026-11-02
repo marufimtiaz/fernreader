@@ -4,7 +4,6 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
-import androidx.test.uiautomator.Direction
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.UiObject2
 import androidx.test.uiautomator.Until
@@ -25,9 +24,9 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * F-031 (user report on the preview build): "Reading mode" is in the display panel, the Reader settings sheet and
- * Settings → Reading. All three edit the one stored `flow`, so a change in one shows in the others; in Scroll mode
- * the sheet's page animation is greyed out with "Applies to page mode".
+ * C-084: "Reading mode" is only in the reader's display panel (Aa): not in the Reader settings sheet, not in
+ * Settings → Reading. Choosing Scroll in the panel still greys out the page animation ("Applies to page mode") in the
+ * sheet and in Settings (F-031/F-032).
  */
 @RunWith(AndroidJUnit4::class)
 class ReadingModeSyncTest {
@@ -63,7 +62,22 @@ class ReadingModeSyncTest {
         }
     }
 
-    @Test fun panel_sheet_and_settings_edit_the_same_reading_mode(): Unit = runBlocking {
+    /** [text] on the Settings list, dragging down to the end then back up (explicit drags, fresh node cache). */
+    private fun settingsFind(text: String): UiObject2? {
+        dev.findObject(By.text(text))?.let { return it }
+        val list = dev.wait(Until.findObject(By.scrollable(true)), 5_000) ?: return null
+        val r = list.visibleBounds
+        for (down in listOf(true, false)) repeat(8) {
+            val (from, to) = if (down) r.top + r.height() * 3 / 4 to r.top + r.height() / 4 else r.top + r.height() / 4 to r.top + r.height() * 3 / 4
+            dev.swipe(r.centerX(), from, r.centerX(), to, 30)
+            dev.waitForIdle(300)
+            if (android.os.Build.VERSION.SDK_INT >= 34) InstrumentationRegistry.getInstrumentation().uiAutomation.clearCache()
+            dev.findObject(By.text(text))?.let { return it }
+        }
+        return null
+    }
+
+    @Test fun reading_mode_is_only_in_the_display_panel_and_scroll_greys_the_animation(): Unit = runBlocking {
         val wp = warAndPeace()
         ActivityScenario.launch(MainActivity::class.java).use { sc ->
             val h = ReaderHarness(sc, this)
@@ -72,53 +86,53 @@ class ReadingModeSyncTest {
                 sc.onActivity { it.controller.updateSettings { ReaderSettings() } }
                 h.open(wp)
 
-                // 1. Reader settings sheet: Reading mode above the animation; Scroll greys the animation out.
+                // 1. Reader settings sheet: page turning starts with the animation, no Reading mode row.
                 sc.onActivity { it.controller.showSettings() }
-                val mode = obj(Copy.layout); val anim = obj(Copy.pageAnimation)
-                assertTrue("Reading mode is above Page animation", mode.visibleBounds.top < anim.visibleBounds.top)
-                assertTrue(selected(Copy.flowPaged))
+                obj(Copy.pageAnimation)
+                assertTrue("no Reading mode in the sheet", dev.findObject(By.text(Copy.layout)) == null)
+                assertTrue(dev.findObject(By.text(Copy.flowScrolled)) == null)
                 assertTrue(enabled(Copy.animSlide))
-                obj(Copy.flowScrolled).click()
-                withTimeout(5_000) { h.a.controller.settings.first { it.flow == Flow.SCROLLED } }
-                assertNotNull(dev.wait(Until.findObject(By.text(Copy.appliesToPageMode)), 5_000))
-                assertFalse("animation must be disabled in Scroll mode", enabled(Copy.animSlide))
                 sc.onActivity { it.controller.hideSettings() }
                 delay(500)
 
-                // 2. Display panel shows the sheet's change; a change there shows in the sheet.
+                // 2. Display panel: the one place; choose Scroll.
                 sc.onActivity { it.controller.showDisplay() }
                 panelShow(Copy.flowScrolled)
-                assertTrue("panel shows Scroll", selected(Copy.flowScrolled))
+                assertNotNull(obj(Copy.layout))
+                assertTrue("panel shows Pages", selected(Copy.flowPaged))
+                obj(Copy.flowScrolled).click()
+                withTimeout(5_000) { h.a.controller.settings.first { it.flow == Flow.SCROLLED } }
+                sc.onActivity { it.controller.hideDisplay() }
+                delay(500)
+
+                // 3. The sheet greys the animation out in Scroll mode.
+                sc.onActivity { it.controller.showSettings() }
+                assertNotNull(dev.wait(Until.findObject(By.text(Copy.appliesToPageMode)), 5_000))
+                assertFalse("animation must be disabled in Scroll mode", enabled(Copy.animSlide))
+                assertTrue(dev.findObject(By.text(Copy.layout)) == null)
+                sc.onActivity { it.controller.hideSettings() }
+                delay(500)
+
+                // 4. Settings → Reading: no Reading mode row; the animation row says why it is off.
+                sc.onActivity { it.nav.push(Route.Settings) }
+                assertNotNull(dev.wait(Until.findObject(By.text(Copy.pageNumbers)), 10_000))
+                assertNotNull(settingsFind(Copy.appliesToPageMode))
+                assertTrue("no Reading mode in Settings", settingsFind(Copy.layout) == null)
+                sc.onActivity { it.goBack() }
+                delay(800)
+
+                // 5. Back to Pages from the panel: the animation is on again.
+                sc.onActivity { it.controller.showDisplay() }
+                panelShow(Copy.flowPaged)
                 obj(Copy.flowPaged).click()
                 withTimeout(5_000) { h.a.controller.settings.first { it.flow == Flow.PAGED } }
                 sc.onActivity { it.controller.hideDisplay() }
                 delay(500)
                 sc.onActivity { it.controller.showSettings() }
-                assertTrue("sheet shows Pages", selected(Copy.flowPaged))
                 assertTrue(enabled(Copy.animSlide))
                 assertTrue(dev.findObject(By.text(Copy.appliesToPageMode)) == null)
                 sc.onActivity { it.controller.hideSettings() }
-                delay(500)
-
-                // 3. Settings → Reading shows the value and changes it; the sheet and the panel follow.
-                sc.onActivity { it.nav.push(Route.Settings) }
-                val list = checkNotNull(dev.wait(Until.findObject(By.scrollable(true)), 10_000))
-                val row = checkNotNull(list.scrollUntil(Direction.DOWN, Until.findObject(By.text(Copy.layout))))
-                assertNotNull("row summary shows Pages", dev.findObject(By.text(Copy.flowPaged)))
-                row.click()
-                obj(Copy.flowAuto).click()
-                withTimeout(5_000) { h.a.controller.settings.first { it.flow == Flow.AUTO } }
-                sc.onActivity { it.goBack() }
-                delay(800)
-                sc.onActivity { it.controller.showSettings() }
-                assertTrue("sheet shows Auto", selected(Copy.flowAuto))
-                sc.onActivity { it.controller.hideSettings() }
-                delay(500)
-                sc.onActivity { it.controller.showDisplay() }
-                panelShow(Copy.flowAuto)
-                assertTrue("panel shows Auto", selected(Copy.flowAuto))
-                sc.onActivity { it.controller.hideDisplay() }
-                assertEquals(Flow.AUTO, h.a.controller.settings.value.flow)
+                assertEquals(Flow.PAGED, h.a.controller.settings.value.flow)
             } finally {
                 sc.onActivity { it.controller.updateSettings { ReaderSettings() } }
                 h.stop()

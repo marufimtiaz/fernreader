@@ -165,7 +165,7 @@ class MainActivity : ComponentActivity() {
         nav = Navigator(if (access.granted()) Route.Library else Route.Onboarding)
         reader = ReaderEngine(this, graph.server)
         controller = ReaderController(
-            reader, graph.opener, graph.library, graph.positions, lifecycleScope, WebTexts(Copy.missingPart), probe,
+            reader, graph.opener, graph.library, graph.positions, lifecycleScope, WebTexts(Copy.missingPart, Copy.nextChapter, Copy.previousChapter, Copy.nextChapterUntitled, Copy.previousChapterUntitled), probe,
             settingsStore = graph.settings,
             search = graph.bookSearch, searchHistory = graph.searchHistory,
             links = ::openExternalLink,

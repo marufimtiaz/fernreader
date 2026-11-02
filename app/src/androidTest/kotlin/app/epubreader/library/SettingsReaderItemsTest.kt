@@ -56,7 +56,7 @@ class SettingsReaderItemsTest {
             sc.onActivity { a = it; it.controller.updateSettings { ReaderSettings() }; it.nav.push(Route.Settings) }
             try {
                 assertNotNull(device.wait(Until.findObject(By.text(Copy.pageNumbers)), 10_000))
-                for (t in listOf(Copy.layout, Copy.pageAnimation, Copy.swipeDirection, Copy.volumeKeys, Copy.fullscreen, Copy.keepScreenOn, Copy.orientation, Copy.confirmLinks)) {
+                for (t in listOf(Copy.pageAnimation, Copy.swipeDirection, Copy.volumeKeys, Copy.fullscreen, Copy.keepScreenOn, Copy.orientation, Copy.confirmLinks)) {
                     assertNotNull(t, find(t))
                 }
                 assertNotNull(Copy.volumeSummary(app.epubreader.core.data.VolumeKeys.OFF), find(Copy.volumeSummary(app.epubreader.core.data.VolumeKeys.OFF)))

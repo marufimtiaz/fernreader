@@ -99,4 +99,16 @@ class ReaderSettingsTest {
         assertEquals(IndicatorScope.CHAPTER, PageNumbers.SCREEN_CHAPTER.screenScope)
         assertEquals(IndicatorScope.BOOK, PageNumbers.BOOK_PAGES.screenScope)
     }
+
+    /** C-085: Scroll mode's "Chapters" defaults to Continuous; settings stored before it existed decode to that. */
+    @Test fun scroll_chapters_default_round_trip_and_old_values() {
+        assertEquals(ScrollChapters.CONTINUOUS, ReaderSettings().scrollChapters)
+        val s = ReaderSettings(flow = Flow.SCROLLED, scrollChapters = ScrollChapters.ONE_AT_A_TIME)
+        assertEquals(s, ReaderSettings.decode(s.encode()))
+        val old = """{"fontScale":1.2,"flow":"SCROLLED","pageAnimation":"NONE","highlightColor":"blue"}"""
+        assertEquals(ReaderSettings(fontScale = 1.2, flow = Flow.SCROLLED, pageAnimation = PageAnimation.NONE, highlightColor = "blue"), ReaderSettings.decode(old))
+        assertEquals(ScrollChapters.CONTINUOUS, ReaderSettings.decode(old).scrollChapters)
+        assertEquals(ScrollChapters.CONTINUOUS, ReaderSettings.decode("""{"scrollChapters":"SIDEWAYS"}""").scrollChapters)
+        assertEquals(ScrollChapters.CONTINUOUS, ReaderSettings.decode("""{"scrollChapters":1}""").scrollChapters)
+    }
 }

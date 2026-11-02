@@ -9,7 +9,8 @@ function validSettings(x: unknown): boolean {
     isStr(s.fontFamily) && ['publisher', 'start', 'justify'].includes(s.align as string) &&
     ['light', 'dark', 'black', 'warm'].includes(s.theme as string) && ['paginated', 'scrolled'].includes(s.flow as string) &&
     (s.swipeDirection == null || ['auto', 'ltr', 'rtl'].includes(s.swipeDirection as string)) &&
-    (s.pageAnimation == null || ['slide', 'none'].includes(s.pageAnimation as string))
+    (s.pageAnimation == null || ['slide', 'none'].includes(s.pageAnimation as string)) &&
+    (s.chapters == null || ['continuous', 'one-at-a-time'].includes(s.chapters as string))
 }
 
 function validAnnotation(x: unknown): boolean {
@@ -21,8 +22,10 @@ function validAnnotation(x: unknown): boolean {
 function validShape(m: Record<string, unknown>): boolean {
   switch (m.type) {
     case 'open': {
-      const t = m.texts as { missingPart?: unknown } | null | undefined
+      const t = m.texts as Record<string, unknown> | null | undefined
+      const chapterTexts = ['nextChapter', 'previousChapter', 'nextChapterUntitled', 'previousChapterUntitled'] // C-085, optional
       return isStr(m.sessionId) && !!t && typeof t === 'object' && isStr(t.missingPart) &&
+        chapterTexts.every(k => t[k] == null || isStr(t[k])) &&
         (m.position == null || isStr(m.position)) && (m.settings == null || validSettings(m.settings))
     }
     case 'goTo': return isStr(m.target) && (m.id == null || Number.isInteger(m.id))

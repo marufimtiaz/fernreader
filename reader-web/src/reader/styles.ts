@@ -15,11 +15,16 @@ export type WebSettings = {
   swipeDirection?: 'auto' | 'ltr' | 'rtl'
   /** F-032: 'slide' = foliate's animated turn, 'none' = instant. Optional (older apps). */
   pageAnimation?: 'slide' | 'none'
+  /**
+   * C-085, scrolled flow only: 'continuous' = the next chapter follows below (C-079); 'one-at-a-time' = scrolling stops
+   * at the chapter's end, with "Next"/"Previous" controls and an overscroll pull. Optional (older apps: continuous).
+   */
+  chapters?: 'continuous' | 'one-at-a-time'
 }
 
 export const DEFAULT_SETTINGS: WebSettings = {
   fontScale: 1, fontFamily: 'publisher', lineHeight: 1.5, marginPercent: 5, align: 'publisher', theme: 'light', flow: 'paginated',
-  swipeDirection: 'auto', pageAnimation: 'slide',
+  swipeDirection: 'auto', pageAnimation: 'slide', chapters: 'continuous',
 }
 
 /** Reading themes (our own palette; mirrored in ui/.../reader/display/ReadingTheme.kt). */

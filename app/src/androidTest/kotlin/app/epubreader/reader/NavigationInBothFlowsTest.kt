@@ -7,6 +7,7 @@ import app.epubreader.EpubReaderApp
 import app.epubreader.MainActivity
 import app.epubreader.core.data.Flow
 import app.epubreader.core.data.ReaderSettings
+import app.epubreader.core.data.ScrollChapters
 import app.epubreader.core.data.SourceRef
 import app.epubreader.reader.bridge.FromWeb
 import app.epubreader.reader.bridge.ToWeb
@@ -55,11 +56,16 @@ import kotlin.math.abs
  * the bookmarks and highlights it made.
  */
 @RunWith(Parameterized::class)
-class NavigationInBothFlowsTest(private val flow: Flow) {
+class NavigationInBothFlowsTest(private val flow: Flow, private val chapters: ScrollChapters) {
     companion object {
+        /** C-085: scroll mode once with Continuous chapters (C-079) and once with One at a time; jumps behave the same. */
         @JvmStatic
-        @Parameterized.Parameters(name = "{0}")
-        fun flows(): List<Array<Any>> = listOf(arrayOf(Flow.PAGED), arrayOf(Flow.SCROLLED))
+        @Parameterized.Parameters(name = "{0} {1}")
+        fun flows(): List<Array<Any>> = listOf(
+            arrayOf(Flow.PAGED, ScrollChapters.CONTINUOUS),
+            arrayOf(Flow.SCROLLED, ScrollChapters.CONTINUOUS),
+            arrayOf(Flow.SCROLLED, ScrollChapters.ONE_AT_A_TIME),
+        )
 
         private const val WAR_AND_PEACE = "War and Peace"
         private const val FOOTNOTES = "Footnotes and Links"
@@ -109,7 +115,7 @@ class NavigationInBothFlowsTest(private val flow: Flow) {
      * still passes, the section and the first visible block are unchanged, and no relocate in between left [section].
      */
     private suspend fun ReaderHarness.assertLandsAndHolds(what: String, section: Int, check: suspend () -> String?) = coroutineScope {
-        val label = "$what ($flow)"
+        val label = "$what ($flow $chapters)"
         var problem: String? = "not checked"
         withTimeoutOrNull(5_000) { while (true) { problem = check(); if (problem == null) break; delay(100) } }
         val first = spot()
@@ -143,7 +149,7 @@ class NavigationInBothFlowsTest(private val flow: Flow) {
             val h = ReaderHarness(sc, this)
             try {
                 h.ready()
-                sc.onActivity { it.controller.updateSettings { s -> s.copy(flow = flow) } }
+                sc.onActivity { it.controller.updateSettings { s -> s.copy(flow = flow, scrollChapters = chapters) } }
                 h.openBook(book, title)
                 block(h)
             } finally {

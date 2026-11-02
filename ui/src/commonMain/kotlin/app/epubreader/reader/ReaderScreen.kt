@@ -133,7 +133,7 @@ fun ReaderScreen(
         }
         if (s.displayVisible && s.error == null) {
             LaunchedEffect(Unit) { withFrameNanos { }; probe.ev("display_shown", "") }
-            DisplayPanel(settings, fonts, onChange = c::updateSettings, modifier = Modifier.align(Alignment.BottomCenter))
+            DisplayPanel(settings, fonts, onChange = c::updateSettings, modifier = Modifier.align(Alignment.BottomCenter), landscape = landscape)
         }
         if (s.settingsVisible && s.error == null) ReaderSettingsSheet(settings, onChange = c::updateSettings, modifier = Modifier.align(Alignment.BottomCenter))
         if (s.tocVisible) ContentsPanel(
