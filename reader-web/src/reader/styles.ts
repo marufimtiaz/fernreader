@@ -107,15 +107,17 @@ const WRAPPER = new Set(['div', 'section', 'article', 'main'])
 /**
  * C-082: marks the chain of elements that wrap the whole body content (`<body><div class="main"><section>…`): each
  * is the only element child of its parent, with no text beside it. Their horizontal margins and padding are then
- * neutralised by [readerCss]. Idempotent; a document with several top-level blocks has no wrapper.
+ * neutralised by [readerCss]. Idempotent; a document with several top-level blocks has no wrapper. [start] is the
+ * element standing for the section's body: the page counter puts each section's body in its own box (counter.ts).
  */
-export function markWrappers(doc: Document) {
-  let el: Element | null = doc.body
+export function markWrappers(doc: Document, start: Element | null = doc.body) {
+  let el: Element | null = start
   while (el) {
     const kids: Element[] = Array.from(el.children)
     const text = Array.from(el.childNodes).some(n => n.nodeType === 3 && (n.nodeValue ?? '').trim() !== '')
     const only: Element | null = kids.length === 1 && !text ? kids[0] : null
-    if (!only || !WRAPPER.has(only.localName)) return
+    // the page counter's section boxes are its column boxes, never a book's wrapper (their padding is the margin)
+    if (!only || !WRAPPER.has(only.localName) || only.classList.contains('er-box')) return
     if (!only.hasAttribute('data-er-wrapper')) only.setAttribute('data-er-wrapper', '')
     el = only
   }

@@ -83,6 +83,20 @@ describe('markWrappers (C-082)', () => {
     const quote = parse('<blockquote id="q"><p>x</p></blockquote>')
     markWrappers(quote); expect(marked(quote)).toEqual([])
   })
+  it('from a counting box: each box stands for a section body (the page counter batches sections, C-003)', () => {
+    const doc = parse('<div class="er-box"><div id="a"><p>x</p><p>y</p></div></div><div class="er-box"><section id="b"><p>z</p></section></div>')
+    markWrappers(doc)
+    expect(marked(doc)).toEqual([]) // body holds several boxes: no wrapper from body
+    for (const box of doc.querySelectorAll('.er-box')) markWrappers(doc, box)
+    expect(marked(doc)).toEqual(['a', 'b'])
+  })
+  it('a single counting box is never marked from body (its padding is the side margin), its wrapper is', () => {
+    const doc = parse('<div class="er-box"><div id="a"><p>x</p><p>y</p></div></div>')
+    applySettings(doc, DEFAULT_SETTINGS)
+    for (const box of doc.querySelectorAll('.er-box')) markWrappers(doc, box)
+    expect(doc.querySelector('.er-box')!.hasAttribute('data-er-wrapper')).toBe(false)
+    expect(marked(doc)).toEqual(['a'])
+  })
   it('is idempotent and applySettings runs it', () => {
     const doc = parse('<div id="a"><p>x</p></div>')
     applySettings(doc, DEFAULT_SETTINGS); applySettings(doc, DEFAULT_SETTINGS)
