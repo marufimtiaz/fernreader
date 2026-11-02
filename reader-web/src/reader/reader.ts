@@ -9,7 +9,7 @@ import { resolveSaved } from './position'
 import { PageCounter } from './counter'
 import { polyfillMfenced } from './mathml'
 import { shareSections } from './sections'
-import { resolveTextRange } from './textpos'
+import { rangeAtOffset, resolveTextRange, textOffsetOf, textSpanOf } from './textpos'
 import { effectiveDir, reportSwipes, swipeToTurn } from './swipe'
 import { externalHref, isNoteTarget, noteElement, noteLinkResolver, noteRef, sanitizeNote } from './links'
 import { FootnotePopup } from './footnote'
@@ -336,6 +336,8 @@ export class Reader {
         case 'setAnnotations': this.changeAnnotations(m.sessionId, s => s.replace(m.items)); break
         case 'removeAnnotation': this.changeAnnotations(m.sessionId, s => s.remove(m.id)); break
         case 'clearSelection': this.clearSelection(); break
+        case 'goToOffset': this.enqueue({ kind: 'offset', index: m.sectionIndex, offset: m.offset }); break
+        case 'textOffsets': void this.textOffsets(m.sessionId, m.id, m.cfis); break
       }
     })
   }
@@ -474,7 +476,10 @@ export class Reader {
         this.seeking = true
         try {
           if (c.kind === 'fraction') await view.goToFraction(c.fraction)
-          else if (c.kind === 'text') {
+          else if (c.kind === 'offset') {
+            const cfi = await this.offsetCfi(view, c.index, c.offset)
+            if (!cfi || !(await goToTarget(view, cfi))) await view.renderer.goTo({ index: c.index, anchor: 0 })
+          } else if (c.kind === 'text') {
             this.clearSearch(view)
             hit = await this.findHit(view, c)
             if (hit && !(await goToTarget(view, hit.cfi))) hit = null // the CFI did not resolve: same as not found
@@ -510,6 +515,45 @@ export class Reader {
       const range = doc && resolveTextRange(doc, c.offset, c.length, c.needle)
       return range ? { cfi: view.getCFI(c.index, range), index: c.index } : null
     } catch (e) { console.warn('hit resolution failed', e); return null }
+  }
+
+  /** C-083 go to page: the CFI of the first character at or after text [offset] of section [index], or null. */
+  private async offsetCfi(view: any, index: number, offset: number): Promise<string | null> {
+    try {
+      const doc: Document | undefined = await this.book?.sections?.[index]?.createDocument?.()
+      const range = doc && rangeAtOffset(doc, offset)
+      return range ? view.getCFI(index, range) : null
+    } catch (e) { console.warn('page start not resolved', e); return null }
+  }
+
+  /**
+   * C-083: [section, text offset] of each CFI's start (the lists' book pages), from the section's loaded document or a
+   * parsed copy (never laid out), [-1, -1] when it does not resolve. Answered once, in order; dropped if the book changed.
+   */
+  private async textOffsets(sessionId: string, id: number, cfis: string[]) {
+    if (this.sessionId !== sessionId || !this.book) return
+    const book = this.book
+    const docs = new Map<number, Promise<Document | null>>()
+    const docOf = (index: number): Promise<Document | null> => {
+      let d = docs.get(index)
+      if (!d) {
+        const loaded = this.view?.renderer?.getContents?.().find((c: any) => c.index === index)?.doc as Document | undefined
+        d = loaded ? Promise.resolve(loaded) : Promise.resolve(book.sections?.[index]?.createDocument?.()).then((x: any) => x ?? null, () => null)
+        docs.set(index, d)
+      }
+      return d
+    }
+    const offsets: [number, number][] = []
+    for (const cfi of cfis) {
+      try {
+        const t = book.resolveCFI(cfi)
+        const doc = t && t.index >= 0 ? await docOf(t.index) : null
+        const r = doc ? t.anchor(doc) : null
+        if (r && typeof r === 'object' && 'startContainer' in r) { offsets.push([t.index, textOffsetOf(doc!, r.startContainer, r.startOffset)]); continue }
+      } catch { /* does not resolve */ }
+      offsets.push([-1, -1])
+    }
+    if (this.sessionId === sessionId && this.book === book) this.bridge.send({ v: 1, type: 'textOffsets', sessionId, id, offsets })
   }
 
   private drawSearch(view: any) {
@@ -654,7 +698,7 @@ export class Reader {
       // foliate reports NaN while a section has no layout yet; JSON turns NaN into null, which Kotlin rejects.
       v: 1, type: 'relocate', sessionId, cfi: d.cfi ?? '', fraction: Number.isFinite(d.fraction) ? d.fraction : 0,
       sectionIndex: d.section?.current ?? 0, tocHref: d.tocItem?.href ?? null, ...pageOf(view.renderer),
-      ...onPage(this.bookmarks, d.cfi),
+      ...onPage(this.bookmarks, d.cfi), ...spanOf(d.range),
     })
     requestAnimationFrame(() => requestAnimationFrame(() => {
       if (this.token !== token) return
@@ -880,6 +924,7 @@ const MAX_TURNS = 3
 const SEARCH_COLOR = '#ff9800'
 
 type Cmd = { kind: 'turn'; dir: 'next' | 'prev' } | { kind: 'goTo'; target: string; id?: number } | { kind: 'fraction'; fraction: number }
+  | { kind: 'offset'; index: number; offset: number }
   | { kind: 'text'; index: number; offset: number; length: number; needle: string } | { kind: 'clearSearch' }
 
 /** Which settings each section document has (so a stale one can be caught up). */
@@ -891,6 +936,11 @@ function onPage(bookmarks: readonly string[], cfi: string | undefined): { bookma
   if (!bookmarks.length || !cfi) return {}
   const on = visibleBookmarks(bookmarks, cfi)
   return on.length ? { bookmarks: on } : {}
+}
+
+/** C-083: the visible range's text offsets (relocate `textOffset`/`textEnd`), left out when there is no range. */
+function spanOf(range: Range | undefined): { textOffset?: number; textEnd?: number } {
+  try { return (range && textSpanOf(range)) || {} } catch { return {} }
 }
 
 /** Position inside the visible section as the paginator sees it (bridge relocate fields). */

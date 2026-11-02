@@ -17,7 +17,7 @@ export function foldText(s: string): string {
 }
 
 /** Text and CDATA nodes under body outside script/style/template, in document order (the indexed text's source). */
-function textNodes(doc: Document): Text[] {
+export function textNodes(doc: Document): Text[] {
   if (!doc.body) return []
   const out: Text[] = []
   const w = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_CDATA_SECTION, {
@@ -61,6 +61,72 @@ export function resolveTextRange(doc: Document, offset: number, _length: number,
     if (!started && start < next) { r.setStart(n, start - pos); started = true }
     if (started && end <= next) { r.setEnd(n, end - pos); return r }
     pos = next
+  }
+  return null
+}
+
+/**
+ * C-083: where each text node starts in the section's text (the same text as above, so the same coordinates as a
+ * search hit's offset and the app's canonical text). Built once per document; the reader never changes book text.
+ */
+type TextIndex = { nodes: Text[]; starts: number[]; at: Map<Node, number>; length: number }
+const indexes = new WeakMap<Document, TextIndex>()
+function textIndex(doc: Document): TextIndex {
+  let ix = indexes.get(doc)
+  if (ix) return ix
+  const nodes = textNodes(doc)
+  const starts: number[] = []
+  const at = new Map<Node, number>()
+  let pos = 0
+  nodes.forEach((n, i) => { starts.push(pos); at.set(n, i); pos += n.data.length })
+  ix = { nodes, starts, at, length: pos }
+  indexes.set(doc, ix)
+  return ix
+}
+
+/**
+ * C-083: the text offset of a boundary point ([container], [offset]) in its document: inside a text node, its start plus
+ * [offset]; elsewhere, the start of the first text node after the point (the text length when there is none).
+ */
+export function textOffsetOf(doc: Document, container: Node, offset: number): number {
+  const ix = textIndex(doc)
+  const i = ix.at.get(container)
+  if (i != null) return ix.starts[i] + Math.min(offset, ix.nodes[i].data.length)
+  const point = doc.createRange()
+  point.setStart(container, offset)
+  // first text node not before the point (nodes are in document order)
+  let lo = 0, hi = ix.nodes.length
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (point.comparePoint(ix.nodes[mid], 0) < 0) lo = mid + 1
+    else hi = mid
+  }
+  return lo < ix.nodes.length ? ix.starts[lo] : ix.length
+}
+
+/** C-083: the first and the end text offsets of [range] (a visible page's range). */
+export function textSpanOf(range: Range): { textOffset: number; textEnd: number } | null {
+  const doc = range.startContainer?.ownerDocument ?? (range.startContainer as Document)
+  if (!doc?.body) return null
+  return { textOffset: textOffsetOf(doc, range.startContainer, range.startOffset), textEnd: textOffsetOf(doc, range.endContainer, range.endOffset) }
+}
+
+/**
+ * C-083 go to page: a one-character range at text [offset] (a page's start): the first non-whitespace character at or
+ * after it, so the page's text is what the jump shows; null when the section has no text there.
+ */
+export function rangeAtOffset(doc: Document, offset: number): Range | null {
+  const ix = textIndex(doc)
+  let lo = 0, hi = ix.nodes.length - 1, k = -1
+  while (lo <= hi) { const mid = (lo + hi) >> 1; if (ix.starts[mid] <= offset) { k = mid; lo = mid + 1 } else hi = mid - 1 }
+  for (let i = Math.max(0, k); i < ix.nodes.length; i++) {
+    const n = ix.nodes[i]
+    const from = Math.max(0, offset - ix.starts[i])
+    const m = /\S/.exec(n.data.slice(from))
+    if (!m) continue
+    const r = doc.createRange()
+    r.setStart(n, from + m.index); r.setEnd(n, from + m.index + 1)
+    return r
   }
   return null
 }

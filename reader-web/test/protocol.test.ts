@@ -7,7 +7,7 @@ import type { ToWeb } from '../src/bridge/protocol'
 const fixture = (n: string) => readFileSync(resolve(__dirname, `../../bridge/fixtures/${n}.json`), 'utf8').trim()
 
 describe('protocol v1', () => {
-  it.each(['open', 'close', 'next', 'prev', 'goTo', 'goToSeek', 'setSettings', 'goToFraction', 'goToText', 'clearSearchHighlight', 'back', 'closeFootnote', 'setBookmarks', 'addAnnotation', 'clearSelection', 'setAnnotations', 'removeAnnotation'])('dispatches %s to handlers unchanged', name => {
+  it.each(['open', 'close', 'next', 'prev', 'goTo', 'goToSeek', 'setSettings', 'goToFraction', 'goToText', 'clearSearchHighlight', 'back', 'closeFootnote', 'setBookmarks', 'addAnnotation', 'clearSelection', 'setAnnotations', 'removeAnnotation', 'goToOffset', 'textOffsets'])('dispatches %s to handlers unchanged', name => {
     const seen: ToWeb[] = []
     const b = new Bridge(vi.fn())
     b.onMessage(m => seen.push(m))
@@ -32,6 +32,9 @@ describe('protocol v1', () => {
   })
   it.each(['opened', 'relocate', 'painted', 'seeked', 'tap', 'error', 'pageCounts', 'history', 'footnote', 'externalLink', 'pageBookmarks', 'selection', 'annotationTapped'])('%s fixture is well-formed JSON with v and type', name => {
     const m = JSON.parse(fixture(name)); expect(m.v).toBe(1); expect(m.type).toBe(name)
+  })
+  it('the textOffsets answer fixture is well-formed', () => {
+    const m = JSON.parse(fixture('textOffsetsAnswer')); expect(m.type).toBe('textOffsets'); expect(m.offsets).toEqual([[1, 10], [-1, -1]])
   })
   it('the cleared selection fixture is a selection without a CFI', () => {
     const m = JSON.parse(fixture('selectionCleared')); expect(m.type).toBe('selection'); expect(m.cfi).toBeNull(); expect(m.text).toBe('')
@@ -68,6 +71,12 @@ describe('protocol v1', () => {
     '{"v":1,"type":"goToText","sectionIndex":"1","offset":2,"length":3,"needle":"x"}',
     '{"v":1,"type":"goToText","sectionIndex":-1,"offset":2,"length":3,"needle":"x"}',
     '{"v":1,"type":"goToText","sectionIndex":1,"offset":2.5,"length":3,"needle":"x"}',
+    '{"v":1,"type":"goToOffset","sectionIndex":1}',
+    '{"v":1,"type":"goToOffset","sectionIndex":-1,"offset":2}',
+    '{"v":1,"type":"goToOffset","sectionIndex":1,"offset":"2"}',
+    '{"v":1,"type":"textOffsets","sessionId":"s","id":1}',
+    '{"v":1,"type":"textOffsets","sessionId":"s","id":"1","cfis":[]}',
+    '{"v":1,"type":"textOffsets","id":1,"cfis":["c"]}',
   ])('ignores malformed message %s without throwing', json => {
     const h = vi.fn(); const b = new Bridge(vi.fn()); b.onMessage(h)
     expect(() => b.receive(json)).not.toThrow(); expect(h).not.toHaveBeenCalled()

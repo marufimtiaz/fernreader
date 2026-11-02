@@ -42,9 +42,12 @@ current session.
 | app to web | `clearSelection` | none (M6, F-060: remove the text selection after a selection menu action) |
 | app to web | `setAnnotations` | `sessionId`, `items[] {id, cfi, color, style}` (M6, F-061: the book's annotations as virtual range CFIs, book order, replacing the session's set; sent once per open, after the first `painted`) |
 | app to web | `removeAnnotation` | `sessionId`, `id` (M6, F-061: the annotation was removed; its drawing is erased at once) |
+| app to web | `goToOffset` | `sectionIndex`, `offset` (C-083 go to page: a book page's start as a text offset in the section, same coordinates as `goToText`; queued like `goTo`, one `relocate`; the first non-space character at or after it, else the section start) |
+| app to web | `textOffsets` | `sessionId`, `id`, `cfis[]` (C-083: where virtual CFIs start in their sections' text, for the lists' book pages) |
+| web to app | `textOffsets` | `sessionId`, `id`, `offsets[] [section, offset]` (answer in order; `[-1, -1]` for a CFI that does not resolve; sections not loaded are parsed, never laid out) |
 | web to app | `ready`, `pong` | `engine` / `id` |
 | web to app | `opened` | `sessionId`, `identifier` (unique-identifier text or null), `title`, `authors[]`, `dir`, `fixedLayout`, `sections`, `toc[] {label, href, depth, missing, index}` (`index`: spine section of the target, -1 if none; M5), `sizes[]` (C-073: per section, the byte size foliate's progress uses, 0 for non-linear ones; the app maps a slider fraction to its section with it) |
-| web to app | `relocate` | `sessionId`, `cfi`, `fraction`, `sectionIndex`, `tocHref`, `page`/`pages` (paged: 1-based text page in the section and its text pages; 0/0 scrolled), `sectionFraction` (M4), `bookmarks[]` (M6, optional: the `setBookmarks` entries on the visible page, same strings; omitted when none) |
+| web to app | `relocate` | `sessionId`, `cfi`, `fraction`, `sectionIndex`, `tocHref`, `page`/`pages` (paged: 1-based text page in the section and its text pages; 0/0 scrolled), `sectionFraction` (M4), `bookmarks[]` (M6, optional: the `setBookmarks` entries on the visible page, same strings; omitted when none), `textOffset`/`textEnd` (C-083, optional: the visible range's start and end as offsets in the section's text, the coordinates of search hits; the app maps them to book pages) |
 | web to app | `painted` | `sessionId` (two animation frames after `relocate`) |
 | web to app | `seeked` | `sessionId`, `id` (after the `relocate` of a `goTo` that carried `id`) |
 | web to app | `tap` | `sessionId`, `x`, `y` (fractions of the viewport; links and selections excluded) |

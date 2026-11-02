@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { foldText, resolveTextRange } from '../src/reader/textpos'
+import { foldText, rangeAtOffset, resolveTextRange, textOffsetOf, textSpanOf } from '../src/reader/textpos'
 
 const html = (body: string) => new DOMParser().parseFromString(`<html><body>${body}</body></html>`, 'text/html')
 const textOf = (doc: Document) => doc.body.textContent ?? ''
@@ -89,5 +89,39 @@ describe('resolveTextRange', () => {
 
   it('returns null for a document without a body', () => {
     expect(resolveTextRange(new DOMParser().parseFromString('<root/>', 'application/xml'), 0, 1, 'a')).toBeNull()
+  })
+})
+
+/** C-083: page positions are offsets in the same text (text and CDATA under body, no script/style/template). */
+describe('text offsets', () => {
+  const doc = () => html('<h1>Title</h1><script>var x = 1</script><p>The quick <b>brown</b> fox</p>\n<p>jumps   over</p>')
+
+  it('of a point inside a text node and between elements', () => {
+    const d = doc()
+    const text = textOf(d).replace('var x = 1', '')
+    const b = d.querySelector('b')!
+    expect(textOffsetOf(d, b.firstChild!, 2)).toBe(text.indexOf('brown') + 2)
+    expect(textOffsetOf(d, b, 0)).toBe(text.indexOf('brown')) // element point: the next text
+    expect(textOffsetOf(d, d.body, 0)).toBe(0)
+    const p2 = d.querySelectorAll('p')[1]
+    expect(textOffsetOf(d, p2, 0)).toBe(text.indexOf('jumps'))
+    expect(textOffsetOf(d, d.body, d.body.childNodes.length)).toBe(text.length)
+  })
+
+  it('of a range: its start and end', () => {
+    const d = doc()
+    const text = textOf(d).replace('var x = 1', '')
+    const r = d.createRange()
+    r.setStart(d.querySelector('b')!.firstChild!, 0); r.setEnd(d.querySelectorAll('p')[1].firstChild!, 5)
+    expect(textSpanOf(r)).toEqual({ textOffset: text.indexOf('brown'), textEnd: text.indexOf('jumps') + 5 })
+  })
+
+  it('back to a range: the first non-space character at or after the offset', () => {
+    const d = doc()
+    const text = textOf(d).replace('var x = 1', '')
+    expect(rangeAtOffset(d, text.indexOf('brown'))!.toString()).toBe('b')
+    expect(rangeAtOffset(d, text.indexOf('jumps') - 1)!.toString()).toBe('j') // the newline between the paragraphs
+    expect(textOffsetOf(d, rangeAtOffset(d, text.indexOf('over'))!.startContainer, rangeAtOffset(d, text.indexOf('over'))!.startOffset)).toBe(text.indexOf('over'))
+    expect(rangeAtOffset(d, text.length + 10)).toBeNull()
   })
 })

@@ -959,3 +959,43 @@ describe('selection and annotations (F-060)', () => {
     expect(w.addAnnotation).not.toHaveBeenCalled()
   })
 })
+
+describe('book pages (C-083)', () => {
+  const relocates = () => sent.filter(m => m.type === 'relocate') as Extract<FromWeb, { type: 'relocate' }>[]
+
+  it('go to a page start: the first character at or after the offset, one relocate; section start if none', async () => {
+    open('s1', null); await settle()
+    const v = FakeView.all[0]; sent = []
+    send({ v: 1, type: 'goToOffset', sectionIndex: 2, offset: 6 }); await settle() // the space before "of" in "Battle of"
+    expect(v.goTo).toHaveBeenCalledWith('cfi-hit:o')
+    expect(relocates().map(m => m.cfi)).toEqual(['cfi-hit:o'])
+    sent = []
+    send({ v: 1, type: 'goToOffset', sectionIndex: 2, offset: 500 }); await settle()
+    expect(v.renderer.goTo).toHaveBeenCalledWith({ index: 2, anchor: 0 })
+    expect(relocates().length).toBe(1)
+  })
+
+  it('relocate carries the visible range as text offsets', async () => {
+    open('s1', null); await settle()
+    const v = FakeView.all[0]; sent = []
+    const d = await doc('<p>Battle of Borodinó began</p>')()
+    const t = d.querySelector('p')!.firstChild!
+    const range = d.createRange(); range.setStart(t, 10); range.setEnd(t, 18)
+    v.lastLocation = { cfi: 'x', fraction: 0.5, section: { current: 2 }, range }
+    v.dispatchEvent(new CustomEvent('relocate', { detail: v.lastLocation }))
+    expect(relocates()[0]).toMatchObject({ textOffset: 10, textEnd: 18 })
+  })
+
+  it('textOffsets answers each CFI with its section and text offset, [-1, -1] when it does not resolve', async () => {
+    h.epubInit.mockImplementation(async () => ({
+      ...book(),
+      resolveCFI: (cfi: string) => cfi === 'bad' ? null : { index: 2, anchor: (d: Document) => { const r = d.createRange(); r.setStart(d.querySelector('p')!.firstChild!, Number(cfi)); return r } },
+    }))
+    open('s1', null); await settle(); sent = []
+    send({ v: 1, type: 'textOffsets', sessionId: 's1', id: 4, cfis: ['10', 'bad', '0'] }); await settle()
+    expect(sent).toEqual([{ v: 1, type: 'textOffsets', sessionId: 's1', id: 4, offsets: [[2, 10], [-1, -1], [2, 0]] }])
+    sent = []
+    send({ v: 1, type: 'textOffsets', sessionId: 'other', id: 5, cfis: ['10'] }); await settle()
+    expect(sent).toEqual([])
+  })
+})

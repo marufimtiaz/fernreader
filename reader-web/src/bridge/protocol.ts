@@ -34,8 +34,12 @@ export type ToWeb =
   | { v: 1; type: 'setAnnotations'; sessionId: string; items: { id: string; cfi: string; color: string; style: 'highlight' | 'underline' }[] }
   /** F-061: the annotation [id] was removed: its drawing goes at once. */
   | { v: 1; type: 'removeAnnotation'; sessionId: string; id: string }
+  /** C-083 go to page: jump to text [offset] of section [sectionIndex] (a book page's start; queued like goTo). */
+  | { v: 1; type: 'goToOffset'; sectionIndex: number; offset: number }
+  /** C-083: where these CFIs are in their sections' text (the lists' book pages); answered by `textOffsets` with [id]. */
+  | { v: 1; type: 'textOffsets'; sessionId: string; id: number; cfis: string[] }
 
-export const TO_WEB_TYPES: ReadonlyArray<ToWeb['type']> = ['ping', 'open', 'close', 'next', 'prev', 'goTo', 'setSettings', 'goToFraction', 'goToText', 'clearSearchHighlight', 'back', 'closeFootnote', 'setBookmarks', 'addAnnotation', 'clearSelection', 'setAnnotations', 'removeAnnotation']
+export const TO_WEB_TYPES: ReadonlyArray<ToWeb['type']> = ['ping', 'open', 'close', 'next', 'prev', 'goTo', 'setSettings', 'goToFraction', 'goToText', 'clearSearchHighlight', 'back', 'closeFootnote', 'setBookmarks', 'addAnnotation', 'clearSelection', 'setAnnotations', 'removeAnnotation', 'goToOffset', 'textOffsets']
 
 export type FromWeb =
   | { v: 1; type: 'ready'; engine: string }
@@ -47,7 +51,9 @@ export type FromWeb =
       /** Paged: 1-based text page in the section and the section's text pages; 0 and 0 in scrolled mode. */
       page: number; pages: number; sectionFraction: number;
       /** F-041: the `setBookmarks` entries on the visible page (omitted when none). */
-      bookmarks?: string[] }
+      bookmarks?: string[]
+      /** C-083: text offsets of the visible range's start and end in the section's text (omitted when unknown). */
+      textOffset?: number; textEnd?: number }
   | { v: 1; type: 'painted'; sessionId: string }
   | { v: 1; type: 'seeked'; sessionId: string; id: number }
   | { v: 1; type: 'pageCounts'; sessionId: string; gen: number; linear?: number[]; counts: [number, number][]; sample: boolean; done: boolean }
@@ -67,3 +73,5 @@ export type FromWeb =
   | { v: 1; type: 'selection'; sessionId: string; text: string; cfi: string | null; sectionIndex: number }
   /** F-061: a tap landed on the user annotation [id] (not on a link inside it); it is not a `tap`. */
   | { v: 1; type: 'annotationTapped'; sessionId: string; id: string }
+  /** C-083: answer to `textOffsets`: [section, offset] per CFI, in order; [-1, -1] for one that does not resolve. */
+  | { v: 1; type: 'textOffsets'; sessionId: string; id: number; offsets: [number, number][] }

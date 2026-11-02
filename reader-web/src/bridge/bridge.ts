@@ -28,6 +28,8 @@ function validShape(m: Record<string, unknown>): boolean {
     case 'goTo': return isStr(m.target) && (m.id == null || Number.isInteger(m.id))
     case 'goToText': return Number.isInteger(m.sectionIndex) && (m.sectionIndex as number) >= 0 && Number.isInteger(m.offset) &&
       (m.offset as number) >= 0 && Number.isInteger(m.length) && (m.length as number) >= 0 && isStr(m.needle)
+    case 'goToOffset': return Number.isInteger(m.sectionIndex) && (m.sectionIndex as number) >= 0 && Number.isInteger(m.offset) && (m.offset as number) >= 0
+    case 'textOffsets': return isStr(m.sessionId) && Number.isInteger(m.id) && Array.isArray(m.cfis) && (m.cfis as unknown[]).every(isStr)
     case 'setBookmarks': return isStr(m.sessionId) && Array.isArray(m.cfis) && (m.cfis as unknown[]).every(isStr)
     case 'addAnnotation': return isStr(m.sessionId) && validAnnotation(m)
     case 'setAnnotations': return isStr(m.sessionId) && Array.isArray(m.items) && (m.items as unknown[]).every(validAnnotation)
