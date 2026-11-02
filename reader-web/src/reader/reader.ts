@@ -18,7 +18,7 @@ import { visibleBookmarks } from './bookmarks'
 import { readSelection, SelectionReporter } from './selection'
 import { AnnotationStore, annotationDraw, taggedDraw, type AnnotationChange, type AnnotationItem } from './annotations'
 import { applySettings as applyStyles, DEFAULT_SETTINGS, readerCss, THEMES, type WebSettings } from './styles'
-import { chapterEdgeLabel, DEFAULT_CHAPTER_TEXTS, type ChapterTexts } from './chapters'
+import { chapterEdgeLabel, chapterSpan, DEFAULT_CHAPTER_TEXTS, type ChapterTexts } from './chapters'
 
 /** The book identifier the app records on open (with the cd digest it is the book's identity, M2). */
 const identifierOf = (book: any): string | null => book.metadata?.identifier || null
@@ -63,6 +63,8 @@ export class Reader {
   private settings: WebSettings = DEFAULT_SETTINGS
   /** C-085: the app's texts for the One at a time chapter controls (from `open`). */
   private chapterTexts: ChapterTexts = DEFAULT_CHAPTER_TEXTS
+  /** C-085 with M8: virtual sections that continue the one before (parts of a huge document): one chapter with it. */
+  private continued: ReadonlySet<number> = new Set()
   private readonly css = readerCss(new URL('./', location.href).href)
   /** Page counts for the open book (F-034); one generation per layout. */
   private counter: PageCounter | null = null
@@ -335,6 +337,7 @@ export class Reader {
             nextChapterUntitled: m.texts.nextChapterUntitled ?? DEFAULT_CHAPTER_TEXTS.nextChapterUntitled,
             previousChapterUntitled: m.texts.previousChapterUntitled ?? DEFAULT_CHAPTER_TEXTS.previousChapterUntitled,
           }
+          this.continued = new Set(m.continued ?? [])
           void this.open(m.sessionId, m.position, m.texts.missingPart); break
         case 'setSettings': this.setSettings(m.settings); break
         case 'goToFraction': this.enqueue({ kind: 'fraction', fraction: m.fraction }); break
@@ -433,6 +436,8 @@ export class Reader {
       let toc: TocItem[] | null = null
       const has = this.has!
       r.edgeLabel = (index: number, dir: 1 | -1) => chapterEdgeLabel(toc ??= flattenToc(book, has), index, dir, this.chapterTexts)
+      const continued = this.continued
+      r.chapterSpan = (index: number) => chapterSpan(continued, book.sections.length, index)
       this.layoutAttributes(r)
       // Swipes come to the host as `swipe` events and turn pages through the queue (F-032, C-026), not foliate's drag.
       r.setAttribute('host-swipe', '')

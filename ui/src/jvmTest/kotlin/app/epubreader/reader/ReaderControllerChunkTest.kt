@@ -143,6 +143,16 @@ class ReaderControllerChunkTest {
         assertEquals(pRange(500, 0, 9), map.cfiToOriginal(p500))
     }
 
+    /** C-085: the open names the parts after a split document's first, so One at a time keeps them one chapter. */
+    @Test fun open_sends_the_continued_parts() = runTest(dispatcher) {
+        val c = controller(); open(c)
+        val sent = reader.sent.filterIsInstance<ToWeb.Open>().single().continued
+        val parts = map.docs.getValue("OPS/big.xhtml").parts
+        val first = map.virtualSpinePaths.indexOf(parts.first().path)
+        assertEquals((first + 1 until first + parts.size).toList(), sent)
+        assertEquals(parts.drop(1).map { it.path }, sent!!.map { map.virtualSpinePaths[it] })
+    }
+
     /** F-037: a position stored unchunked (M2..M7) opens in the right part; positions are stored as the control's. */
     @Test fun resume_and_stored_positions_are_original() = runTest(dispatcher) {
         val c = controller(); open(c); c.close(); advanceUntilIdle()

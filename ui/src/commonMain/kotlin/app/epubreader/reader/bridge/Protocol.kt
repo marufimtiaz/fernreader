@@ -9,7 +9,15 @@ import kotlinx.serialization.json.Json
 /** Kotlin side of the reader bridge. Mirrors reader-web/src/bridge/protocol.ts; both are tested against bridge/fixtures. */
 @Serializable sealed interface ToWeb {
     @Serializable @SerialName("ping") data class Ping(val v: Int = 1, val id: Int) : ToWeb
-    @Serializable @SerialName("open") data class Open(val v: Int = 1, val sessionId: String, val position: String? = null, val texts: WebTexts, val settings: WebSettings = WebSettings()) : ToWeb
+    /**
+     * [continued] (C-085 with M8): the virtual sections that are a later part of a huge document the app split; with
+     * the section before they are one chapter (One at a time doesn't stop between them). Null when nothing is split.
+     */
+    @OptIn(ExperimentalSerializationApi::class)
+    @Serializable @SerialName("open") data class Open(
+        val v: Int = 1, val sessionId: String, val position: String? = null, val texts: WebTexts, val settings: WebSettings = WebSettings(),
+        @EncodeDefault(EncodeDefault.Mode.NEVER) val continued: List<Int>? = null,
+    ) : ToWeb
     @Serializable @SerialName("close") data class Close(val v: Int = 1) : ToWeb
     @Serializable @SerialName("next") data class Next(val v: Int = 1) : ToWeb
     @Serializable @SerialName("prev") data class Prev(val v: Int = 1) : ToWeb

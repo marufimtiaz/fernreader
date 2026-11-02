@@ -7,7 +7,7 @@ import type { ToWeb } from '../src/bridge/protocol'
 const fixture = (n: string) => readFileSync(resolve(__dirname, `../../bridge/fixtures/${n}.json`), 'utf8').trim()
 
 describe('protocol v1', () => {
-  it.each(['open', 'openChapterTexts', 'close', 'next', 'prev', 'goTo', 'goToSeek', 'setSettings', 'goToFraction', 'goToText', 'clearSearchHighlight', 'back', 'closeFootnote', 'setBookmarks', 'addAnnotation', 'clearSelection', 'setAnnotations', 'removeAnnotation', 'goToOffset', 'textOffsets'])('dispatches %s to handlers unchanged', name => {
+  it.each(['open', 'openChapterTexts', 'openContinued', 'close', 'next', 'prev', 'goTo', 'goToSeek', 'setSettings', 'goToFraction', 'goToText', 'clearSearchHighlight', 'back', 'closeFootnote', 'setBookmarks', 'addAnnotation', 'clearSelection', 'setAnnotations', 'removeAnnotation', 'goToOffset', 'textOffsets'])('dispatches %s to handlers unchanged', name => {
     const seen: ToWeb[] = []
     const b = new Bridge(vi.fn())
     b.onMessage(m => seen.push(m))
@@ -23,6 +23,10 @@ describe('protocol v1', () => {
     const { chapters: _, ...older } = JSON.parse(fixture('setSettings')).settings
     b.receive(JSON.stringify({ v: 1, type: 'setSettings', settings: older })); expect(h).toHaveBeenCalledTimes(1)
     b.receive(JSON.stringify({ ...JSON.parse(fixture('openChapterTexts')), texts: { missingPart: 'm', nextChapter: 3 } })); expect(h).toHaveBeenCalledTimes(1)
+  })
+  it.each([[0], [1.5], ['2'], {}])('C-085: drops an open whose continued sections are malformed %#', continued => {
+    const h = vi.fn(); const b = new Bridge(vi.fn()); b.onMessage(h)
+    b.receive(JSON.stringify({ ...JSON.parse(fixture('openContinued')), continued })); expect(h).not.toHaveBeenCalled()
   })
   it('still ignores unknown types', () => {
     const h = vi.fn(); const b = new Bridge(vi.fn()); b.onMessage(h)
