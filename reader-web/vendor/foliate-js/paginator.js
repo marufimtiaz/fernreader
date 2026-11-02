@@ -1069,6 +1069,11 @@ export class Paginator extends HTMLElement {
                 this.render()
                 break
             case 'gap':
+                this.#top.style.setProperty('--_' + name, value)
+                // LOCAL PATCH (C-082): in scrolled flow the container is full-width, so a new gap resizes nothing and
+                // no resize re-renders it; render here so the side margins apply live (paged flow re-renders on resize)
+                if (this.scrolled) this.render()
+                break
             case 'margin':
             case 'max-block-size':
             case 'max-column-count':

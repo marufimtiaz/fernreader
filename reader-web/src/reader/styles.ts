@@ -66,6 +66,10 @@ export function readerCss(base: string): string {
     'html[data-er-align="justify"] body :is(p, li, blockquote, dd) { text-align: justify !important; }',
     'html[data-er-font] body, html[data-er-font] body :not(code, pre, kbd, samp, tt, code *, pre *, math, math *) { font-family: var(--er-font) !important; }',
     'math { font-family: "Noto Sans Math", math !important; }',
+    // C-082: the side margin setting is the whole edge-to-text distance: the book's own horizontal margins and padding
+    // on html, body and wrappers around the whole content (marked by applySettings) don't add to it. Indents of blocks
+    // inside the text (blockquotes, lists, centred headings) stay. The paginator's inline !important padding on html wins.
+    'html[data-er-theme], html[data-er-theme] body, html[data-er-theme] [data-er-wrapper] { margin-left: 0 !important; margin-right: 0 !important; padding-left: 0 !important; padding-right: 0 !important; }',
     ...themes,
     // The paper is the host page (it follows the theme); section documents stay transparent, so margins, the page and
     // the edges always have the same colour, also right after a theme change.
@@ -90,4 +94,24 @@ export function applySettings(doc: Document, s: WebSettings) {
   if (font) { html.setAttribute('data-er-font', s.fontFamily); html.style.setProperty('--er-font', font) }
   else { html.removeAttribute('data-er-font'); html.style.removeProperty('--er-font') }
   html.setAttribute('data-er-theme', THEMES[s.theme] ? s.theme : 'light')
+  markWrappers(doc)
+}
+
+const WRAPPER = new Set(['div', 'section', 'article', 'main'])
+
+/**
+ * C-082: marks the chain of elements that wrap the whole body content (`<body><div class="main"><section>…`): each
+ * is the only element child of its parent, with no text beside it. Their horizontal margins and padding are then
+ * neutralised by [readerCss]. Idempotent; a document with several top-level blocks has no wrapper.
+ */
+export function markWrappers(doc: Document) {
+  let el: Element | null = doc.body
+  while (el) {
+    const kids: Element[] = Array.from(el.children)
+    const text = Array.from(el.childNodes).some(n => n.nodeType === 3 && (n.nodeValue ?? '').trim() !== '')
+    const only: Element | null = kids.length === 1 && !text ? kids[0] : null
+    if (!only || !WRAPPER.has(only.localName)) return
+    if (!only.hasAttribute('data-er-wrapper')) only.setAttribute('data-er-wrapper', '')
+    el = only
+  }
 }

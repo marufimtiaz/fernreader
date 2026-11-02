@@ -195,6 +195,36 @@ export class Reader {
           rootPadding: `${root.paddingLeft} ${root.paddingRight}`, wordWidth, lines,
         }
       },
+      /**
+       * C-081: the first SVG `<image>` of loaded section [index]: its href (rewritten or not), whether it decodes, and its
+       * box and its SVG's box in host px. Asynchronous (the decode): the result is left in `window.__svgImage`.
+       */
+      svgImage: (index: number) => {
+        const w = window as any
+        w.__svgImage = null
+        const doc: Document | undefined = this.view?.renderer?.getContents?.().find((x: any) => x.index === index)?.doc
+        const img = doc?.getElementsByTagNameNS('http://www.w3.org/2000/svg', 'image')[0] as SVGImageElement | undefined
+        if (!doc || !img) { w.__svgImage = { none: true }; return }
+        const f = (doc.defaultView?.frameElement as HTMLElement | null)?.getBoundingClientRect()
+        const box = (r: DOMRect) => ({ left: (f?.left ?? 0) + r.left, top: (f?.top ?? 0) + r.top, width: r.width, height: r.height })
+        const href = img.getAttribute('href') ?? img.getAttributeNS('http://www.w3.org/1999/xlink', 'href') ?? ''
+        const probe = new Image()
+        probe.onload = () => {
+          w.__svgImage = { href, natural: probe.naturalWidth, img: box(img.getBoundingClientRect()),
+            svg: box(img.ownerSVGElement!.getBoundingClientRect()), vw: window.innerWidth, vh: window.innerHeight }
+        }
+        probe.onerror = () => { w.__svgImage = { href, natural: 0 } }
+        probe.src = href
+      },
+      /** C-082: left edge (host px) of the first [selector] in loaded section [index], on screen if it is split; null if none. */
+      blockLeft: (index: number, selector: string) => {
+        const doc: Document | undefined = this.view?.renderer?.getContents?.().find((x: any) => x.index === index)?.doc
+        const el = doc?.querySelector(selector)
+        if (!doc || !el) return null
+        const f = (doc.defaultView?.frameElement as HTMLElement | null)?.getBoundingClientRect()
+        const lefts = [...el.getClientRects()].map(r => (f?.left ?? 0) + r.left)
+        return lefts.find(l => l >= 0 && l < window.innerWidth) ?? lefts[0] ?? null
+      },
       goIndex: (i: number) => { void this.view?.renderer?.goTo({ index: i, anchor: 0 }) },
       htmlVar: (index: number, name: string) => this.view?.renderer?.getContents?.().find((x: any) => x.index === index)?.doc?.documentElement.style.getPropertyValue(name) ?? null,
       /** F-043: text of the open footnote popup, or null. */
@@ -515,12 +545,17 @@ export class Reader {
     this.onRelocate(warm.view, sessionId, warm.view.lastLocation)
   }
 
-  /** Side margins (F-072: m % per side = foliate gap 2m %), the flow mode, and the vertical margins (page indicator room). */
+  /**
+   * Side margins, the flow mode, and the vertical margins (page indicator room). F-072, C-082: m % is the real distance
+   * from the screen edge to the text on each side. Foliate's text inset in paged flow is its half-gap grid column plus
+   * half its column gap, g × width per side for a gap of g, so the gap attribute is m % (it was 2m %, twice the
+   * setting); scrolled flow uses the same inset (C-072), and book CSS cannot add to it (styles.ts).
+   */
   private layoutAttributes(r: any) {
     const s = this.settings
     const set = (k: string, v: string) => { if (r.getAttribute(k) !== v) r.setAttribute(k, v) }
     set('margin', '32px')
-    set('gap', `${2 * s.marginPercent}%`)
+    set('gap', `${s.marginPercent}%`)
     set('flow', s.flow)
     if (s.pageAnimation === 'none') r.removeAttribute('animated') // F-032: no slide
     else set('animated', '')

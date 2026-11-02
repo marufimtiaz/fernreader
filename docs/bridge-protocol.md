@@ -182,6 +182,6 @@ foliate's `animated` attribute (instant turns).
 
 `setSettings` changes CSS custom properties and `data-er-*` attributes on each section's `<html>` only (one style
 sheet injected per document, `reader-web/src/reader/styles.ts`), so a change reflows without rewriting styles
-(P-020). Side margins m % per side map to foliate's `gap` attribute (2m %). The paginator keeps the first visible
+(P-020). Side margins m % per side map to foliate's `gap` attribute (m %: foliate's inset is the gap fraction of the width per side; C-082). The paginator keeps the first visible
 range as its anchor, so a reflow keeps the passage (F-070). Preloaded neighbour sections get the same settings.
 

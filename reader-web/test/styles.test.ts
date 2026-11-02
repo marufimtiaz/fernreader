@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applySettings, readerCss, THEMES, type WebSettings } from '../src/reader/styles'
+import { applySettings, DEFAULT_SETTINGS, markWrappers, readerCss, THEMES, type WebSettings } from '../src/reader/styles'
 
 const base: WebSettings = { fontScale: 1, fontFamily: 'publisher', lineHeight: 1.5, marginPercent: 5, align: 'publisher', theme: 'light', flow: 'paginated' }
 const doc = () => {
@@ -61,5 +61,38 @@ describe('applySettings', () => {
   it('an unknown font id falls back to the publisher font', () => {
     const d = doc(); applySettings(d, { ...base, fontFamily: 'nope' })
     expect(d.documentElement.hasAttribute('data-er-font')).toBe(false)
+  })
+})
+
+// C-082: the side margin is the whole edge-to-text distance; the book's horizontal margins/padding on html, body and
+// wrappers around the whole content don't add to it, indents inside the text stay.
+describe('markWrappers (C-082)', () => {
+  const parse = (body: string) => new DOMParser().parseFromString(
+    `<html xmlns="http://www.w3.org/1999/xhtml"><head></head><body>${body}</body></html>`, 'application/xhtml+xml')
+  const marked = (doc: Document) => [...doc.querySelectorAll('[data-er-wrapper]')].map(e => e.getAttribute('id'))
+  it('marks a chain of single wrappers around the whole content', () => {
+    const doc = parse('<div id="a"><section id="b"><p>one</p><p>two</p></section></div>')
+    markWrappers(doc)
+    expect(marked(doc)).toEqual(['a', 'b'])
+  })
+  it('stops at a level with several blocks, text beside the element, or a non-wrapper element', () => {
+    const several = parse('<div id="a"><p>x</p></div><p>y</p>')
+    markWrappers(several); expect(marked(several)).toEqual([])
+    const text = parse('<div id="a"><div id="b"><p>x</p></div>loose text</div>')
+    markWrappers(text); expect(marked(text)).toEqual(['a'])
+    const quote = parse('<blockquote id="q"><p>x</p></blockquote>')
+    markWrappers(quote); expect(marked(quote)).toEqual([])
+  })
+  it('is idempotent and applySettings runs it', () => {
+    const doc = parse('<div id="a"><p>x</p></div>')
+    applySettings(doc, DEFAULT_SETTINGS); applySettings(doc, DEFAULT_SETTINGS)
+    expect(marked(doc)).toEqual(['a'])
+  })
+  it('the reader CSS zeroes horizontal margin and padding on html, body and marked wrappers only', () => {
+    const css = readerCss('/')
+    const rule = css.split('\n').find(l => l.includes('[data-er-wrapper]'))!
+    expect(rule).toContain('html[data-er-theme], html[data-er-theme] body, html[data-er-theme] [data-er-wrapper]')
+    for (const p of ['margin-left: 0', 'margin-right: 0', 'padding-left: 0', 'padding-right: 0']) expect(rule).toContain(`${p} !important`)
+    expect(rule).not.toMatch(/margin-(top|bottom)|padding-(top|bottom)|text-indent/)
   })
 })
