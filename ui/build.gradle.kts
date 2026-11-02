@@ -23,6 +23,7 @@ kotlin {
             api(compose.foundation)
             api(compose.material3)
             implementation(libs.compose.icons.core)
+            implementation(libs.compose.icons.extended)
             implementation(compose.components.resources)
             implementation(libs.coroutines.core)
             implementation(libs.serialization.json)
