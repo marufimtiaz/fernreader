@@ -143,7 +143,7 @@ class BookPagesTest {
                 // The controls' page label opens "Go to page".
                 sc.onActivity { it.controller.toggleChrome() }
                 clearCache()
-                val label = dev.wait(Until.findObject(By.text("Page i of 6")), 5_000)
+                val label = dev.wait(Until.findObject(By.text("Page i of 6").clickable(true)), 5_000)
                 assertNotNull("page label in the bottom bar", label)
                 label.click()
                 assertTrue("dialog", dev.wait(Until.hasObject(By.text(Copy.goToPage)), 5_000))
