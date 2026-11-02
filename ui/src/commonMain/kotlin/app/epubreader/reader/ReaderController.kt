@@ -13,6 +13,7 @@ import app.epubreader.core.data.Align
 import app.epubreader.core.data.Flow
 import app.epubreader.core.data.PageAnimation
 import app.epubreader.core.data.SwipeDirection
+import app.epubreader.core.data.ScrollChapters
 import app.epubreader.core.data.ReaderSettings
 import app.epubreader.core.data.SearchHistoryPort
 import app.epubreader.core.data.SettingsPort
@@ -427,6 +428,7 @@ class ReaderController(
         flow = when (s.flow) { Flow.PAGED -> "paginated"; Flow.SCROLLED -> "scrolled"; Flow.AUTO -> if (landscape) "scrolled" else "paginated" },
         swipeDirection = when (s.swipeDirection) { SwipeDirection.AUTO -> "auto"; SwipeDirection.LTR -> "ltr"; SwipeDirection.RTL -> "rtl" },
         pageAnimation = if (s.pageAnimation == PageAnimation.NONE) "none" else "slide",
+        chapters = if (s.scrollChapters == ScrollChapters.ONE_AT_A_TIME) "one-at-a-time" else "continuous",
     )
 
     /** One page turn through the web side's queue (same path as the bench's `next`/`prev`). */

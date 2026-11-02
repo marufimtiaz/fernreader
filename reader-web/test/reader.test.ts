@@ -959,3 +959,50 @@ describe('selection and annotations (F-060)', () => {
     expect(w.addAnnotation).not.toHaveBeenCalled()
   })
 })
+
+// C-085: scroll mode's "Chapters" setting reaches the paginator as its `chapter-stop` attribute, and the One at a time
+// controls are labelled with the app's texts and the book's contents.
+describe('Reader chapters (One at a time)', () => {
+  const settings = { fontScale: 1, fontFamily: 'publisher', lineHeight: 1.5, marginPercent: 5, align: 'publisher', theme: 'light', swipeDirection: 'auto', pageAnimation: 'slide' } as const
+  const texts = { missingPart: 'missing', nextChapter: 'Weiter: {title}', previousChapter: 'Zurück: {title}', nextChapterUntitled: 'Weiter', previousChapterUntitled: 'Zurück' }
+  const openWith = (s: object, t: object = texts) => send({ v: 1, type: 'open', sessionId: 's1', position: null, texts: t, settings: { ...settings, ...s } } as ToWeb)
+  const attrs = (r: HTMLElement) => { const seen: string[] = []; const set = r.setAttribute.bind(r); r.setAttribute = (k: string, v: string) => { seen.push(k); set(k, v) }; return seen }
+
+  it('One at a time sets chapter-stop on the paginator, before the flow (one layout when switching to Scroll)', async () => {
+    send({ v: 1, type: 'setSettings', settings: { ...settings, flow: 'paginated', chapters: 'one-at-a-time' } }) // before any open: stored
+    openWith({ flow: 'paginated', chapters: 'one-at-a-time' }); await settle(); await settle()
+    const r = FakeView.all.at(-1)!.renderer as HTMLElement
+    expect(r.hasAttribute('chapter-stop')).toBe(true)
+    r.removeAttribute('chapter-stop')
+    const seen = attrs(r)
+    send({ v: 1, type: 'setSettings', settings: { ...settings, flow: 'scrolled', chapters: 'one-at-a-time' } }); await settle()
+    expect(r.getAttribute('flow')).toBe('scrolled')
+    expect(seen.indexOf('chapter-stop')).toBeGreaterThanOrEqual(0)
+    expect(seen.indexOf('chapter-stop')).toBeLessThan(seen.indexOf('flow'))
+  })
+
+  it('Continuous (and an app that sends no chapters) leaves chapter-stop off; switching back removes it', async () => {
+    openWith({ flow: 'scrolled' }); await settle(); await settle()
+    const r = FakeView.all.at(-1)!.renderer as HTMLElement
+    expect(r.hasAttribute('chapter-stop')).toBe(false)
+    send({ v: 1, type: 'setSettings', settings: { ...settings, flow: 'scrolled', chapters: 'one-at-a-time' } }); await settle()
+    expect(r.hasAttribute('chapter-stop')).toBe(true)
+    send({ v: 1, type: 'setSettings', settings: { ...settings, flow: 'scrolled', chapters: 'continuous' } }); await settle()
+    expect(r.hasAttribute('chapter-stop')).toBe(false)
+  })
+
+  it('the controls name the chapter from the contents with the texts the app sent (untitled without an entry)', async () => {
+    h.epubInit.mockImplementation(async () => ({ ...book(), toc: [{ label: 'Chapter One', href: 'b' }], resolveHref: (x: string) => ({ index: x === 'b' ? 1 : -1 }) }))
+    openWith({ flow: 'scrolled', chapters: 'one-at-a-time' }); await settle(); await settle()
+    const r = FakeView.all.at(-1)!.renderer as any
+    expect(r.edgeLabel(1, 1)).toBe('Weiter: Chapter One')
+    expect(r.edgeLabel(2, 1)).toBe('Weiter: Chapter One') // a section without an entry continues the one before
+    expect(r.edgeLabel(0, -1)).toBe('Zurück')
+  })
+
+  it('without chapter texts (bench, older app) the English defaults are used', async () => {
+    openWith({ flow: 'scrolled', chapters: 'one-at-a-time' }, { missingPart: 'missing' }); await settle(); await settle()
+    const r = FakeView.all.at(-1)!.renderer as any
+    expect(r.edgeLabel(0, 1)).toBe('Next chapter')
+  })
+})

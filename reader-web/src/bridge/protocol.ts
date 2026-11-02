@@ -1,3 +1,4 @@
+import type { ChapterTexts } from '../reader/chapters'
 import type { WebSettings } from '../reader/styles'
 
 export const PROTOCOL_VERSION = 1
@@ -7,7 +8,7 @@ export type TocItem = { label: string; href: string; depth: number; missing: boo
 
 export type ToWeb =
   | { v: 1; type: 'ping'; id: number }
-  | { v: 1; type: 'open'; sessionId: string; position: string | null; texts: { missingPart: string }; settings?: WebSettings }
+  | { v: 1; type: 'open'; sessionId: string; position: string | null; texts: { missingPart: string } & Partial<ChapterTexts>; settings?: WebSettings }
   | { v: 1; type: 'close' }
   | { v: 1; type: 'next' }
   | { v: 1; type: 'prev' }

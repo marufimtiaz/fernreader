@@ -21,6 +21,7 @@ import app.epubreader.core.search.SearchHit
 import app.epubreader.core.search.SearchQuery
 import app.epubreader.core.search.SearchUpdate
 import app.epubreader.core.data.SourceRef
+import app.epubreader.core.data.ScrollChapters
 import app.epubreader.core.data.buildDatabase
 import app.epubreader.core.data.jvmDatabaseBuilder
 import app.epubreader.reader.bridge.FromWeb
@@ -230,6 +231,20 @@ class ReaderControllerTest {
         c.updateSettings { it.copy(flow = Flow.PAGED) }; reader.sent.clear()
         c.setLandscape(false); c.setLandscape(true)
         assertTrue(reader.sent.isEmpty()) // paged stays paged in landscape
+    }
+
+    /** C-085: Scroll mode's "Chapters" goes to the web side live and is stored with the other display settings. */
+    @Test fun scroll_chapters_reach_the_web_side_and_are_stored() = runTest(dispatcher) {
+        val c = controller()
+        c.open(ref); advanceUntilIdle()
+        assertEquals("continuous", (reader.sent.single() as ToWeb.Open).settings.chapters)
+        reader.sent.clear()
+        c.updateSettings { it.copy(flow = Flow.SCROLLED, scrollChapters = ScrollChapters.ONE_AT_A_TIME) }
+        assertEquals("one-at-a-time", (reader.sent.single() as ToWeb.SetSettings).settings.chapters)
+        advanceUntilIdle()
+        assertEquals(ScrollChapters.ONE_AT_A_TIME, ReaderSettings.decode(settings.map[ReaderSettings.KEY]).scrollChapters)
+        c.updateSettings { it.copy(scrollChapters = ScrollChapters.CONTINUOUS) }
+        assertEquals("continuous", (reader.sent.last() as ToWeb.SetSettings).settings.chapters)
     }
 
     @Test fun section_stats_load_after_the_first_paint_and_are_cached_per_file() = runTest(dispatcher) {

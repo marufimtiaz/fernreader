@@ -2,6 +2,9 @@
 // jump resets the stack and is never "corrected" back (#jumping), layout changes restore the jump target only until the
 // user scrolls (#restoring) and otherwise keep the text on screen in place (#holdScreen), and sections are loaded ahead
 // of the viewport in both directions, through short sections (#ensureStack).
+// LOCAL PATCH (M9 C-085, see PATCHES.md): `chapter-stop` attribute ("Chapters: One at a time" in scroll mode): stack mode
+// holds only the current section, so scrolling stops at its end; a control below its last line (above its first line)
+// or a deliberate overscroll pull opens the next (previous) section (#edges, pullStep).
 // LOCAL PATCH (M9 C-071, see PATCHES.md): a turn into a preloaded neighbour section slides (`animated`) instead of
 // swapping instantly: #slideIn moves the old and the new slot side by side over 300 ms.
 // LOCAL PATCH (M6 Task 9, see PATCHES.md): `vertical-pages` attribute: vertical-rl sections paged right-to-left as
@@ -45,6 +48,18 @@ const easeOutQuad = x => 1 - (1 - x) * (1 - x)
 // width apart, so no gap (blank) ever shows between them.
 export const slideSign = (dir, rtl) => (dir > 0 ? -1 : 1) * (rtl ? -1 : 1)
 export const slideFrame = (t, sign, width) => ({ old: sign * width * t + 0, next: -sign * width * (1 - t) + 0 })
+// local patch (C-085): a deliberate overscroll pull in "one chapter at a time" scrolling. [p] holds the finger's y
+// (screen CSS px) where the scroller was first seen at its top ([startFrom]) or end ([endFrom]) during this gesture;
+// leaving that edge resets it. [next]/[prev]: how far the finger has pulled past the end (up) or the top (down).
+export const pullStep = (p, { y, atStart, atEnd }) => {
+    const endFrom = atEnd ? (p.endFrom ?? y) : null
+    const startFrom = atStart ? (p.startFrom ?? y) : null
+    return { startFrom, endFrom, next: endFrom == null ? 0 : endFrom - y, prev: startFrom == null ? 0 : y - startFrom }
+}
+/** How far a pull must go to count (CSS px): a fifth of the viewport, at least 96 px, so a fling or a nudge never does. */
+export const pullThreshold = viewport => Math.max(96, viewport * 0.2)
+/** 1 = open the next section, -1 = the previous one, 0 = no turn. */
+export const pullTurn = (p, threshold) => p?.next >= threshold ? 1 : p?.prev >= threshold ? -1 : 0
 const animate = (a, b, duration, ease, render) => new Promise(resolve => {
     let start
     const step = now => {
@@ -546,6 +561,7 @@ export class Paginator extends HTMLElement {
     static observedAttributes = [
         'flow', 'gap', 'margin',
         'max-inline-size', 'max-block-size', 'max-column-count',
+        'chapter-stop', // local patch (C-085)
     ]
     #root = this.attachShadow({ mode: 'closed' })
     #observer = new ResizeObserver(() => this.render())
@@ -581,7 +597,10 @@ export class Paginator extends HTMLElement {
     // scrolling continues across sections; the current section is the one at the top of the viewport.
     get #stack() { return this.hasAttribute('preload') && this.scrolled && !this.#vertical }
     get #preload() { return this.hasAttribute('preload') && (!this.scrolled || this.#stack) }
-    #mode = null // 'paged' | 'stack' | null: what the cached slots are laid out for
+    // local patch (C-085): "Chapters: One at a time": the stack holds only the current section (no neighbours above or
+    // below), framed by the edge controls; everything else (jumps, holding the text in place) is stack mode's
+    get #single() { return this.#stack && this.hasAttribute('chapter-stop') }
+    #mode = null // 'paged' | 'stack' | 'single' | null: what the cached slots are laid out for
     #stackTop = 0 // offsetTop of the current slot when the scroll position was last set or fixed
     #slotStyle(slot, current) {
         slot.style.cssText = this.#stack ? ''
@@ -622,6 +641,7 @@ export class Paginator extends HTMLElement {
     #stackPad = Object.assign(document.createElement('div'), { className: 'stack-pad' })
     #noStack = new Set() // sections that failed to load into the stack (error, other writing mode): its end there
     #nextStacked(index, dir) {
+        if (this.#single) return null
         const i = this.#linearFrom(index, dir)
         return i == null || this.#noStack.has(i) ? null : i
     }
@@ -629,7 +649,7 @@ export class Paginator extends HTMLElement {
         const last = Math.max(-1, ...this.#cache.keys())
         const vh = this.#container.clientHeight
         let h = 0
-        if (this.#stack && last >= 0) {
+        if (this.#stack && !this.#single && last >= 0) {
             // more to come: a screen of room; the book's (or the stack's) last section: just enough that a section
             // shorter than the screen can still be scrolled to the top, and no blank screen past the end
             if (this.#nextStacked(last, 1) != null) h = vh
@@ -705,6 +725,78 @@ export class Paginator extends HTMLElement {
             const t = e.slot.offsetTop, b = t + e.slot.offsetHeight
             if (b < top - 6 * vh || t > top + 8 * vh) this.#evict(e.index)
         }
+    }
+    // local patch (C-085): the "Previous: <title>" control above the current section's first line and the "Next: <title>"
+    // control below its last line (One at a time); [edgeLabel(index, dir)] is the host's label for section [index]
+    edgeLabel = null
+    #edgeHead = this.#makeEdge(-1)
+    #edgeFoot = this.#makeEdge(1)
+    #pull = null // the overscroll pull of the running gesture (pullStep), null when it can't be one
+    #makeEdge(dir) {
+        const el = Object.assign(document.createElement('div'), { className: 'chapter-edge' })
+        const b = Object.assign(document.createElement('button'), { type: 'button' })
+        b.addEventListener('click', () => this.#openAdjacent(dir))
+        el.append(b)
+        return el
+    }
+    /** One at a time: the edge controls go right around the current slot (text on screen kept in place); else away. */
+    #placeEdges() {
+        const cur = this.#single ? this.#cache.get(this.#index) : null
+        const head = this.#edgeHead, foot = this.#edgeFoot
+        if (!cur && !head.isConnected && !foot.isConnected) return
+        this.#keepStack(() => {
+            if (!cur) { head.remove(); foot.remove(); return }
+            for (const [el, dir] of [[head, -1], [foot, 1]]) {
+                const target = this.#adjacentIndex(dir) // the book's first and last sections have none
+                el.hidden = target == null
+                el.dataset.index = target ?? ''
+                const label = target == null ? '' : String(this.edgeLabel?.(target, dir) ?? '')
+                if (el.firstChild.textContent !== label) el.firstChild.textContent = label
+            }
+            if (cur.slot.previousSibling !== head) this.#container.insertBefore(head, cur.slot)
+            if (cur.slot.nextSibling !== foot) cur.slot.after(foot)
+        })
+    }
+    /** One at a time: opens the next section at its top ([dir] 1) or the previous one at its end (-1), as a jump. */
+    #openAdjacent(dir) {
+        const index = this.#adjacentIndex(dir)
+        if (index == null || !this.#single) return
+        return this.goTo({ index, anchor: dir > 0 ? 0 : 1 })
+    }
+    #pullDir() {
+        const t = pullTurn(this.#pull, pullThreshold(this.#container.clientHeight))
+        return t && this.#adjacentIndex(t) != null ? t : 0
+    }
+    #armEdges(dir) {
+        this.#edgeHead.classList.toggle('armed', dir < 0)
+        this.#edgeFoot.classList.toggle('armed', dir > 0)
+    }
+    #pullMove(e) {
+        if (!this.#pull) return
+        const y = e.changedTouches?.[0]?.screenY
+        if (e.touches?.length > 1 || y == null) { this.#pull = null; this.#armEdges(0); return }
+        const el = this.#container
+        this.#pull = pullStep(this.#pull, {
+            y, atStart: el.scrollTop <= 2, atEnd: el.scrollTop + el.clientHeight >= el.scrollHeight - 2,
+        })
+        this.#armEdges(this.#pullDir())
+    }
+    #pullEnd(e) {
+        const dir = this.#pull && this.#single && !e?.touches?.length && !(globalThis.visualViewport?.scale > 1) ? this.#pullDir() : 0
+        this.#pull = null
+        this.#armEdges(0)
+        if (dir) this.#openAdjacent(dir)
+    }
+    /** Diagnostics for tests (C-085): the edge controls (viewport rects of their buttons, null if not shown) and the scroller. */
+    get debugEdges() {
+        const r = el => {
+            if (!el.isConnected || el.hidden) return null
+            const b = el.firstChild.getBoundingClientRect()
+            return { label: el.firstChild.textContent, index: Number(el.dataset.index), x: b.left, y: b.top, w: b.width, h: b.height }
+        }
+        const el = this.#container
+        return { single: this.#single, head: r(this.#edgeHead), foot: r(this.#edgeFoot),
+            scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, viewport: el.clientHeight, current: this.#index }
     }
     /** Stack mode: the slot at the top of the viewport becomes the current section (no scrolling). */
     #followStack() {
@@ -804,6 +896,12 @@ export class Paginator extends HTMLElement {
     }
     /** [below]: only preload the next section (safe while the user scrolls; nothing above moves). */
     #afterSwap(below = false) {
+        if (this.#single) { // C-085: the current section alone, between its edge controls
+            for (const i of [...this.#cache.keys()]) if (i !== this.#index) this.#evict(i)
+            this.#placeEdges()
+            return
+        }
+        this.#placeEdges()
         if (!this.#preload) return
         if (below) { this.#preloadIndex(this.#adjacentIndex(1)); return }
         const keep = new Set([this.#index, this.#adjacentIndex(-1), this.#adjacentIndex(1)])
@@ -949,6 +1047,32 @@ export class Paginator extends HTMLElement {
             display: grid;
             height: var(--_margin);
         }
+        /* local patch (C-085): One at a time's "Previous" / "Next" controls (colours from the host's reading theme) */
+        .chapter-edge {
+            display: flex;
+            justify-content: center;
+            padding: 32px 24px;
+        }
+        .chapter-edge[hidden] {
+            display: none;
+        }
+        .chapter-edge button {
+            min-height: 48px;
+            max-width: 100%;
+            padding: 12px 24px;
+            border: 1px solid var(--er-edge-rule, currentColor);
+            border-radius: 24px;
+            background: transparent;
+            color: var(--er-edge-fg, inherit);
+            font: 500 16px/1.3 system-ui, sans-serif;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            transition: background-color 120ms;
+        }
+        .chapter-edge.armed button {
+            background: var(--er-edge-rule, rgba(128, 128, 128, .25));
+        }
         :is(#header, #footer) > * {
             display: flex;
             align-items: center;
@@ -1067,6 +1191,9 @@ export class Paginator extends HTMLElement {
         switch (name) {
             case 'flow':
                 this.render()
+                break
+            case 'chapter-stop': // local patch (C-085): only scrolled flow stacks sections
+                if (this.scrolled) this.render()
                 break
             case 'gap':
                 this.#top.style.setProperty('--_' + name, value)
@@ -1230,7 +1357,7 @@ export class Paginator extends HTMLElement {
             rtl: this.#docRtl,
             writingMode: this.#writingMode,
         })
-        const mode = this.#stack ? 'stack' : this.#preload ? 'paged' : null
+        const mode = this.#single ? 'single' : this.#stack ? 'stack' : this.#preload ? 'paged' : null
         const switched = this.#mode !== mode
         if (switched) { // paged <-> scrolled: neighbours are laid out again for the new flow
             for (const i of [...this.#cache.keys()]) if (i !== this.#index) this.#evict(i)
@@ -1324,6 +1451,7 @@ export class Paginator extends HTMLElement {
     }
     #onTouchStart(e) {
         this.#userScroll()
+        this.#pull = this.#single && e.touches.length === 1 ? { startFrom: null, endFrom: null } : null // C-085
         const touch = e.changedTouches[0]
         this.#touchState = {
             x: touch?.screenX, y: touch?.screenY,
@@ -1338,6 +1466,7 @@ export class Paginator extends HTMLElement {
         if (!state) return // local patch: a move without a start (began outside) is ignored
         if (state.pinched) return
         state.pinched = globalThis.visualViewport.scale > 1
+        if (this.#single && !state.pinched) this.#pullMove(e) // local patch (C-085)
         if (this.scrolled || state.pinched) return
         if (e.touches.length > 1) {
             state.multi = true
@@ -1361,7 +1490,7 @@ export class Paginator extends HTMLElement {
     }
     #onTouchEnd(e) {
         this.#touchScrolled = false
-        if (this.scrolled) return
+        if (this.scrolled) { this.#pullEnd(e); return } // local patch (C-085)
         // local patch (host-swipe): report the finished one-finger gesture as a `swipe` event (finger displacement in
         // CSS px, positive = right/down, and its duration in ms) instead of scrollBy/snap, so every swipe can go through
         // the host's turn queue (a swipe during a turn animation or before the first layout is not lost)
@@ -1486,7 +1615,8 @@ export class Paginator extends HTMLElement {
 
         const index = this.#index
         const detail = { reason, range, index }
-        if (this.scrolled) detail.fraction = this.start / this.viewSize
+        // local patch (C-085): above the section (its "Previous" control on screen) is its start
+        if (this.scrolled) detail.fraction = Math.max(0, this.start) / this.viewSize
         else if (this.pages > 0) {
             const { page, pages } = this
             this.#header.style.visibility = page > 1 ? 'visible' : 'hidden'

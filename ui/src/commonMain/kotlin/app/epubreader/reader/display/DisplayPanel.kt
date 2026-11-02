@@ -47,6 +47,7 @@ import app.epubreader.core.data.Flow
 import app.epubreader.core.data.IndicatorScope
 import app.epubreader.core.data.ReaderSettings
 import app.epubreader.core.data.ReadingThemeId
+import app.epubreader.core.data.ScrollChapters
 import app.epubreader.ui.Copy
 import kotlin.math.roundToInt
 
@@ -61,6 +62,8 @@ fun DisplayPanel(
     fonts: Map<String, FontFamily>,
     onChange: ((ReaderSettings) -> ReaderSettings) -> Unit,
     modifier: Modifier = Modifier,
+    /** C-004: Auto reading mode scrolls in landscape. */
+    landscape: Boolean = false,
 ) {
     Surface(
         modifier.fillMaxWidth(),
@@ -87,6 +90,9 @@ fun DisplayPanel(
             }
             Segments(Copy.layout, FlowOptions, s.flow) { f ->
                 onChange { it.copy(flow = f) }
+            }
+            if (s.scrolls(landscape)) Segments(Copy.scrollChapters, ChaptersOptions, s.scrollChapters) { v ->
+                onChange { it.copy(scrollChapters = v) }
             }
             Segments(Copy.pageNumbers, listOf(IndicatorScope.BOOK to Copy.scopeBook, IndicatorScope.CHAPTER to Copy.scopeChapter), s.pageIndicatorScope) { sc ->
                 onChange { it.copy(pageIndicatorScope = sc) }
@@ -164,6 +170,12 @@ private fun SliderRow(label: String, value: String, v: Float, range: ClosedFloat
         Slider(value = v, onValueChange = onValue, valueRange = range, steps = steps, modifier = Modifier.semantics { contentDescription = label })
     }
 }
+
+/** C-085: scroll mode's chapter choices, shown under Reading mode only while the book scrolls ([scrolls]). */
+internal val ChaptersOptions = listOf(ScrollChapters.CONTINUOUS to Copy.chaptersContinuous, ScrollChapters.ONE_AT_A_TIME to Copy.chaptersOneAtATime)
+
+/** C-085: the reading mode is Scroll, or Auto resolving to scroll ([landscape], C-004). */
+internal fun ReaderSettings.scrolls(landscape: Boolean): Boolean = flow == Flow.SCROLLED || flow == Flow.AUTO && landscape
 
 /** F-031: the reading-mode choices; C-084: shown only here, in the display panel. */
 internal val FlowOptions = listOf(Flow.PAGED to Copy.flowPaged, Flow.SCROLLED to Copy.flowScrolled, Flow.AUTO to Copy.flowAuto)

@@ -204,6 +204,15 @@ object Copy {
     const val alignPublisher = "As published"
     const val alignStart = "Left"
     const val alignJustify = "Justified"
+    /** C-085: scroll mode's chapter behaviour (display panel, under Reading mode). */
+    const val scrollChapters = "Chapters"
+    const val chaptersContinuous = "Continuous"
+    const val chaptersOneAtATime = "One at a time"
+    /** C-085: the controls at a chapter's end and start in One at a time (web page); {title} is the chapter's title. */
+    const val nextChapter = "Next: {title}"
+    const val previousChapter = "Previous: {title}"
+    const val nextChapterUntitled = "Next chapter"
+    const val previousChapterUntitled = "Previous chapter"
     const val layout = "Reading mode"
     const val flowPaged = "Pages"
     const val flowScrolled = "Scroll"

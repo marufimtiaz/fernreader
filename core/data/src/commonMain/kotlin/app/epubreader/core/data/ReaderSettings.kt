@@ -22,6 +22,8 @@ enum class SwipeDirection { AUTO, LTR, RTL }
 enum class VolumeKeys { OFF, ON, REVERSED }
 enum class PageAnimation { SLIDE, NONE }
 enum class OrientationLock { SYSTEM, PORTRAIT, LANDSCAPE }
+/** C-085: in scroll mode, CONTINUOUS = the next chapter follows below (C-079); ONE_AT_A_TIME = scrolling stops at its end. */
+enum class ScrollChapters { CONTINUOUS, ONE_AT_A_TIME }
 
 /**
  * Reading display settings (F-070..F-075, F-031, F-034 scope), one value for all books, stored as JSON in the
@@ -54,6 +56,8 @@ data class ReaderSettings(
     val confirmExternalLinks: Boolean = true,
     /** F-060: the colour a new highlight or underline gets (the last one chosen), a [HighlightColors] id. */
     val highlightColor: String = HighlightColors.YELLOW,
+    /** C-085: Scroll mode's "Chapters" (display panel); stored values without it decode to CONTINUOUS. */
+    val scrollChapters: ScrollChapters = ScrollChapters.CONTINUOUS,
 ) {
     fun clamped(): ReaderSettings = copy(
         fontScale = tenth(fontScale.coerceIn(MIN_FONT, MAX_FONT)),
@@ -109,6 +113,7 @@ data class ReaderSettings(
                 orientation = enum("orientation", OrientationLock.entries.toTypedArray(), d.orientation),
                 confirmExternalLinks = bool("confirmExternalLinks", d.confirmExternalLinks),
                 highlightColor = str("highlightColor") ?: d.highlightColor,
+                scrollChapters = enum("scrollChapters", ScrollChapters.entries.toTypedArray(), d.scrollChapters),
             ).clamped()
         }
     }

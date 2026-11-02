@@ -58,7 +58,8 @@ class ProtocolFixtureTest {
                 WebAnnotation(id = "a-2", cfi = "epubcfi(/6/8!/4/6,/1:0,/1:12)", color = "blue", style = "underline"),
             )),
             "removeAnnotation" to ToWeb.RemoveAnnotation(sessionId = "s-1", id = "a-1"),
-            "setSettings" to ToWeb.SetSettings(settings = WebSettings(1.4, "literata", 1.8, 3, "justify", "warm", "scrolled", "rtl", "none")),
+            "setSettings" to ToWeb.SetSettings(settings = WebSettings(1.4, "literata", 1.8, 3, "justify", "warm", "scrolled", "rtl", "none", "one-at-a-time")),
+            "openChapterTexts" to ToWeb.Open(sessionId = "s-1", position = null, texts = WebTexts("Missing.", "Next: {title}", "Previous: {title}", "Next chapter", "Previous chapter")),
         )
         for ((n, m) in msgs) assertEquals(tree(fixture(n)), tree(encodeToWeb(m)), n)
     }

@@ -29,8 +29,8 @@ current session.
 | Direction | type | Fields |
 |---|---|---|
 | app to web | `ping` | `id` |
-| app to web | `open` | `sessionId`, `position` (virtual CFI or null), `texts.missingPart`, `settings` (as `setSettings`; optional) |
-| app to web | `setSettings` | `settings {fontScale, fontFamily, lineHeight, marginPercent, align: publisher\|start\|justify, theme: light\|dark\|black\|warm, flow: paginated\|scrolled, swipeDirection: auto\|ltr\|rtl, pageAnimation: slide\|none}` (M4; AUTO flow already resolved by the app; `swipeDirection`/`pageAnimation` M6, optional, default auto/slide; `auto` = the book's page-progression-direction, resolved on the web side so `open` already uses it) |
+| app to web | `open` | `sessionId`, `position` (virtual CFI or null), `texts.missingPart`, `texts.nextChapter`/`previousChapter`/`nextChapterUntitled`/`previousChapterUntitled` (C-085, optional: the One at a time controls, `{title}` = the chapter's title; missing = English defaults), `settings` (as `setSettings`; optional) |
+| app to web | `setSettings` | `settings {fontScale, fontFamily, lineHeight, marginPercent, align: publisher\|start\|justify, theme: light\|dark\|black\|warm, flow: paginated\|scrolled, swipeDirection: auto\|ltr\|rtl, pageAnimation: slide\|none, chapters: continuous\|one-at-a-time}` (M4; AUTO flow already resolved by the app; `swipeDirection`/`pageAnimation` M6, optional, default auto/slide; `auto` = the book's page-progression-direction, resolved on the web side so `open` already uses it; `chapters` C-085, optional, default continuous, used in scrolled flow only: one-at-a-time stops at each chapter's end) |
 | app to web | `close`, `next`, `prev` | none |
 | app to web | `goTo` | `target` (CFI or href), `id` (optional integer: ask for `seeked`) |
 | app to web | `goToText` | `sectionIndex`, `offset`, `length` (UTF-16, in the section's extracted text), `needle` (the hit text) (M5, F-050) |

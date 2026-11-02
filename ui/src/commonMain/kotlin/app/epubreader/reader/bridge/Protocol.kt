@@ -66,9 +66,21 @@ import kotlinx.serialization.json.Json
     /** F-032: "auto" (the book's page-progression-direction) | "ltr" | "rtl": which horizontal swipe is "next". */
     val swipeDirection: String = "auto",
     /** F-032: "slide" | "none". */ val pageAnimation: String = "slide",
+    /** C-085, scrolled flow: "continuous" | "one-at-a-time" (stop at each chapter's end). */ val chapters: String = "continuous",
 )
 
-@Serializable data class WebTexts(val missingPart: String)
+/**
+ * Texts the web page shows. C-085: the One at a time chapter controls; `{title}` stands for the chapter's title, the
+ * untitled ones are for a chapter without one. Null: the web side's own (English) text.
+ */
+@OptIn(ExperimentalSerializationApi::class)
+@Serializable data class WebTexts(
+    val missingPart: String,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val nextChapter: String? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val previousChapter: String? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val nextChapterUntitled: String? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val previousChapterUntitled: String? = null,
+)
 /** [index]: the spine section the entry points to, -1 when it resolves to none. */
 @Serializable data class TocItem(val label: String, val href: String, val depth: Int, val missing: Boolean = false, val index: Int = -1)
 

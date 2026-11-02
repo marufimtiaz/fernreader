@@ -7,16 +7,22 @@ import type { ToWeb } from '../src/bridge/protocol'
 const fixture = (n: string) => readFileSync(resolve(__dirname, `../../bridge/fixtures/${n}.json`), 'utf8').trim()
 
 describe('protocol v1', () => {
-  it.each(['open', 'close', 'next', 'prev', 'goTo', 'goToSeek', 'setSettings', 'goToFraction', 'goToText', 'clearSearchHighlight', 'back', 'closeFootnote', 'setBookmarks', 'addAnnotation', 'clearSelection', 'setAnnotations', 'removeAnnotation'])('dispatches %s to handlers unchanged', name => {
+  it.each(['open', 'openChapterTexts', 'close', 'next', 'prev', 'goTo', 'goToSeek', 'setSettings', 'goToFraction', 'goToText', 'clearSearchHighlight', 'back', 'closeFootnote', 'setBookmarks', 'addAnnotation', 'clearSelection', 'setAnnotations', 'removeAnnotation'])('dispatches %s to handlers unchanged', name => {
     const seen: ToWeb[] = []
     const b = new Bridge(vi.fn())
     b.onMessage(m => seen.push(m))
     b.receive(fixture(name))
     expect(seen).toEqual([JSON.parse(fixture(name))])
   })
-  it.each([{}, { fontScale: 'x' }, { ...JSON.parse(fixture('setSettings')).settings, theme: 'neon' }])('drops setSettings with bad settings %#', settings => {
+  it.each([{}, { fontScale: 'x' }, { ...JSON.parse(fixture('setSettings')).settings, theme: 'neon' }, { ...JSON.parse(fixture('setSettings')).settings, chapters: 'sideways' }])('drops setSettings with bad settings %#', settings => {
     const h = vi.fn(); const b = new Bridge(vi.fn()); b.onMessage(h)
     b.receive(JSON.stringify({ v: 1, type: 'setSettings', settings })); expect(h).not.toHaveBeenCalled()
+  })
+  it('C-085: chapters is optional (an older app sends none) and the chapter texts are optional strings', () => {
+    const h = vi.fn(); const b = new Bridge(vi.fn()); b.onMessage(h)
+    const { chapters: _, ...older } = JSON.parse(fixture('setSettings')).settings
+    b.receive(JSON.stringify({ v: 1, type: 'setSettings', settings: older })); expect(h).toHaveBeenCalledTimes(1)
+    b.receive(JSON.stringify({ ...JSON.parse(fixture('openChapterTexts')), texts: { missingPart: 'm', nextChapter: 3 } })); expect(h).toHaveBeenCalledTimes(1)
   })
   it('still ignores unknown types', () => {
     const h = vi.fn(); const b = new Bridge(vi.fn()); b.onMessage(h)
