@@ -19,34 +19,21 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.snapshotFlow
-import app.epubreader.ui.theme.Glyphs
+import app.epubreader.ui.theme.AppIcons
+import app.epubreader.ui.BarIcon
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
-import androidx.compose.material3.TooltipBox
-import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.material3.rememberTooltipState
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
-import app.epubreader.ui.theme.BarIcons
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.foundation.layout.Arrangement
@@ -249,7 +236,7 @@ private fun Drawer(ui: LibraryUi, onView: (LibraryView) -> Unit, onToggleFolder:
         LazyColumn(Modifier.padding(horizontal = 12.dp)) {
             item { Text(Copy.appName, Modifier.padding(start = 16.dp, top = 20.dp, bottom = 12.dp), style = MaterialTheme.typography.titleLarge) }
             item {
-                NavigationDrawerItem(label = { Text(Copy.allBooks) }, icon = { Icon(Glyphs.Books, null) }, selected = ui.view == LibraryView.All,
+                NavigationDrawerItem(label = { Text(Copy.allBooks) }, icon = { Icon(AppIcons.AllBooks, null) }, selected = ui.view == LibraryView.All,
                     badge = { Text(ui.total.toString()) }, onClick = { onView(LibraryView.All) })
             }
             // C-074: the folders with books, one tap away (the folder-view setting hides the section)
@@ -262,19 +249,20 @@ private fun Drawer(ui: LibraryUi, onView: (LibraryView) -> Unit, onToggleFolder:
                         onToggle = { onToggleFolder(f.node.path) })
                 }
                 if (folders.showAll) item {
-                    TextButton(onClick = { onView(LibraryView.Folders) }, Modifier.padding(start = 4.dp)) { Text(Copy.showAllFolders) }
+                    NavigationDrawerItem(label = { Text(Copy.showAllFolders) }, icon = { Icon(AppIcons.AllFolders, null) },
+                        selected = false, onClick = { onView(LibraryView.Folders) })
                 }
             }
             item { HorizontalDivider(Modifier.padding(vertical = 8.dp)) }
             item { SectionLabel(Copy.collections) }
             items(ui.collections, key = { it.id }) { c ->
-                NavigationDrawerItem(label = { Text(c.name, maxLines = 1, overflow = TextOverflow.Ellipsis) }, icon = { Icon(Glyphs.Shelf, null) },
+                NavigationDrawerItem(label = { Text(c.name, maxLines = 1, overflow = TextOverflow.Ellipsis) }, icon = { Icon(AppIcons.Collection, null) },
                     selected = ui.view == LibraryView.Collection(c.id), badge = { Text(c.count.toString()) }, onClick = { onView(LibraryView.Collection(c.id)) })
             }
-            item { NavigationDrawerItem(label = { Text(Copy.newCollection) }, icon = { Icon(Glyphs.Plus, null) }, selected = false, onClick = onNewCollection) }
+            item { NavigationDrawerItem(label = { Text(Copy.newCollection) }, icon = { Icon(AppIcons.Add, null) }, selected = false, onClick = onNewCollection) }
             item { HorizontalDivider(Modifier.padding(vertical = 8.dp)) }
-            item { NavigationDrawerItem(label = { Text(Copy.settings) }, icon = { Icon(Glyphs.Settings, null) }, selected = false, onClick = onSettings) }
-            item { NavigationDrawerItem(label = { Text(Copy.about) }, icon = { Icon(Glyphs.Info, null) }, selected = false, onClick = onAbout) }
+            item { NavigationDrawerItem(label = { Text(Copy.settings) }, icon = { Icon(AppIcons.Settings, null) }, selected = false, onClick = onSettings) }
+            item { NavigationDrawerItem(label = { Text(Copy.about) }, icon = { Icon(AppIcons.Info, null) }, selected = false, onClick = onAbout) }
         }
     }
 }
@@ -300,9 +288,9 @@ private fun DrawerFolderRow(f: DrawerFolder, selected: Boolean, onOpen: () -> Un
         icon = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (n.hasChildren) IconButton(onClick = onToggle, Modifier.size(32.dp)) {
-                    Icon(if (n.expanded) Glyphs.ChevronDown else Glyphs.ChevronRight, if (n.expanded) Copy.collapseFolder(name) else Copy.expandFolder(name), Modifier.size(20.dp))
+                    Icon(if (n.expanded) AppIcons.Collapse else AppIcons.Expand, if (n.expanded) Copy.collapseFolder(name) else Copy.expandFolder(name), Modifier.size(20.dp))
                 } else Spacer(Modifier.size(32.dp))
-                Icon(Glyphs.Folder, null)
+                Icon(AppIcons.Folder, null)
             }
         },
         badge = { Text(Copy.folderCount(n.direct, n.total)) },
@@ -324,53 +312,53 @@ private fun Header(ui: LibraryUi, state: LibraryState, actions: LibraryActions, 
     Row(Modifier.fillMaxWidth().height(64.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         if (ui.searchOpen && books) {
             SearchField(ui.query, state::setQuery, Modifier.weight(1f))
-            BarIcon(Icons.Filled.Close, Copy.closeSearch, state::closeSearch)
+            BarIcon(AppIcons.Close, Copy.closeSearch, onClick = state::closeSearch)
             return@Row
         }
-        if (ui.nested) BarIcon(Icons.AutoMirrored.Filled.ArrowBack, Copy.back) { state.back() }
-        else BarIcon(Icons.Filled.Menu, Copy.openMenu) { state.setDrawer(true) }
+        if (ui.nested) BarIcon(AppIcons.Back, Copy.back) { state.back() }
+        else BarIcon(AppIcons.Menu, Copy.openMenu) { state.setDrawer(true) }
         Text(ui.viewTitle ?: if (ui.view == LibraryView.Folders) Copy.folders else Copy.allBooks, Modifier.weight(1f).padding(start = 4.dp),
             style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
         if (books) {
-            BarIcon(Icons.Filled.Search, Copy.search, state::openSearch)
+            BarIcon(AppIcons.Search, Copy.search, onClick = state::openSearch)
             Box {
-                BarIcon(BarIcons.Sort, Copy.sortBy) { sortOpen = true }
+                BarIcon(AppIcons.Sort, Copy.sortBy) { sortOpen = true }
                 DropdownMenu(sortOpen, onDismissRequest = { sortOpen = false }) {
                     LibrarySort.entries.forEach { s ->
                         val current = s == ui.sort
                         DropdownMenuItem(text = { Text(Copy.sortName(s)) }, onClick = { state.setSort(s); sortOpen = false },
                             modifier = Modifier.semantics { selected = current },
-                            leadingIcon = { if (current) Icon(Icons.Filled.Check, null) else Spacer(Modifier.size(24.dp)) })
+                            leadingIcon = { Icon(sortIcon(s), null) },
+                            trailingIcon = { if (current) Icon(AppIcons.Check, null) else Spacer(Modifier.size(24.dp)) })
                     }
                 }
             }
-            if (ui.layout == LibraryLayout.GRID) BarIcon(Icons.AutoMirrored.Filled.List, Copy.showAsList, state::toggleLayout)
-            else BarIcon(BarIcons.Grid, Copy.showAsGrid, state::toggleLayout)
+            if (ui.layout == LibraryLayout.GRID) BarIcon(AppIcons.ShowAsList, Copy.showAsList, onClick = state::toggleLayout)
+            else BarIcon(AppIcons.ShowAsGrid, Copy.showAsGrid, onClick = state::toggleLayout)
         }
         Box {
-            BarIcon(Icons.Filled.MoreVert, Copy.more) { menuOpen = true }
+            BarIcon(AppIcons.More, Copy.more) { menuOpen = true }
             DropdownMenu(menuOpen, onDismissRequest = { menuOpen = false }) {
                 if (collection != null) {
-                    DropdownMenuItem(text = { Text(Copy.addBooks) }, onClick = { menuOpen = false; onDialog(Dialog.AddBooks) })
-                    DropdownMenuItem(text = { Text(Copy.renameCollection) }, onClick = { menuOpen = false; onDialog(Dialog.Rename(collection.id, collection.name)) })
-                    DropdownMenuItem(text = { Text(Copy.deleteCollection) }, onClick = { menuOpen = false; onDialog(Dialog.DeleteCollection(collection.id, collection.name)) })
+                    DropdownMenuItem(text = { Text(Copy.addBooks) }, leadingIcon = { Icon(AppIcons.AddBooks, null) }, onClick = { menuOpen = false; onDialog(Dialog.AddBooks) })
+                    DropdownMenuItem(text = { Text(Copy.renameCollection) }, leadingIcon = { Icon(AppIcons.Rename, null) }, onClick = { menuOpen = false; onDialog(Dialog.Rename(collection.id, collection.name)) })
+                    DropdownMenuItem(text = { Text(Copy.deleteCollection) }, leadingIcon = { Icon(AppIcons.Delete, null) }, onClick = { menuOpen = false; onDialog(Dialog.DeleteCollection(collection.id, collection.name)) })
                     HorizontalDivider()
                 }
-                DropdownMenuItem(text = { Text(Copy.rescan) }, onClick = { menuOpen = false; actions.onRescan() })
-                if (books) DropdownMenuItem(text = { Text(Copy.selectAll) }, enabled = ui.books.isNotEmpty(), onClick = { menuOpen = false; state.selectAll() })
-                DropdownMenuItem(text = { Text(Copy.openBook) }, onClick = { menuOpen = false; actions.onOpenPicker() })
+                DropdownMenuItem(text = { Text(Copy.rescan) }, leadingIcon = { Icon(AppIcons.Rescan, null) }, onClick = { menuOpen = false; actions.onRescan() })
+                if (books) DropdownMenuItem(text = { Text(Copy.selectAll) }, leadingIcon = { Icon(AppIcons.SelectAll, null) }, enabled = ui.books.isNotEmpty(), onClick = { menuOpen = false; state.selectAll() })
+                DropdownMenuItem(text = { Text(Copy.openBook) }, leadingIcon = { Icon(AppIcons.OpenBook, null) }, onClick = { menuOpen = false; actions.onOpenPicker() })
             }
         }
     }
 }
 
-/** C-077: an icon button with its content description and a long-press tooltip of the same text. */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun BarIcon(icon: ImageVector, label: String, onClick: () -> Unit) {
-    TooltipBox(TooltipDefaults.rememberPlainTooltipPositionProvider(), tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()) {
-        IconButton(onClick = onClick) { Icon(icon, label) }
-    }
+/** C-086: the sort menu's icon for each order. */
+private fun sortIcon(s: LibrarySort) = when (s) {
+    LibrarySort.RECENT -> AppIcons.SortRecent
+    LibrarySort.ADDED -> AppIcons.SortAdded
+    LibrarySort.TITLE -> AppIcons.SortTitle
+    LibrarySort.AUTHOR -> AppIcons.SortAuthor
 }
 
 /** C-077: the search field in the bar; takes focus (and the keyboard) when it appears. */
@@ -381,7 +369,7 @@ private fun SearchField(query: String, onQuery: (String) -> Unit, modifier: Modi
     LaunchedEffect(Unit) { focus.requestFocus(); keyboard?.show() }
     val clear = Color.Transparent
     TextField(query, onQuery, modifier.focusRequester(focus), singleLine = true, placeholder = { Text(Copy.searchHint) },
-        leadingIcon = { Icon(Icons.Filled.Search, null) },
+        leadingIcon = { Icon(AppIcons.Search, null) },
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
         colors = TextFieldDefaults.colors(focusedContainerColor = clear, unfocusedContainerColor = clear,
             focusedIndicatorColor = clear, unfocusedIndicatorColor = clear))
@@ -393,16 +381,16 @@ private fun SelectionBar(ui: LibraryUi, state: LibraryState, onAddTo: () -> Unit
     var menuOpen by remember { mutableStateOf(false) }
     Surface(tonalElevation = 3.dp) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = state::clearSelection) { Icon(Glyphs.Close, Copy.endSelection) }
+            BarIcon(AppIcons.Close, Copy.endSelection, onClick = state::clearSelection)
             Text(Copy.selectedCount(ui.selected.size), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-            IconButton(onClick = state::selectAll) { Icon(Glyphs.SelectAll, Copy.selectAll) }
-            TextButton(onClick = onAddTo) { Text(Copy.addToCollectionShort) }
-            IconButton(onClick = onDelete) { Icon(Glyphs.Trash, Copy.delete) }
+            BarIcon(AppIcons.SelectAll, Copy.selectAll, onClick = state::selectAll)
+            BarIcon(AppIcons.AddToCollection, Copy.addToCollection, onClick = onAddTo)
+            BarIcon(AppIcons.Delete, Copy.delete, onClick = onDelete)
             Box {
-                IconButton(onClick = { menuOpen = true }) { Icon(Glyphs.More, Copy.more) }
+                BarIcon(AppIcons.More, Copy.more) { menuOpen = true }
                 DropdownMenu(menuOpen, onDismissRequest = { menuOpen = false }) {
-                    if (ui.view is LibraryView.Collection) DropdownMenuItem(text = { Text(Copy.removeFromCollection) }, onClick = { menuOpen = false; state.removeSelectedFromCollection() })
-                    DropdownMenuItem(text = { Text(Copy.details) }, enabled = ui.selected.size == 1, onClick = { menuOpen = false; onDetails() })
+                    if (ui.view is LibraryView.Collection) DropdownMenuItem(text = { Text(Copy.removeFromCollection) }, leadingIcon = { Icon(AppIcons.RemoveFromCollection, null) }, onClick = { menuOpen = false; state.removeSelectedFromCollection() })
+                    DropdownMenuItem(text = { Text(Copy.details) }, leadingIcon = { Icon(AppIcons.Info, null) }, enabled = ui.selected.size == 1, onClick = { menuOpen = false; onDetails() })
                 }
             }
         }
@@ -428,9 +416,9 @@ private fun FolderList(rows: List<FolderNode>, onOpen: (String) -> Unit, onToggl
             Row(Modifier.fillMaxWidth().clickable { onOpen(r.path) }.padding(start = (8 + 20 * r.depth).dp, end = 16.dp, top = 4.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically) {
                 if (r.hasChildren) IconButton(onClick = { onToggle(r.path) }) {
-                    Icon(if (r.expanded) Glyphs.ChevronDown else Glyphs.ChevronRight, if (r.expanded) Copy.collapse else Copy.expand)
+                    Icon(if (r.expanded) AppIcons.Collapse else AppIcons.Expand, if (r.expanded) Copy.collapse else Copy.expand)
                 } else Spacer(Modifier.size(48.dp))
-                Icon(Glyphs.Folder, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+                Icon(AppIcons.Folder, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
                 Column(Modifier.padding(start = 12.dp).weight(1f)) {
                     Text(Copy.folderName(r.name), style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (r.parent.isNotEmpty()) Text(r.parent, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -476,7 +464,7 @@ private fun Modifier.bookClicks(b: LibraryBook, selecting: Boolean, state: Libra
 @Composable
 private fun SelectedMark(modifier: Modifier) {
     Box(modifier.size(26.dp).background(MaterialTheme.colorScheme.primary, CircleShape), contentAlignment = Alignment.Center) {
-        Icon(Glyphs.Check, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onPrimary)
+        Icon(AppIcons.Check, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onPrimary)
     }
 }
 

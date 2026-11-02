@@ -1,5 +1,7 @@
 package app.epubreader.reader.annotations
 
+import app.epubreader.ui.IconLabel
+import app.epubreader.ui.theme.AppIcons
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -101,9 +103,9 @@ fun AnnotationSheetPanel(
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
             )
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = onRemove, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text(Copy.removeHighlight) }
+                TextButton(onClick = onRemove, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { IconLabel(AppIcons.Delete, Copy.removeHighlight) }
                 Spacer(Modifier.weight(1f))
-                FilledTonalButton(onClick = onDone) { Text(Copy.done) }
+                FilledTonalButton(onClick = onDone) { IconLabel(AppIcons.Check, Copy.done) }
             }
         }
     }

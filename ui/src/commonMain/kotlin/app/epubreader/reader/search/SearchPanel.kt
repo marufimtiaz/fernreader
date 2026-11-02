@@ -1,5 +1,8 @@
 package app.epubreader.reader.search
 
+import app.epubreader.ui.BarIcon
+import app.epubreader.ui.IconLabel
+import app.epubreader.ui.theme.AppIcons
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -92,12 +95,12 @@ fun SearchPanel(
                     singleLine = true,
                     placeholder = { Text(Copy.searchInBook) },
                     trailingIcon = if (st.query.isNotEmpty()) ({
-                        TextButton(onClick = { search.setQuery(""); runCatching { focus.requestFocus() } }, Modifier.semantics { contentDescription = Copy.clearSearch }) { Text("✕") }
+                        BarIcon(AppIcons.Close, Copy.clearSearch) { search.setQuery(""); runCatching { focus.requestFocus() } }
                     }) else null,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                     keyboardActions = KeyboardActions(onSearch = { search.submit(); keyboard.clearFocus() }),
                 )
-                TextButton(onClick = onDismiss) { Text(Copy.close) }
+                TextButton(onClick = onDismiss) { IconLabel(AppIcons.Close, Copy.close) }
             }
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 FilterChip(selected = st.wholeWord, onClick = search::toggleWholeWord, label = { Text(Copy.wholeWords) })
@@ -149,7 +152,7 @@ private fun Recent(history: List<String>, onPick: (String) -> Unit, onClear: () 
         item {
             Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(Copy.recentSearches, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
-                TextButton(onClick = onClear) { Text(Copy.clearHistory) }
+                TextButton(onClick = onClear) { IconLabel(AppIcons.ClearHistory, Copy.clearHistory) }
             }
         }
         items(history, key = { it }) { q ->

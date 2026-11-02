@@ -1,5 +1,7 @@
 package app.epubreader.reader.contents
 
+import app.epubreader.ui.IconLabel
+import app.epubreader.ui.theme.AppIcons
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -53,7 +55,7 @@ fun ContentsPanel(
                     title.ifBlank { Copy.contents }, Modifier.weight(1f).padding(start = 8.dp),
                     style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
-                TextButton(onClick = onDismiss) { Text(Copy.close) }
+                TextButton(onClick = onDismiss) { IconLabel(AppIcons.Close, Copy.close) }
             }
             TabRow(selectedTabIndex = tab.ordinal) {
                 for (t in ContentsTab.entries) Tab(

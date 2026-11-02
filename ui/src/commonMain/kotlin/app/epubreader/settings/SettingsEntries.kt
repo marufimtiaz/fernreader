@@ -8,6 +8,7 @@ import app.epubreader.core.data.ReaderSettings
 import app.epubreader.core.data.SwipeDirection
 import app.epubreader.core.data.VolumeKeys
 import app.epubreader.ui.Copy
+import app.epubreader.ui.theme.AppIcons
 
 /** Everything the settings screen shows and changes, gathered by the app. */
 class SettingsInputs(
@@ -48,44 +49,44 @@ fun settingsSections(i: SettingsInputs): List<SettingsSection> = listOf(
     SettingsSection(Copy.sectionAppearance, listOf(
         SettingItem.Choice("app.theme", Copy.appTheme,
             listOf(AppThemeMode.SYSTEM.name to Copy.themeSystem, AppThemeMode.LIGHT.name to Copy.themeLight, AppThemeMode.DARK.name to Copy.themeDark),
-            i.theme.name, { v -> i.onTheme(AppThemeMode.valueOf(v)) }),
+            i.theme.name, { v -> i.onTheme(AppThemeMode.valueOf(v)) }, icon = AppIcons.Theme),
     )),
     SettingsSection(Copy.sectionLibrary, listOf(
         SettingItem.Choice("library.scope", Copy.discovery, listOf("everywhere" to Copy.everywhere, "folder" to Copy.oneFolder), if (i.folder == null) "everywhere" else "folder",
             { v -> if (v == "everywhere") i.onEverywhere() else i.onPickFolder() },
-            summary = i.folder?.let { Copy.onlyIn(Copy.displayFolder(it)) } ?: Copy.everywhere),
-        SettingItem.Toggle("library.folderView", Copy.folderView, Copy.folderViewSummary, i.folderView, i.onFolderView),
-        SettingItem.Action("library.hidden", Copy.hiddenBooks, Copy.hiddenSummary(i.hiddenCount), i.onHiddenBooks),
+            summary = i.folder?.let { Copy.onlyIn(Copy.displayFolder(it)) } ?: Copy.everywhere, icon = AppIcons.Discovery),
+        SettingItem.Toggle("library.folderView", Copy.folderView, Copy.folderViewSummary, i.folderView, i.onFolderView, AppIcons.FolderView),
+        SettingItem.Action("library.hidden", Copy.hiddenBooks, Copy.hiddenSummary(i.hiddenCount), i.onHiddenBooks, AppIcons.Hidden),
     )),
     SettingsSection(Copy.sectionReading, listOf(
         SettingItem.Choice("reader.pageScope", Copy.pageNumbers, PageNumbers.entries.map { it.name to Copy.pageNumbersName(it) },
-            i.reader.pageNumbers.name, { v -> i.onReader { it.copy(pageNumbers = PageNumbers.valueOf(v)) } }),
+            i.reader.pageNumbers.name, { v -> i.onReader { it.copy(pageNumbers = PageNumbers.valueOf(v)) } }, icon = AppIcons.PageNumbers),
         SettingItem.Choice("reader.pageAnimation", Copy.pageAnimation, listOf(PageAnimation.SLIDE.name to Copy.animSlide, PageAnimation.NONE.name to Copy.animNone),
             i.reader.pageAnimation.name, { v -> i.onReader { it.copy(pageAnimation = PageAnimation.valueOf(v)) } },
-            summary = Copy.appliesToPageMode.takeUnless { i.reader.pageAnimationApplies }, enabled = i.reader.pageAnimationApplies),
+            summary = Copy.appliesToPageMode.takeUnless { i.reader.pageAnimationApplies }, enabled = i.reader.pageAnimationApplies, icon = AppIcons.PageAnimation),
         SettingItem.Choice("reader.swipeDirection", Copy.swipeDirection,
             listOf(SwipeDirection.AUTO.name to Copy.swipeAuto, SwipeDirection.LTR.name to Copy.swipeLtr, SwipeDirection.RTL.name to Copy.swipeRtl),
-            i.reader.swipeDirection.name, { v -> i.onReader { it.copy(swipeDirection = SwipeDirection.valueOf(v)) } }),
-        SettingItem.Toggle("reader.tapZones", Copy.tapZones, null, i.reader.tapZones) { v -> i.onReader { it.copy(tapZones = v) } },
+            i.reader.swipeDirection.name, { v -> i.onReader { it.copy(swipeDirection = SwipeDirection.valueOf(v)) } }, icon = AppIcons.SwipeDirection),
+        SettingItem.Toggle("reader.tapZones", Copy.tapZones, null, i.reader.tapZones, { v -> i.onReader { it.copy(tapZones = v) } }, AppIcons.TapZones),
         SettingItem.Choice("reader.volumeKeys", Copy.volumeKeys,
             listOf(VolumeKeys.OFF.name to Copy.volumeOff, VolumeKeys.ON.name to Copy.volumeOn, VolumeKeys.REVERSED.name to Copy.volumeReversed),
-            i.reader.volumeKeys.name, { v -> i.onReader { it.copy(volumeKeys = VolumeKeys.valueOf(v)) } }, summary = Copy.volumeSummary(i.reader.volumeKeys)),
+            i.reader.volumeKeys.name, { v -> i.onReader { it.copy(volumeKeys = VolumeKeys.valueOf(v)) } }, summary = Copy.volumeSummary(i.reader.volumeKeys), icon = AppIcons.VolumeKeys),
     )),
     SettingsSection(Copy.settingsScreen, listOf(
-        SettingItem.Toggle("reader.fullscreen", Copy.fullscreen, null, i.reader.fullscreen) { v -> i.onReader { it.copy(fullscreen = v) } },
-        SettingItem.Toggle("reader.keepScreenOn", Copy.keepScreenOn, null, i.reader.keepScreenOn) { v -> i.onReader { it.copy(keepScreenOn = v) } },
+        SettingItem.Toggle("reader.fullscreen", Copy.fullscreen, null, i.reader.fullscreen, { v -> i.onReader { it.copy(fullscreen = v) } }, AppIcons.Fullscreen),
+        SettingItem.Toggle("reader.keepScreenOn", Copy.keepScreenOn, null, i.reader.keepScreenOn, { v -> i.onReader { it.copy(keepScreenOn = v) } }, AppIcons.KeepScreenOn),
         SettingItem.Choice("reader.orientation", Copy.orientation,
             listOf(OrientationLock.SYSTEM.name to Copy.orientSystem, OrientationLock.PORTRAIT.name to Copy.orientPortrait, OrientationLock.LANDSCAPE.name to Copy.orientLandscape),
-            i.reader.orientation.name, { v -> i.onReader { it.copy(orientation = OrientationLock.valueOf(v)) } }),
+            i.reader.orientation.name, { v -> i.onReader { it.copy(orientation = OrientationLock.valueOf(v)) } }, icon = AppIcons.Orientation),
     )),
     SettingsSection(Copy.settingsLinks, listOf(
-        SettingItem.Toggle("reader.confirmLinks", Copy.confirmLinks, null, i.reader.confirmExternalLinks) { v -> i.onReader { it.copy(confirmExternalLinks = v) } },
+        SettingItem.Toggle("reader.confirmLinks", Copy.confirmLinks, null, i.reader.confirmExternalLinks, { v -> i.onReader { it.copy(confirmExternalLinks = v) } }, AppIcons.Links),
     )),
     SettingsSection(Copy.sectionBackup, listOf(
-        SettingItem.Action("backup.save", Copy.backUpNow, Copy.backUpSummary, i.onBackUp),
-        SettingItem.Action("backup.restore", Copy.restore, Copy.restoreSummary, i.onRestore),
+        SettingItem.Action("backup.save", Copy.backUpNow, Copy.backUpSummary, i.onBackUp, AppIcons.BackUp),
+        SettingItem.Action("backup.restore", Copy.restore, Copy.restoreSummary, i.onRestore, AppIcons.Restore),
     )),
     SettingsSection(Copy.about, listOf(
-        SettingItem.Action("about", Copy.aboutApp, Copy.aboutSummary, i.onAbout),
+        SettingItem.Action("about", Copy.aboutApp, Copy.aboutSummary, i.onAbout, AppIcons.Info),
     )),
 )

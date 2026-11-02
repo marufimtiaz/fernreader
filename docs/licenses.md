@@ -17,7 +17,7 @@ dependencies are not shipped; JUnit (EPL-1.0) is one of them. Versions are those
 | androidx.work:work-runtime-ktx | 2.11.0 | Apache-2.0 | app (idle/charging job that finishes search indexes) |
 | androidx.webkit:webkit | 1.15.0 | Apache-2.0 | app |
 | androidx.activity:activity-compose | 1.11.0 | Apache-2.0 | app |
-| org.jetbrains.compose.material:material-icons-core | 1.7.3 | Apache-2.0 | ui (icons) |
+| org.jetbrains.compose.material:material-icons-core / material-icons-extended | 1.7.3 | Apache-2.0 | ui (icons, C-086; R8 strips the icons the app does not use) |
 | junit:junit | 4.13.2 | EPL-1.0 | tests only (not shipped) |
 | androidx.test:runner, androidx.test.ext:junit, androidx.test.uiautomator:uiautomator | 1.7.0 / 1.3.0 / 2.3.0 | Apache-2.0 | instrumented tests |
 

@@ -1,5 +1,7 @@
 package app.epubreader.reader.toc
 
+import app.epubreader.ui.BarIcon
+import app.epubreader.ui.theme.AppIcons
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -47,8 +49,9 @@ fun TocList(items: List<TocItem>, currentHref: String?, onSelect: (TocItem) -> U
                     fontWeight = if (i == current) FontWeight.Bold else null,
                     color = if (item.missing) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f) else MaterialTheme.colorScheme.onSurface,
                 )
-                if (tree.hasChildren(i)) TextButton(onClick = { tree.toggle(i) }, Modifier.width(56.dp)) {
-                    Text(if (tree.isExpanded(i)) "−" else "+")
+                if (tree.hasChildren(i)) {
+                    if (tree.isExpanded(i)) BarIcon(AppIcons.ShowLess, Copy.hideSubentries) { tree.toggle(i) }
+                    else BarIcon(AppIcons.ShowMore, Copy.showSubentries) { tree.toggle(i) }
                 }
             }
         }

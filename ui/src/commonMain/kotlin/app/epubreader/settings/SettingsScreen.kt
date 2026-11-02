@@ -33,7 +33,12 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.epubreader.ui.Copy
-import app.epubreader.ui.theme.Glyphs
+import app.epubreader.ui.BarIcon
+import app.epubreader.ui.theme.AppIcons
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Spacer
 
 /**
  * One entry of the settings screen (F-100). The screen is built from a list of [SettingsSection]s (see
@@ -43,10 +48,16 @@ sealed interface SettingItem {
     val id: String
 
     /** One value out of a few; the current one is shown under the title, a dialog changes it. */
+    /** C-086: shown in front of the title. */
+    val icon: ImageVector?
+
     data class Choice(override val id: String, val title: String, val options: List<Pair<String, String>>, val selected: String,
-                      val onSelect: (String) -> Unit, val summary: String? = null, val enabled: Boolean = true) : SettingItem
-    data class Toggle(override val id: String, val title: String, val summary: String?, val checked: Boolean, val onChange: (Boolean) -> Unit) : SettingItem
-    data class Action(override val id: String, val title: String, val summary: String?, val onClick: () -> Unit) : SettingItem
+                      val onSelect: (String) -> Unit, val summary: String? = null, val enabled: Boolean = true,
+                      override val icon: ImageVector? = null) : SettingItem
+    data class Toggle(override val id: String, val title: String, val summary: String?, val checked: Boolean, val onChange: (Boolean) -> Unit,
+                      override val icon: ImageVector? = null) : SettingItem
+    data class Action(override val id: String, val title: String, val summary: String?, val onClick: () -> Unit,
+                      override val icon: ImageVector? = null) : SettingItem
 }
 
 data class SettingsSection(val title: String, val items: List<SettingItem>)
@@ -57,7 +68,7 @@ fun Page(title: String, onBack: () -> Unit, content: @Composable () -> Unit) {
     Surface(Modifier.fillMaxSize()) {
         Column(Modifier.safeDrawingPadding()) {
             Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBack) { Icon(Glyphs.Back, Copy.back) }
+                BarIcon(AppIcons.Back, Copy.back, onClick = onBack)
                 Text(title, Modifier.padding(start = 4.dp), style = MaterialTheme.typography.headlineSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             content()
@@ -78,12 +89,13 @@ fun SettingsScreen(sections: List<SettingsSection>, onBack: () -> Unit) {
                 }
                 items(s.items, key = { it.id }) { item ->
                     when (item) {
-                        is SettingItem.Choice -> Row2(item.title, item.summary ?: item.options.firstOrNull { it.first == item.selected }?.second, item.enabled) { choosing = item }
-                        is SettingItem.Action -> Row2(item.title, item.summary, onClick = item.onClick)
+                        is SettingItem.Choice -> Row2(item.icon, item.title, item.summary ?: item.options.firstOrNull { it.first == item.selected }?.second, item.enabled) { choosing = item }
+                        is SettingItem.Action -> Row2(item.icon, item.title, item.summary, onClick = item.onClick)
                         is SettingItem.Toggle -> Row(
                             Modifier.fillMaxWidth().clickable { item.onChange(!item.checked) }.padding(horizontal = 16.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
+                            LeadingIcon(item.icon)
                             Column(Modifier.weight(1f)) {
                                 Text(item.title, style = MaterialTheme.typography.bodyLarge)
                                 item.summary?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -117,12 +129,23 @@ fun SettingsScreen(sections: List<SettingsSection>, onBack: () -> Unit) {
 }
 
 @Composable
-private fun Row2(title: String, summary: String?, enabled: Boolean = true, onClick: () -> Unit) {
-    Column(
+private fun Row2(icon: ImageVector?, title: String, summary: String?, enabled: Boolean = true, onClick: () -> Unit) {
+    Row(
         Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick).alpha(if (enabled) 1f else 0.38f).padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(title, style = MaterialTheme.typography.bodyLarge)
-        summary?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        LeadingIcon(icon)
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            summary?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        }
     }
+}
+
+/** C-086: a settings row's icon (24 dp, in the secondary text colour), with the gap before the title. */
+@Composable
+private fun LeadingIcon(icon: ImageVector?) {
+    if (icon == null) return
+    Icon(icon, null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+    Spacer(Modifier.width(16.dp))
 }

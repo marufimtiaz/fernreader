@@ -8,14 +8,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
@@ -30,17 +23,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathFillType
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import app.epubreader.ui.BarIcon
 import app.epubreader.ui.Copy
+import app.epubreader.ui.theme.AppIcons
 
 /** Actions of the controls overlay (F-033). The reader controller supplies them; the overlay owns no state but the slider drag. */
 class ControlActions(
@@ -72,19 +62,18 @@ fun ReaderTopBar(bookTitle: String, bookmarked: Boolean, a: ControlActions, modi
         shadowElevation = 4.dp,
     ) {
         Row(Modifier.statusBarsPadding().padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = a.back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, Copy.back) }
+            BarIcon(AppIcons.Back, Copy.back, onClick = a.back)
             Text(
                 bookTitle, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall,
                 modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp))
                     .clickable(onClickLabel = Copy.bookDetails, role = Role.Button, onClick = a.bookInfo)
                     .padding(horizontal = 4.dp, vertical = 6.dp),
             )
-            IconButton(onClick = a.search) { Icon(Icons.Filled.Search, Copy.search) }
-            IconButton(onClick = a.bookmark) {
-                if (bookmarked) Icon(BookmarkFilledIcon, Copy.removeBookmark, tint = MaterialTheme.colorScheme.primary) else Icon(BookmarkIcon, Copy.addBookmark)
-            }
+            BarIcon(AppIcons.Search, Copy.search, onClick = a.search)
+            if (bookmarked) BarIcon(AppIcons.Bookmarked, Copy.removeBookmark, tint = MaterialTheme.colorScheme.primary, onClick = a.bookmark)
+            else BarIcon(AppIcons.Bookmark, Copy.addBookmark, onClick = a.bookmark)
             // Always enabled: the panel also holds the bookmarks and highlights, which a book without a TOC has too.
-            IconButton(onClick = a.contents) { Icon(Icons.AutoMirrored.Filled.List, Copy.contents) }
+            BarIcon(AppIcons.Contents, Copy.contents, onClick = a.contents)
         }
     }
 }
@@ -137,32 +126,9 @@ fun ReaderBottomBar(
                     onValueChangeFinished = { drag?.let { a.seek(it.toDouble()) }; drag = null },
                     modifier = Modifier.weight(1f).semantics { contentDescription = Copy.seek },
                 )
-                IconButton(onClick = a.display, modifier = Modifier.semantics { contentDescription = Copy.display }) {
-                    Text("Aa", style = MaterialTheme.typography.titleMedium)
-                }
-                IconButton(onClick = a.settings) { Icon(Icons.Filled.Settings, Copy.readerSettings) }
+                BarIcon(AppIcons.Display, Copy.display, onClick = a.display)
+                BarIcon(AppIcons.Settings, Copy.readerSettings, onClick = a.settings)
             }
         }
     }
 }
-
-/** Outline bookmark ribbon (not in the core icon set). */
-private val BookmarkIcon: ImageVector = ImageVector.Builder("Bookmark", 24.dp, 24.dp, 24f, 24f).apply {
-    path(fill = SolidColor(Color.Black), pathFillType = PathFillType.EvenOdd) {
-        moveTo(17f, 3f); horizontalLineTo(7f)
-        curveTo(5.9f, 3f, 5f, 3.9f, 5f, 5f)
-        verticalLineTo(21f); lineTo(12f, 18f); lineTo(19f, 21f); verticalLineTo(5f)
-        curveTo(19f, 3.9f, 18.1f, 3f, 17f, 3f); close()
-        moveTo(17f, 18f); lineTo(12f, 15.8f); lineTo(7f, 18f); verticalLineTo(5f); horizontalLineTo(17f); close()
-    }
-}.build()
-
-/** Filled ribbon: the bookmark button on a bookmarked page, and the page marker. */
-val BookmarkFilledIcon: ImageVector = ImageVector.Builder("BookmarkFilled", 24.dp, 24.dp, 24f, 24f).apply {
-    path(fill = SolidColor(Color.Black)) {
-        moveTo(17f, 3f); horizontalLineTo(7f)
-        curveTo(5.9f, 3f, 5f, 3.9f, 5f, 5f)
-        verticalLineTo(21f); lineTo(12f, 18f); lineTo(19f, 21f); verticalLineTo(5f)
-        curveTo(19f, 3.9f, 18.1f, 3f, 17f, 3f); close()
-    }
-}.build()
