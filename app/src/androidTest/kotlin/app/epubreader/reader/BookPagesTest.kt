@@ -62,7 +62,9 @@ class BookPagesTest {
     private suspend fun ReaderHarness.change(f: (ReaderSettings) -> ReaderSettings) {
         drain()
         sc.onActivity { it.controller.updateSettings(f) }
-        delay(1_500); drain(); settle() // the reflow and its relocate (a change may also keep the same location)
+        // No settle() here: its goTo to the current location is a navigation, which would re-anchor the reader at the
+        // reflowed screen's start (the drift F-037 forbids comes from that, not from the reflow). Only waits.
+        runCatching { relocate(5_000) }; delay(1_500); drain()
     }
 
     @Test fun each_page_source_gives_its_pages(): Unit = runBlocking {
