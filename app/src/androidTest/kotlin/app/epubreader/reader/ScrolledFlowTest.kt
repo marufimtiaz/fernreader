@@ -76,9 +76,12 @@ class ScrolledFlowTest {
                 delay(2_000) // the previous section is inserted above meanwhile: what is on screen must not move
                 assertEquals(before, h.str("window.__readerTest.firstVisibleBlock()"))
                 assertEquals(inSection, h.offsetInCurrent(), 2.0)
-                // and it is really there: dragging down shows the end of the previous section
+                // and it is really there: dragging down shows the end of the previous section. Relocates of section k
+                // re-reported while the previous section was inserted above are still buffered: drop them, then wait for
+                // the drag's own result (a real failure still fails: no relocate into k - 1 within the timeout).
+                h.drain()
                 dev.swipe(dev.displayWidth / 2, dev.displayHeight / 3, dev.displayWidth / 2, dev.displayHeight * 2 / 3, 40)
-                val r = h.relocate(4_000)
+                val r = h.relocate(4_000) { it.sectionIndex == k - 1 }
                 assertEquals(k - 1, r.sectionIndex)
             } finally { h.change { ReaderSettings() }; h.stop() }
         }
