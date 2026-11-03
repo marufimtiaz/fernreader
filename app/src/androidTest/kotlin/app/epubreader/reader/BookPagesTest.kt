@@ -232,8 +232,10 @@ class BookPagesTest {
         Copy.pageLabel(withTimeout(20_000) { a.controller.shownPage.first(ok) })!!
 
     /**
-     * C-087: a fixed-layout book (page-blanche, a picture book) shows "Page n of N", N its pages (spine items), under
-     * every Page numbers setting; turning a page moves n; the bottom bar's label is the Go to page entry.
+     * C-087: a fixed-layout book (page-blanche, a picture book: 10 spine items, a nav page-list "1".."8" from the third)
+     * shows "Page n of N" under every Page numbers setting: on the first open 1..10 at once, then its print pages once
+     * the pages pass has run; on the next open the print pages at once. Turning a page moves n; the bottom bar's label is
+     * the Go to page entry.
      */
     @Test fun a_fixed_layout_book_shows_its_own_pages(): Unit = runBlocking {
         warAndPeace() // grants all-files access
@@ -246,13 +248,25 @@ class BookPagesTest {
                 h.ready()
                 sc.onActivity { it.controller.updateSettings { ReaderSettings() } } // Book pages is the default
                 h.drain()
-                sc.onActivity { it.openBook(SourceRef.File(f.path)) }
-                val first = h.relocate(30_000); h.painted(30_000)
-                withTimeout(20_000) { c.state.first { !it.loading } }
                 fun text(section: Int) = want.indexAt(TextPos(section, 0)).let { i -> "Page ${want.label(i)} of ${want.count}" }
-                assertEquals(text(first.sectionIndex), h.shown())
+                sc.onActivity { it.openBook(SourceRef.File(f.path)) }
+                var first = h.relocate(30_000)
+                val early = h.shown() // a number from `opened` on, before the pages pass (a fresh install: nothing stored)
+                Log.i("EPR", "C-087 page-blanche first open: $early")
+                assertTrue(early, Regex("Page \\S+ of \\d+").matches(early))
+                h.painted(30_000)
+                withTimeout(20_000) { c.state.first { !it.loading } }
+                assertEquals(text(first.sectionIndex), h.shown { it.total == want.count }) // the print pages, after the pass
                 assertTrue(c.bookPagesInUse.value)
-                delay(3_000) // the pages pass after the first paint has run: the same numbers
+                sc.onActivity { it.goBack() }
+                withTimeout(10_000) { c.state.first { !it.open } }
+                delay(800); h.drain()
+                sc.onActivity { it.openBook(SourceRef.File(f.path)) } // again: the stored print pages at once
+                first = h.relocate(30_000)
+                assertEquals(text(first.sectionIndex), h.shown())
+                h.painted(30_000)
+                withTimeout(20_000) { c.state.first { !it.loading } }
+                delay(2_000)
                 Log.i("EPR", "C-087 page-blanche: ${c.shownPage.value} (${want.source} ${want.count}) screen ${c.page.value}")
                 assertEquals(want.count, c.shownPage.value.total)
                 h.drain(); h.send(ToWeb.Next())
@@ -273,10 +287,11 @@ class BookPagesTest {
                 sc.onActivity { it.controller.toggleChrome() }
                 h.drain()
                 var ok = false
-                sc.onActivity { ok = it.controller.goToPage(want.label(0)) }
+                val last = want.count - 1 // the last page: "8", spine item 9
+                sc.onActivity { ok = it.controller.goToPage(want.label(last)) }
                 assertTrue(ok)
-                h.relocate(10_000) { it.sectionIndex == 0 }
-                assertEquals(text(0), h.shown { it.page == 1 })
+                h.relocate(10_000) { it.sectionIndex == want.start(last).spineIndex }
+                assertEquals(text(want.start(last).spineIndex), h.shown { it.page == last + 1 })
             } finally { h.stop() }
         }
     }

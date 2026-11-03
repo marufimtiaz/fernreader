@@ -255,6 +255,12 @@ class BookPagesControllerTest {
         reader.sent.clear()
         assertTrue(c.goToPage("II"))
         assertEquals(ToWeb.GoToOffset(sectionIndex = 2, offset = 0), reader.sent.single())
+        // The next open shows the stored labels from `opened` on, before the first paint (no 1..N first).
+        c.close(); advanceUntilIdle()
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
+        reader.events.emit(fixedRelocate(2)); advanceUntilIdle()
+        assertEquals("Page ii of 3", app.epubreader.ui.Copy.pageLabel(c.shownPage.value))
+        assertEquals(1, opener.pagesCalls)
     }
 
     /** C-087: if a fixed-layout book's pages can't be computed it keeps its pages 1..N: never a blank number. */

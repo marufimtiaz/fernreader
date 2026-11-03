@@ -21,6 +21,7 @@ import app.epubreader.core.data.SettingsPort
 import app.epubreader.core.data.SourceRef
 import app.epubreader.core.epub.PositionMap
 import app.epubreader.core.epub.pages.BookPages
+import app.epubreader.core.epub.pages.PageSource
 import app.epubreader.core.epub.TextPos
 import app.epubreader.core.epub.chunk.ChunkMap
 import app.epubreader.core.epub.meta.BookIdentity
@@ -1048,6 +1049,12 @@ class ReaderController(
                 _state.update { it.copy(title = m.title, authors = m.authors, toc = m.toc) }
                 watchBookmarks(s, rec.bookId)
                 watchAnnotations(s) // only if the first page was already painted
+                if (m.fixedLayout) {
+                    // C-087: its stored pages (a print page list's labels and total) at once, not only after the first
+                    // paint: a book whose page list differs from 1..N would otherwise change its number on every open.
+                    val stored = try { library.bookPages(rec.bookId, s.cdDigest) } catch (e: CancellationException) { throw e } catch (e: Exception) { null }
+                    if (stored != null && session === s && bookNumbers.pages?.source == PageSource.FIXED) bookNumbers.setPages(stored, s.map)
+                }
             }
             is FromWeb.Relocate -> if (m.sessionId == s.id) {
                 probe.ev("relocate", m.cfi)
