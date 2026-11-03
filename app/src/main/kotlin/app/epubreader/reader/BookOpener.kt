@@ -142,10 +142,10 @@ class BookOpener(
         try { sectionStats(s) } catch (e: Exception) { null } // closed under us (Back), unreadable, or a lost chunk cache
     }
 
-    override suspend fun bookPages(sessionId: String, withStats: Boolean): BookPagesResult? = withContext(io) {
+    override suspend fun bookPages(sessionId: String, withStats: Boolean, fixedLayout: Boolean): BookPagesResult? = withContext(io) {
         val s = lock.withLock { current?.takeIf { it.id == sessionId } } ?: return@withContext null
         try {
-            bookPages(s, withStats)
+            bookPages(s, withStats, fixedLayout)
         } catch (e: Exception) {
             null // closed under us (Back), or unreadable
         } catch (e: OutOfMemoryError) {

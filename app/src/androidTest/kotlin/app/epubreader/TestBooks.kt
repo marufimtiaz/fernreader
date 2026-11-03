@@ -85,4 +85,30 @@ $body
         }
         return out.toByteArray()
     }
+
+    /**
+     * C-087: a fixed-layout (pre-paginated) picture book of [pages] pages, one spine item each (a coloured page with a
+     * caption); with [pageList] its nav carries a print page-list labelling them i, ii, iii, ...
+     */
+    fun fixedLayoutEpub(pages: Int = 4, pageList: Boolean = false, id: String = "urn:uuid:fxl-$pageList-${System.nanoTime()}"): ByteArray {
+        val out = ByteArrayOutputStream()
+        ZipOutputStream(out).use { z ->
+            val mt = "application/epub+zip".toByteArray()
+            z.putNextEntry(ZipEntry("mimetype").apply {
+                method = ZipEntry.STORED; size = mt.size.toLong(); compressedSize = size; crc = CRC32().apply { update(mt) }.value
+            }); z.write(mt); z.closeEntry()
+            fun put(name: String, text: String) { z.putNextEntry(ZipEntry(name)); z.write(text.toByteArray()); z.closeEntry() }
+            put("META-INF/container.xml", """<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>""")
+            val items = (1..pages).joinToString("") { """<item id="p$it" href="p$it.xhtml" media-type="application/xhtml+xml"/>""" }
+            val spine = (1..pages).joinToString("") { """<itemref idref="p$it"/>""" }
+            put("OEBPS/content.opf", """<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="uid">$id</dc:identifier><dc:title>Picture book</dc:title><dc:language>en</dc:language><meta property="rendition:layout">pre-paginated</meta><meta property="rendition:spread">none</meta></metadata><manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>$items</manifest><spine>$spine</spine></package>""")
+            val list = if (!pageList) "" else "<nav epub:type=\"page-list\" hidden=\"\"><ol>" +
+                (1..pages).joinToString("") { "<li><a href=\"p$it.xhtml\">${ROMAN[it - 1]}</a></li>" } + "</ol></nav>"
+            put("OEBPS/nav.xhtml", """<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>Contents</title></head><body><nav epub:type="toc"><ol><li><a href="p1.xhtml">Start</a></li></ol></nav>$list</body></html>""")
+            for (p in 1..pages) {
+                put("OEBPS/p$p.xhtml", """<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Page $p</title><meta name="viewport" content="width=600, height=800"/></head><body style="margin:0;width:600px;height:800px;background:hsl(${p * 70}, 50%, 70%)"><p style="font-size:48px;text-align:center;padding-top:300px">Picture $p</p></body></html>""")
+            }
+        }
+        return out.toByteArray()
+    }
 }

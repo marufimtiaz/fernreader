@@ -39,7 +39,8 @@ $paras
 </body></html>"""
     }
 
-    fun zip(kind: Kind, chapters: Int = 3, extraNav: String = "", paragraphs: Int = 20): ByteArray {
+    /** [fixed]: a fixed-layout (pre-paginated) book, each chapter one fixed page (C-087). */
+    fun zip(kind: Kind, chapters: Int = 3, extraNav: String = "", paragraphs: Int = 20, fixed: Boolean = false): ByteArray {
         val labels = (1..chapters * 2).map { n -> ROMAN.getOrElse(n - 1) { "p$n" } to "c${(n + 1) / 2}.xhtml#pg$n" }
         val pageList = if (kind == Kind.NAV) "<nav epub:type=\"page-list\" hidden=\"\"><ol>" + labels.joinToString("") { (l, h) -> "<li><a href=\"$h\">$l</a></li>" } + extraNav + "</ol></nav>" else ""
         val ncxPages = if (kind == Kind.NCX) "<pageList><navLabel><text>Pages</text></navLabel>" + labels.withIndex().joinToString("") { (i, p) ->
@@ -49,7 +50,7 @@ $paras
         val items = (1..chapters).joinToString("") { "<item id=\"c$it\" href=\"c$it.xhtml\" media-type=\"application/xhtml+xml\"/>" }
         val spine = (1..chapters).joinToString("") { "<itemref idref=\"c$it\"/>" }
         val map = if (kind == Kind.PAGE_MAP) "<item id=\"map\" href=\"page-map.xml\" media-type=\"application/oebps-page-map+xml\"/>" else ""
-        val opf = """<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="${if (kind == Kind.NCX) "2.0" else "3.0"}" unique-identifier="u"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="u">pages-$kind</dc:identifier><dc:title>Pages $kind</dc:title></metadata><manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/><item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>$map$items</manifest><spine toc="ncx"${if (kind == Kind.PAGE_MAP) " page-map=\"map\"" else ""}>$spine</spine></package>"""
+        val opf = """<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="${if (kind == Kind.NCX) "2.0" else "3.0"}" unique-identifier="u"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="u">pages-$kind</dc:identifier><dc:title>Pages $kind</dc:title>${if (fixed) "<meta property=\"rendition:layout\">pre-paginated</meta>" else ""}</metadata><manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/><item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>$map$items</manifest><spine toc="ncx"${if (kind == Kind.PAGE_MAP) " page-map=\"map\"" else ""}>$spine</spine></package>"""
         val toc = (1..chapters).joinToString("") { "<li><a href=\"c$it.xhtml\">Chapter $it</a></li>" }
         val nav = """<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>Nav</title></head><body><nav epub:type="toc"><ol>$toc</ol></nav>$pageList</body></html>"""
         val ncx = """<?xml version="1.0"?><ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1"><head/><docTitle><text>T</text></docTitle><navMap>${(1..chapters).joinToString("") { "<navPoint id=\"n$it\" playOrder=\"$it\"><navLabel><text>Chapter $it</text></navLabel><content src=\"c$it.xhtml\"/></navPoint>" }}</navMap>$ncxPages</ncx>"""
@@ -94,6 +95,48 @@ class BookPagesTest {
     @Test fun epub2_ncx_page_list() = assertPrint(PageBooks.Kind.NCX, PageSource.NCX)
     @Test fun adobe_page_map() = assertPrint(PageBooks.Kind.PAGE_MAP, PageSource.PAGE_MAP)
     @Test fun pagebreak_markers_without_a_list() = assertPrint(PageBooks.Kind.MARKERS, PageSource.MARKERS)
+
+    /** C-087: a fixed-layout book without a page list: one page per spine item, numbered 1..N; markers are not used. */
+    @Test fun a_fixed_layout_book_has_one_page_per_spine_item() {
+        for (kind in listOf(PageBooks.Kind.NONE, PageBooks.Kind.MARKERS)) {
+            val bytes = PageBooks.zip(kind, fixed = true)
+            val (z, pkg) = PageBooks.open(bytes)
+            assertTrue(pkg.fixedLayout)
+            val pages = BookPagesBuilder.build(z, pkg)
+            assertEquals(PageSource.FIXED, pages.source, "$kind")
+            assertEquals(3, pages.count)
+            assertNull(pages.labels); assertTrue(!pages.isPrint)
+            assertEquals((0..2).map { TextPos(it, 0) }, (0..2).map(pages::start))
+            assertEquals(listOf("1", "2", "3"), (0..2).map(pages::label))
+            assertEquals(2, pages.indexAt(TextPos(2, 500))) // anywhere on a page is that page
+            assertEquals(2, pages.find("3"))
+            assertEquals(pages.lengths.toList(), (0..2).map { textOf(bytes, it).length })
+        }
+    }
+
+    /** C-087: a fixed-layout book's print page list labels its pages; an entry is the start of the page it targets. */
+    @Test fun a_fixed_layout_book_with_a_page_list_uses_its_labels() {
+        val extra = "<li><a href=\"c3.xhtml#nowhere\">vii</a></li><li><a href=\"gone.xhtml\">viii</a></li>"
+        val pages = PageBooks.build(PageBooks.zip(PageBooks.Kind.NAV, extraNav = extra, fixed = true))
+        assertEquals(PageSource.NAV, pages.source)
+        assertEquals(PageBooks.ROMAN + "vii", (0 until pages.count).map(pages::label)) // a fragment needs no element; gone.xhtml is not in the spine
+        assertTrue((0 until pages.count).all { pages.start(it).offset == 0 })
+        assertEquals(listOf(0, 0, 1, 1, 2, 2, 2), (0 until pages.count).map { pages.start(it).spineIndex })
+    }
+
+    /** C-087: the reader's view decides: a package the reader does not show as fixed-layout gets text pages. */
+    @Test fun fixed_layout_follows_the_readers_view() {
+        val (z, pkg) = PageBooks.open(PageBooks.zip(PageBooks.Kind.NONE, fixed = true))
+        assertEquals(PageSource.VIRTUAL, BookPagesBuilder.build(z, pkg, fixedLayout = false).source)
+        val (z2, pkg2) = PageBooks.open(PageBooks.zip(PageBooks.Kind.NONE))
+        assertEquals(PageSource.FIXED, BookPagesBuilder.build(z2, pkg2, fixedLayout = true).source)
+    }
+
+    @Test fun fixed_pages_round_trip_through_the_stored_form() {
+        val p = BookPages.fixedLayout(3, intArrayOf(5, 0, 7))
+        assertEquals(p, BookPages.decode(p.source.name, p.encodeLabels(), p.encodeStarts(), p.encodeLengths()))
+        assertNull(BookPages.decode("FIXED", "1\n2\n3", p.encodeStarts(), p.encodeLengths())) // numbered pages carry no labels
+    }
 
     @Test fun entries_that_do_not_resolve_are_skipped() {
         val extra = "<li><a href=\"c1.xhtml#nowhere\">vii</a></li><li><a href=\"gone.xhtml#pg1\">viii</a></li><li><a href=\"http://example.com/#x\">ix</a></li>"

@@ -20,6 +20,7 @@ import app.epubreader.core.data.SearchHistoryPort
 import app.epubreader.core.data.SettingsPort
 import app.epubreader.core.data.SourceRef
 import app.epubreader.core.epub.PositionMap
+import app.epubreader.core.epub.pages.BookPages
 import app.epubreader.core.epub.TextPos
 import app.epubreader.core.epub.chunk.ChunkMap
 import app.epubreader.core.epub.meta.BookIdentity
@@ -159,7 +160,7 @@ class ReaderController(
         var seekSent: Int? = null
         /** The book's page-progression-direction from `opened` ("ltr" | "rtl"). */
         var dir = "ltr"
-        /** A fixed-layout book (`opened`): it has no book pages; Book pages shows its screen pages. */
+        /** A fixed-layout book (`opened`): C-087, it always shows its own pages (book pages), under every Page numbers setting. */
         var fixedLayout = false
         /**
          * Id of the resume jump sent after `opened` (same book, new source) until the web side answers `seeked`.
@@ -218,11 +219,10 @@ class ReaderController(
     private val bookNumbers = BookPageNumbers()
     /** C-083: the book page at the visible location (null page until the book's pages are known). */
     val bookPage: StateFlow<PageIndicator> = bookNumbers.state
-    /**
-     * C-083: the book has no book pages (they could not be computed, or it is fixed-layout): Book pages falls back to
-     * screen pages.
-     */
+    /** C-083: the book's pages could not be computed (an unreadable book): Book pages falls back to screen pages. */
     private val bookPagesMissing = MutableStateFlow(false)
+    /** C-087: the open book is fixed-layout (`opened`): its own pages are shown under every Page numbers setting. */
+    private val fixedLayoutBook = MutableStateFlow(false)
     private var listRequests = 0
     /** Counted pages of a section in the current layout (diagnostics for the C-003 agreement test). */
     fun countedPages(index: Int): Int? = totals.counted(index)
@@ -230,13 +230,18 @@ class ReaderController(
     /** Display settings (F-070..F-075), one value for every book. */
     val settings: StateFlow<ReaderSettings> = _settings
     /** C-083: what the indicator, the bar and the lists show: book pages or screen pages, as the Page numbers setting says. */
-    val shownPage: StateFlow<PageIndicator> = combine(_settings, totals.state, bookNumbers.state, bookPagesMissing) { set, screen, book, missing ->
-        if (set.pageNumbers == PageNumbers.BOOK_PAGES && !missing) book else screen
+    val shownPage: StateFlow<PageIndicator> = combine(_settings, totals.state, bookNumbers.state, bookPagesMissing, fixedLayoutBook) { set, screen, book, missing, fixed ->
+        if (useBookPages(set, fixed) && !missing) book else screen
     }.stateIn(scope, SharingStarted.Eagerly, PageIndicator(null, null, false, false))
-    /** C-083: Book pages are what the reader shows (the setting, and the book has them): go to page and the lists' book pages. */
-    val bookPagesInUse: StateFlow<Boolean> = combine(_settings, bookPagesMissing) { set, missing -> set.pageNumbers == PageNumbers.BOOK_PAGES && !missing }
+    /**
+     * C-083: Book pages are what the reader shows (the setting, or a fixed-layout book (C-087), and the book has them):
+     * go to page and the lists' book pages.
+     */
+    val bookPagesInUse: StateFlow<Boolean> = combine(_settings, bookPagesMissing, fixedLayoutBook) { set, missing, fixed -> useBookPages(set, fixed) && !missing }
         .stateIn(scope, SharingStarted.Eagerly, false)
-    private val bookPagesShown: Boolean get() = _settings.value.pageNumbers == PageNumbers.BOOK_PAGES && bookNumbers.pages != null
+    private val bookPagesShown: Boolean get() = useBookPages(_settings.value, fixedLayoutBook.value) && bookNumbers.pages != null
+    /** Book pages under the Page numbers setting; a fixed-layout book shows its own pages under every setting (C-087). */
+    private fun useBookPages(set: ReaderSettings, fixedLayout: Boolean) = fixedLayout || set.pageNumbers == PageNumbers.BOOK_PAGES
     /** F-050 search state for the open book (reset when another opens). */
     val searcher = ReaderSearch(
         scope, search, searchHistory, probe,
@@ -287,7 +292,7 @@ class ReaderController(
     fun open(ref: SourceRef) {
         close()
         totals.reset()
-        bookNumbers.reset(); bookPagesMissing.value = false
+        bookNumbers.reset(); bookPagesMissing.value = false; fixedLayoutBook.value = false
         searcher.reset()
         _state.value = ReaderUiState(open = true, loading = true, source = ref); _seekPreview.value = null
         val previous = closing
@@ -361,14 +366,15 @@ class ReaderController(
                     statsTried = true
                     stats = opener.sectionStats(s.id)?.also { library.storeCache(id, kind, s.cdDigest, BridgeJson.encodeToString(STATS, it)) }
                 }
-                val shared = s.map === PositionMap.Identity && !s.fixedLayout // the pages pass can give the stats
+                val shared = s.map === PositionMap.Identity // the pages pass can give the stats
                 if (stats == null && !shared) ownStats()
                 if (statsTried) publish(stats)
                 if (session !== s) return@launch
-                // C-083: the book pages, stored with the book once computed. A fixed-layout book has none (a comic
-                // would be about one virtual page): Book pages shows its screen pages, as for a book without pages.
-                val pages = if (s.fixedLayout) null else try {
-                    library.bookPages(id, s.cdDigest) ?: opener.bookPages(s.id, withStats = !statsTried)?.let { r ->
+                // C-083: the book pages, stored with the book once computed. A fixed-layout book's are its own pages
+                // (C-087): print labels from a page list, else 1..N; if they can't be computed, the 1..N it has shown
+                // since `opened`.
+                val computed = try {
+                    library.bookPages(id, s.cdDigest) ?: opener.bookPages(s.id, withStats = !statsTried, fixedLayout = s.fixedLayout)?.let { r ->
                         if (!statsTried && r.stats != null) {
                             statsTried = true
                             stats = r.stats
@@ -383,10 +389,11 @@ class ReaderController(
                 } catch (e: Exception) {
                     failed("loading book pages", e, showIfOpen = false); null
                 }
+                val pages = computed ?: if (s.fixedLayout) bookNumbers.pages else null
                 if (session !== s) return@launch
                 bookNumbers.setPages(pages, s.map)
                 bookPagesMissing.value = pages == null
-                probe.ev("book_pages_ready", pages?.let { "${it.source} ${it.count}" } ?: if (s.fixedLayout) "none fixed-layout" else "none")
+                probe.ev("book_pages_ready", pages?.let { "${it.source} ${it.count}" } ?: "none")
                 requestListPages(s)
                 if (!statsTried) {
                     ownStats()
@@ -455,7 +462,7 @@ class ReaderController(
         s?.annotationJob?.cancel()
         s?.let(::saveNote) // a sheet open when the book closes keeps its note
         searcher.reset()
-        bookNumbers.reset()
+        bookNumbers.reset(); fixedLayoutBook.value = false
         _state.value = ReaderUiState(); _seekPreview.value = null
         if (s == null) return
         reader.send(ToWeb.Close())
@@ -1032,7 +1039,12 @@ class ReaderController(
                 s.sizes = m.sizes
                 s.dir = m.dir
                 s.fixedLayout = m.fixedLayout
-                if (m.fixedLayout) bookPagesMissing.value = true
+                if (m.fixedLayout && m.sections > 0) {
+                    // C-087: a comic's pages are known from `opened` (one per section): never a blank number while
+                    // the pages pass looks for print labels.
+                    fixedLayoutBook.value = true
+                    bookNumbers.setPages(BookPages.fixedLayout(m.sections), s.map)
+                }
                 _state.update { it.copy(title = m.title, authors = m.authors, toc = m.toc) }
                 watchBookmarks(s, rec.bookId)
                 watchAnnotations(s) // only if the first page was already painted

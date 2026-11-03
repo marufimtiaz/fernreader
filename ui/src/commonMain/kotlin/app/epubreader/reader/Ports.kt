@@ -36,9 +36,10 @@ interface BookOpenerPort {
     suspend fun sectionStats(sessionId: String): List<SectionStat>? = null
     /**
      * C-083: the book's pages, computed from the book file (one pass over the original spine). With [withStats], an
-     * unchunked book's section stats from the same pass come along (null for a chunked one). Null if unreadable.
+     * unchunked book's section stats from the same pass come along (null for a chunked one). [fixedLayout]: the reader
+     * shows the book as fixed-layout (`opened`), so it gets its own pages (C-087). Null if unreadable.
      */
-    suspend fun bookPages(sessionId: String, withStats: Boolean = false): BookPagesResult? = null
+    suspend fun bookPages(sessionId: String, withStats: Boolean = false, fixedLayout: Boolean = false): BookPagesResult? = null
 }
 
 /** C-083: [pages] of a book, and its section stats when they came from the same pass. */
