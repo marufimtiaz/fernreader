@@ -14,6 +14,8 @@ enum class PageSource {
     MARKERS,
     /** No print pages: [BookPages.VIRTUAL_CHARS] characters of text per page. */
     VIRTUAL,
+    /** C-087: a fixed-layout book without a print page list: its own pages, one per spine item, numbered 1..N. */
+    FIXED,
 }
 
 /**
@@ -36,7 +38,8 @@ class BookPages(
     }
 
     val count: Int get() = spines.size
-    val isPrint: Boolean get() = source != PageSource.VIRTUAL
+    /** Labels as published (a print page list or markers), else numbers 1..[count]. */
+    val isPrint: Boolean get() = labels != null
 
     fun label(index: Int): String = labels?.get(index) ?: (index + 1).toString()
     fun start(index: Int): TextPos = TextPos(spines[index], offsets[index])
@@ -82,8 +85,11 @@ class BookPages(
     companion object {
         /** C-083 (2): characters of text per virtual page, whitespace runs counted as one. */
         const val VIRTUAL_CHARS = 1800
-        /** Bump when the pages a book gets change: stored pages of another version are computed again. */
-        const val VERSION = 1
+        /**
+         * Bump when the pages a book gets change: stored pages of another version are computed again.
+         * 2: C-087, fixed-layout books get one page per spine item (version 1 stored about one virtual page).
+         */
+        const val VERSION = 2
 
         private fun compare(s1: Int, o1: Int, s2: Int, o2: Int) = if (s1 != s2) s1.compareTo(s2) else o1.compareTo(o2)
         private val WS = Regex("\\s+")
@@ -101,11 +107,19 @@ class BookPages(
             }
             val ls = labels?.split('\n')
             val len = if (lengths.isEmpty()) IntArray(0) else lengths.split(',').map { it.toInt() }.toIntArray()
-            if (src == PageSource.VIRTUAL && ls != null || src != PageSource.VIRTUAL && ls == null) null
+            val numbered = src == PageSource.VIRTUAL || src == PageSource.FIXED
+            if (numbered && ls != null || !numbered && ls == null) null
             else BookPages(src, ls, sp, of, len)
         } catch (e: Exception) {
             null
         }
+
+        /**
+         * C-087: the pages of a fixed-layout book without a print page list: page i is spine item i, numbered 1..[count].
+         * Also what the reader shows for such a book before its pages are computed ([lengths] then unknown: zeros).
+         */
+        fun fixedLayout(count: Int, lengths: IntArray = IntArray(count)): BookPages =
+            BookPages(PageSource.FIXED, null, IntArray(count) { it }, IntArray(count), lengths)
 
         /** Virtual pages only (tests and the builder). */
         internal fun of(source: PageSource, labels: List<String>?, starts: List<TextPos>, lengths: IntArray) =

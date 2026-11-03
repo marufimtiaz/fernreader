@@ -28,12 +28,10 @@ import app.epubreader.reader.bridge.FromWeb
 import app.epubreader.reader.bridge.ToWeb
 import app.epubreader.ui.Copy
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -229,13 +227,20 @@ class BookPagesTest {
         }
     }
 
+    /** The indicator's text once the shown page is [ok]. */
+    private suspend fun ReaderHarness.shown(ok: (PageIndicator) -> Boolean = { it.page != null }): String =
+        Copy.pageLabel(withTimeout(20_000) { a.controller.shownPage.first(ok) })!!
+
     /**
-     * Review fix 2: a fixed-layout book (page-blanche, a picture book: about one virtual page of text) shows its screen
-     * pages under Book pages (the default); the bottom bar's label is no "Go to page" entry and go to page is refused.
+     * C-087: a fixed-layout book (page-blanche, a picture book: 10 spine items, a nav page-list "1".."8" from the third)
+     * shows "Page n of N" under every Page numbers setting: on the first open 1..10 at once, then its print pages once
+     * the pages pass has run; on the next open the print pages at once. Turning a page moves n; the bottom bar's label is
+     * the Go to page entry.
      */
-    @Test fun a_fixed_layout_book_shows_screen_pages(): Unit = runBlocking {
+    @Test fun a_fixed_layout_book_shows_its_own_pages(): Unit = runBlocking {
         warAndPeace() // grants all-files access
         val f = File("/sdcard/Books/epub3-samples/page-blanche.epub").also { check(it.isFile) { "corpus not pushed: $it" } }
+        val want = ZipReader.open(openFileSource(f.path)).use { z -> BookPagesBuilder.build(z, (PackageLoader.load(z) as LoadResult.Ok).pkg, fixedLayout = true) }
         ActivityScenario.launch(MainActivity::class.java).use { sc ->
             val h = ReaderHarness(sc, this)
             val c = h.a.controller
@@ -243,29 +248,83 @@ class BookPagesTest {
                 h.ready()
                 sc.onActivity { it.controller.updateSettings { ReaderSettings() } } // Book pages is the default
                 h.drain()
+                fun text(section: Int) = want.indexAt(TextPos(section, 0)).let { i -> "Page ${want.label(i)} of ${want.count}" }
                 sc.onActivity { it.openBook(SourceRef.File(f.path)) }
-                h.relocate(30_000); h.painted(30_000)
+                var first = h.relocate(30_000)
+                val early = h.shown() // a number from `opened` on, before the pages pass (a fresh install: nothing stored)
+                Log.i("EPR", "C-087 page-blanche first open: $early")
+                assertTrue(early, Regex("Page \\S+ of \\d+").matches(early))
+                h.painted(30_000)
                 withTimeout(20_000) { c.state.first { !it.loading } }
-                assertFalse(c.bookPagesInUse.value) // known from `opened`, before the first page's pages step
-                delay(3_000) // the stats and pages step after the first paint has run: still screen pages
-                val (screen, shown) = withTimeout(20_000) { combine(c.page, c.shownPage) { a, b -> a to b }.first { (a, b) -> a == b } }
-                Log.i("EPR", "fixed layout: screen $screen shown $shown book ${c.bookPage.value} stats ${c.sectionStats?.size}")
-                assertFalse(c.bookPagesInUse.value)
-                assertNull(c.bookPage.value.page)
-                assertNotNull("screen-page stats", c.sectionStats)
+                assertEquals(text(first.sectionIndex), h.shown { it.total == want.count }) // the print pages, after the pass
+                assertTrue(c.bookPagesInUse.value)
+                sc.onActivity { it.goBack() }
+                withTimeout(10_000) { c.state.first { !it.open } }
+                delay(800); h.drain()
+                sc.onActivity { it.openBook(SourceRef.File(f.path)) } // again: the stored print pages at once
+                first = h.relocate(30_000)
+                assertEquals(text(first.sectionIndex), h.shown())
+                h.painted(30_000)
+                withTimeout(20_000) { c.state.first { !it.loading } }
+                delay(2_000)
+                Log.i("EPR", "C-087 page-blanche: ${c.shownPage.value} (${want.source} ${want.count}) screen ${c.page.value}")
+                assertEquals(want.count, c.shownPage.value.total)
+                h.drain(); h.send(ToWeb.Next())
+                val turned = h.relocate(10_000) { it.sectionIndex != first.sectionIndex }
+                val after = h.shown { Copy.pageLabel(it) == text(turned.sectionIndex) }
+                assertTrue("n moved: $after", turned.sectionIndex > first.sectionIndex)
+                for (mode in listOf(PageNumbers.SCREEN_BOOK, PageNumbers.SCREEN_CHAPTER)) {
+                    sc.onActivity { it.controller.updateSettings { s -> s.copy(pageNumbers = mode) } }
+                    delay(300)
+                    assertEquals("$mode", after, Copy.pageLabel(c.shownPage.value))
+                }
+                sc.onActivity { it.controller.updateSettings { ReaderSettings() } }
                 sc.onActivity { it.controller.toggleChrome() }
                 clearCache()
-                assertTrue(dev.wait(Until.hasObject(By.desc(Copy.seek)), 5_000))
-                assertFalse("no go-to entry on a fixed-layout book", dev.hasObject(By.descContains(Copy.goToPage)))
-                Copy.pageLabel(c.shownPage.value)?.let { text ->
-                    val label = dev.wait(Until.findObject(By.text(text)), 5_000)
-                    assertNotNull("page label $text", label)
-                    assertFalse("the label is not a button", label.isClickable)
-                }
-                var ok = true
-                sc.onActivity { ok = it.controller.goToPage("1") }
-                assertFalse(ok)
+                val label = dev.wait(Until.findObject(By.text(after)), 5_000)
+                assertNotNull("page label $after on the bar", label)
+                assertTrue("the go-to entry is offered", dev.hasObject(By.descContains(Copy.goToPage)))
+                sc.onActivity { it.controller.toggleChrome() }
+                h.drain()
+                var ok = false
+                val last = want.count - 1 // the last page: "8", spine item 9
+                sc.onActivity { ok = it.controller.goToPage(want.label(last)) }
+                assertTrue(ok)
+                h.relocate(10_000) { it.sectionIndex == want.start(last).spineIndex }
+                assertEquals(text(want.start(last).spineIndex), h.shown { it.page == last + 1 })
             } finally { h.stop() }
+        }
+    }
+
+    /** C-087: a fixed-layout book with a print page-list shows its labels ("Page ii of 4"); go to page takes them. */
+    @Test fun a_fixed_layout_book_with_a_page_list_shows_its_labels(): Unit = runBlocking {
+        val bytes = TestBooks.fixedLayoutEpub(pages = 4, pageList = true)
+        val want = expected(bytes)
+        assertEquals(PageSource.NAV, want.source); assertEquals(4, want.count)
+        ActivityScenario.launch(MainActivity::class.java).use { sc ->
+            val h = ReaderHarness(sc, this)
+            val c = h.a.controller
+            try {
+                h.ready()
+                sc.onActivity { it.controller.updateSettings { ReaderSettings() } }
+                h.drain()
+                h.open(TestBooks.write(inst.targetContext, "fxl-list-${System.nanoTime()}.epub", bytes), withToc = false)
+                assertEquals("Page i of 4", h.shown { it.label == "i" })
+                h.drain(); h.send(ToWeb.Next()); h.relocate(10_000) { it.sectionIndex == 1 }
+                assertEquals("Page ii of 4", h.shown { it.label == "ii" })
+                sc.onActivity { it.controller.updateSettings { s -> s.copy(pageNumbers = PageNumbers.SCREEN_CHAPTER) } }
+                delay(300)
+                assertEquals("Page ii of 4", Copy.pageLabel(c.shownPage.value))
+                h.drain()
+                var ok = false
+                sc.onActivity { ok = it.controller.goToPage("IV") }
+                assertTrue(ok)
+                h.relocate(10_000) { it.sectionIndex == 3 }
+                assertEquals("Page iv of 4", h.shown { it.label == "iv" })
+            } finally {
+                sc.onActivity { it.controller.updateSettings { ReaderSettings() } }
+                h.stop()
+            }
         }
     }
 }

@@ -76,9 +76,21 @@ object PageLists {
  * [BookPages.VIRTUAL_CHARS] characters. Each spine document is read once and extracted once; [onSection] sees
  * every extraction (null for a missing or unreadable item), so a caller can derive more from the same pass. Call on
  * an I/O thread: it reads the whole book.
+ *
+ * C-087: a [fixedLayout] book (comics, picture books; the reader's view of the book, default the package's) has the
+ * book's own pages: one per spine item, in spine order, as foliate's fixed-layout renderer shows them (a two-page
+ * spread is still two pages). A print page list (NAV, NCX, PAGE_MAP) labels them when one resolves: an entry resolves
+ * if its document is in the spine, and it starts at that page's start (offset 0; a fixed page is on screen whole, so
+ * the fragment does not matter). Otherwise [PageSource.FIXED], pages 1..N with N the number of spine items. Inline
+ * pagebreak markers and virtual pages are never used for a fixed-layout book.
  */
 object BookPagesBuilder {
-    fun build(zip: ZipReader, pkg: BookPackage, onSection: (Int, ExtractedText?) -> Unit = { _, _ -> }): BookPages {
+    fun build(
+        zip: ZipReader,
+        pkg: BookPackage,
+        fixedLayout: Boolean = pkg.fixedLayout,
+        onSection: (Int, ExtractedText?) -> Unit = { _, _ -> },
+    ): BookPages {
         val lists = PageLists.read(zip, pkg)
         val wanted = HashMap<String, HashSet<String>>() // spine path -> fragments any list names
         for (l in lists.values) for (t in l) t.fragment?.let { wanted.getOrPut(t.path) { HashSet() } += it }
@@ -105,6 +117,13 @@ object BookPagesBuilder {
             counter.section(item.index, ex.text)
         }
 
+        if (fixedLayout) {
+            for (source in listOf(PageSource.NAV, PageSource.NCX, PageSource.PAGE_MAP)) {
+                val resolved = lists.getValue(source).mapNotNull { t -> spineOf[t.path]?.let { t.label to TextPos(it, 0) } }
+                if (resolved.isNotEmpty()) return print(source, resolved, lengths)
+            }
+            return BookPages.fixedLayout(pkg.spine.size, lengths)
+        }
         for (source in listOf(PageSource.NAV, PageSource.NCX, PageSource.PAGE_MAP)) {
             val resolved = lists.getValue(source).mapNotNull { t ->
                 val spine = spineOf[t.path] ?: return@mapNotNull null

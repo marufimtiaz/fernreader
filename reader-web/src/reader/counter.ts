@@ -294,7 +294,8 @@ html,body{margin:0!important;padding:0!important}
       if (!doc || !live()) return null
       polyfillMfenced(doc) // as the shown document gets it (reader.ts load), before layout
       applySettings(doc, this.settings())
-      // C-082: each box holds one section's body, so its whole-content wrappers lose their side margins as on screen
+      // C-082/C-088: each box holds one section's body, so its whole-content wrappers lose their fixed side margins
+      // (auto ones stay) as on screen
       for (const box of doc.querySelectorAll('.er-box')) markWrappers(doc, box)
       await Promise.all([doc.fonts?.ready, imagesSettled(doc)])
       if (!live()) return null

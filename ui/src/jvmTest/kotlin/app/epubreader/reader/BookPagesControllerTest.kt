@@ -56,8 +56,10 @@ class BookPagesControllerTest {
         override suspend fun open(ref: SourceRef) = OpenResult.Ok("s-1", "d".repeat(64), 100, map)
         override suspend fun close(sessionId: String) {}
         override suspend fun sectionStats(sessionId: String): List<SectionStat>? { statsCalls++; calls += "stats"; return listOf(SectionStat(1, 0), SectionStat(0, 0), SectionStat(1, 0)) }
-        override suspend fun bookPages(sessionId: String, withStats: Boolean): BookPagesResult? {
-            pagesCalls++; calls += if (withStats) "pages+stats" else "pages"
+        /** The fixedLayout flag of the last book pages pass. */
+        var askedFixed: Boolean? = null
+        override suspend fun bookPages(sessionId: String, withStats: Boolean, fixedLayout: Boolean): BookPagesResult? {
+            pagesCalls++; calls += if (withStats) "pages+stats" else "pages"; askedFixed = fixedLayout
             gate?.await()
             return pages?.let { BookPagesResult(it, if (withStats) listOf(SectionStat(3000, 0), SectionStat(0, 0), SectionStat(500, 0)) else null) }
         }
@@ -197,35 +199,79 @@ class BookPagesControllerTest {
         assertEquals(listOf("stats", "pages"), opener.calls)
     }
 
+    private fun fixedRelocate(section: Int) = FromWeb.Relocate(sessionId = "s-1", cfi = "f$section", fraction = 0.0, sectionIndex = section) // no text range
+
     /**
-     * Review fix 2 (gatekeeper question in M9.md): a fixed-layout book (a comic: about one virtual page of text) shows
-     * screen pages under Book pages, in the indicator, the slider preview and the lists; go to page is not offered.
+     * C-087: a fixed-layout book (a comic) shows its own pages, "Page n of N" with N its pages (spine items), from
+     * `opened` on (never a blank number), under every Page numbers setting, in the indicator, the slider preview, go to
+     * page and the lists. The pages pass is asked for a fixed-layout book's pages.
      */
-    @Test fun a_fixed_layout_book_shows_screen_pages_under_book_pages() = runTest(dispatcher) {
+    @Test fun a_fixed_layout_book_shows_its_own_pages_under_every_setting() = runTest(dispatcher) {
         fixedLayout = true
+        opener.pages = BookPages.fixedLayout(3)
         val c = controller()
         c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
-        reader.events.emit(relocate(0, 0)); advanceUntilIdle()
-        assertEquals(PageNumbers.BOOK_PAGES, c.settings.value.pageNumbers)
-        assertEquals(c.page.value, c.shownPage.value) // screen pages from the start, not an empty Book pages indicator
+        reader.events.emit(fixedRelocate(1)); advanceUntilIdle()
+        assertEquals("Page 2 of 3", app.epubreader.ui.Copy.pageLabel(c.shownPage.value)) // before the pages pass
+        assertTrue(c.bookPagesInUse.value)
         reader.events.emit(FromWeb.Painted(sessionId = "s-1")); advanceUntilIdle()
-        assertEquals(0, opener.pagesCalls) // no pages pass at all
-        assertEquals(1, opener.statsCalls) // the screen-page estimate still gets its stats
-        assertNotNull(c.sectionStats)
-        assertEquals(c.page.value, c.shownPage.value)
-        assertNull(c.bookPage.value.page)
-        c.previewSeek(0.5)
-        val preview = c.seekPreview.value!!.page
-        c.cancelSeek()
-        c.updateSettings { it.copy(pageNumbers = PageNumbers.SCREEN_BOOK) }; advanceUntilIdle()
-        c.previewSeek(0.5)
-        assertEquals(c.seekPreview.value!!.page, preview) // the slider preview of the screen modes
-        c.cancelSeek()
-        c.updateSettings { it.copy(pageNumbers = PageNumbers.BOOK_PAGES) }; advanceUntilIdle()
-        assertNull(c.searchHitPage(0, 10))
-        assertTrue(reader.sent.filterIsInstance<ToWeb.TextOffsets>().isEmpty()) // lists keep their screen-mode text
-        assertFalse(c.bookPagesInUse.value) // the screen offers no go to page and the lists no book pages
-        c.showGoToPage(); assertFalse(c.state.value.goToPageVisible)
-        assertFalse(c.goToPage("1"))
+        assertEquals(1, opener.pagesCalls); assertEquals(true, opener.askedFixed)
+        assertEquals(listOf("pages+stats"), opener.calls) // one pass for both, as for any unchunked book
+        assertEquals("Page 2 of 3", app.epubreader.ui.Copy.pageLabel(c.shownPage.value))
+        reader.events.emit(fixedRelocate(2)); advanceUntilIdle() // a page turn
+        assertEquals("Page 3 of 3", app.epubreader.ui.Copy.pageLabel(c.shownPage.value))
+        for (mode in listOf(PageNumbers.SCREEN_BOOK, PageNumbers.SCREEN_CHAPTER, PageNumbers.BOOK_PAGES)) {
+            c.updateSettings { it.copy(pageNumbers = mode) }; advanceUntilIdle()
+            assertEquals("Page 3 of 3", app.epubreader.ui.Copy.pageLabel(c.shownPage.value), "$mode")
+            assertTrue(c.bookPagesInUse.value)
+            c.previewSeek(0.0)
+            assertEquals("Page 1 of 3", app.epubreader.ui.Copy.pageLabel(c.seekPreview.value!!.page))
+            c.cancelSeek()
+            assertEquals("2", c.searchHitPage(1, 10))
+        }
+        assertEquals("1" to "3", c.bookPageRange())
+        c.showGoToPage(); assertTrue(c.state.value.goToPageVisible)
+        reader.sent.clear()
+        assertFalse(c.goToPage("4"))
+        assertTrue(c.goToPage("1"))
+        assertEquals(ToWeb.GoToOffset(sectionIndex = 0, offset = 0), reader.sent.single())
+        reader.events.emit(fixedRelocate(0)); advanceUntilIdle()
+        assertEquals("Page 1 of 3", app.epubreader.ui.Copy.pageLabel(c.shownPage.value))
+    }
+
+    /** C-087: a fixed-layout book with a print page list shows its labels; go to page takes them. */
+    @Test fun a_fixed_layout_book_with_a_page_list_shows_its_labels() = runTest(dispatcher) {
+        fixedLayout = true
+        opener.pages = BookPages.decode(PageSource.NAV.name, "Cover\ni\nii", "0.0,1.0,2.0", "0,0,0")
+        val c = controller()
+        openPainted(c)
+        reader.events.emit(fixedRelocate(1)); advanceUntilIdle()
+        assertEquals("Page i of 3", app.epubreader.ui.Copy.pageLabel(c.shownPage.value))
+        c.updateSettings { it.copy(pageNumbers = PageNumbers.SCREEN_CHAPTER) }; advanceUntilIdle()
+        assertEquals("Page i of 3", app.epubreader.ui.Copy.pageLabel(c.shownPage.value))
+        val ask = reader.sent.filterIsInstance<ToWeb.TextOffsets>().last()
+        reader.events.emit(FromWeb.TextOffsets(sessionId = "s-1", id = ask.id, offsets = listOf(listOf(2, 0)))); advanceUntilIdle()
+        assertEquals(mapOf("epubcfi(/6/2!/4/2/1:5)" to "ii"), c.state.value.bookPageLabels) // the bookmarks list
+        reader.sent.clear()
+        assertTrue(c.goToPage("II"))
+        assertEquals(ToWeb.GoToOffset(sectionIndex = 2, offset = 0), reader.sent.single())
+        // The next open shows the stored labels from `opened` on, before the first paint (no 1..N first).
+        c.close(); advanceUntilIdle()
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
+        reader.events.emit(fixedRelocate(2)); advanceUntilIdle()
+        assertEquals("Page ii of 3", app.epubreader.ui.Copy.pageLabel(c.shownPage.value))
+        assertEquals(1, opener.pagesCalls)
+    }
+
+    /** C-087: if a fixed-layout book's pages can't be computed it keeps its pages 1..N: never a blank number. */
+    @Test fun a_fixed_layout_book_whose_pages_fail_keeps_its_page_numbers() = runTest(dispatcher) {
+        fixedLayout = true
+        opener.pages = null
+        val c = controller()
+        openPainted(c)
+        reader.events.emit(fixedRelocate(2)); advanceUntilIdle()
+        assertEquals("Page 3 of 3", app.epubreader.ui.Copy.pageLabel(c.shownPage.value))
+        assertTrue(c.bookPagesInUse.value)
+        assertTrue(c.goToPage("2"))
     }
 }

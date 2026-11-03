@@ -33,12 +33,13 @@ fun sectionStats(s: BookSession): List<SectionStat>? {
 /**
  * C-083: the book's pages, from the original spine (a chunked book's parts are never read: its pages are the
  * unchunked book's). With [withStats] and an unchunked session, the same pass gives the section stats (so a first
- * open reads the book once for both). Null without a readable package. Call on an I/O thread.
+ * open reads the book once for both). [fixedLayout]: as the reader shows the book (C-087: one page per spine item).
+ * Null without a readable package. Call on an I/O thread.
  */
-fun bookPages(s: BookSession, withStats: Boolean): BookPagesResult? {
+fun bookPages(s: BookSession, withStats: Boolean, fixedLayout: Boolean = false): BookPagesResult? {
     val pkg = s.pkg ?: (PackageLoader.load(s.zip) as? LoadResult.Ok)?.pkg ?: return null
     val stats = if (withStats && s.chunked == null) arrayOfNulls<SectionStat>(pkg.spine.size) else null
-    val pages = BookPagesBuilder.build(s.zip, pkg) { i, ex -> stats?.set(i, ex?.let { SectionStat(it.compactLength, it.imageCount) } ?: SectionStat(0, 0)) }
+    val pages = BookPagesBuilder.build(s.zip, pkg, fixedLayout) { i, ex -> stats?.set(i, ex?.let { SectionStat(it.compactLength, it.imageCount) } ?: SectionStat(0, 0)) }
     return BookPagesResult(pages, stats?.map { it ?: SectionStat(0, 0) })
 }
 
