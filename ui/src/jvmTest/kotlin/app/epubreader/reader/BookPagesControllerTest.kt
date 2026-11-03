@@ -11,6 +11,7 @@ import app.epubreader.core.data.SettingsPort
 import app.epubreader.core.data.SourceRef
 import app.epubreader.core.data.buildDatabase
 import app.epubreader.core.data.jvmDatabaseBuilder
+import app.epubreader.core.epub.PositionMap
 import app.epubreader.core.epub.pages.BookPages
 import app.epubreader.core.epub.pages.PageSource
 import app.epubreader.reader.bridge.FromWeb
@@ -31,6 +32,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -46,11 +48,17 @@ class BookPagesControllerTest {
         var pagesCalls = 0
         var statsCalls = 0
         var pages: BookPages? = BookPages.decode(PageSource.NAV.name, "i\nii\nxii", "0.0,0.1000,2.0", "3000,0,500")
-        override suspend fun open(ref: SourceRef) = OpenResult.Ok("s-1", "d".repeat(64), 100)
+        var map: PositionMap = PositionMap.Identity
+        /** While set, the book pages pass does not end until it is completed. */
+        var gate: CompletableDeferred<Unit>? = null
+        /** The opener calls in order ("stats", "pages" or "pages+stats"). */
+        val calls = mutableListOf<String>()
+        override suspend fun open(ref: SourceRef) = OpenResult.Ok("s-1", "d".repeat(64), 100, map)
         override suspend fun close(sessionId: String) {}
-        override suspend fun sectionStats(sessionId: String): List<SectionStat>? { statsCalls++; return listOf(SectionStat(1, 0), SectionStat(0, 0), SectionStat(1, 0)) }
+        override suspend fun sectionStats(sessionId: String): List<SectionStat>? { statsCalls++; calls += "stats"; return listOf(SectionStat(1, 0), SectionStat(0, 0), SectionStat(1, 0)) }
         override suspend fun bookPages(sessionId: String, withStats: Boolean): BookPagesResult? {
-            pagesCalls++
+            pagesCalls++; calls += if (withStats) "pages+stats" else "pages"
+            gate?.await()
             return pages?.let { BookPagesResult(it, if (withStats) listOf(SectionStat(3000, 0), SectionStat(0, 0), SectionStat(500, 0)) else null) }
         }
     }
@@ -154,5 +162,37 @@ class BookPagesControllerTest {
         openPainted(c)
         assertEquals(c.page.value, c.shownPage.value)
         assertFalse(c.goToPage("1"))
+    }
+
+    /** Review fix 1: cached section stats reach the page totals at once, never after the (slow) book pages pass. */
+    @Test fun cached_stats_reach_the_totals_before_the_book_pages_exist() = runTest(dispatcher) {
+        opener.pages = null // first open: no pages, so the stats come from their own pass and are cached
+        val c = controller()
+        openPainted(c); c.close(); advanceUntilIdle()
+        assertEquals(1, opener.statsCalls)
+        opener.pages = BookPages.decode(PageSource.NAV.name, "i\nii\nxii", "0.0,0.1000,2.0", "3000,0,500")
+        opener.gate = CompletableDeferred()
+        openPainted(c)
+        assertEquals(2, opener.pagesCalls) // the second pass is running (held)
+        assertNotNull(c.sectionStats) // the cached stats are with the totals already
+        assertEquals(listOf(SectionStat(1, 0), SectionStat(0, 0), SectionStat(1, 0)), c.sectionStats)
+        assertNull(c.bookPage.value.page)
+        assertEquals(1, opener.statsCalls) // from the cache
+        opener.gate!!.complete(Unit); advanceUntilIdle()
+        assertEquals("ii", c.shownPage.value.label)
+    }
+
+    /** Review fix 1: a chunked book's stats (its parts) come before its pages pass (over the original document). */
+    @Test fun a_chunked_book_gets_its_stats_before_the_book_pages_pass() = runTest(dispatcher) {
+        opener.map = object : PositionMap by PositionMap.Identity {} // any map but the identity: chunked
+        opener.gate = CompletableDeferred()
+        val c = controller()
+        openPainted(c)
+        assertEquals(listOf("stats", "pages"), opener.calls) // the pages pass never computes a chunked book's stats
+        assertNotNull(c.sectionStats)
+        assertNull(c.bookPage.value.page)
+        opener.gate!!.complete(Unit); advanceUntilIdle()
+        assertEquals("ii", c.shownPage.value.label)
+        assertEquals(listOf("stats", "pages"), opener.calls)
     }
 }

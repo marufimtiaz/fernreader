@@ -326,21 +326,42 @@ class ReaderController(
 
     /**
      * Per-section text sizes for the page estimate, after the first page is on screen (never delays it): from the
-     * book cache for this file version, else extracted on the opener's I/O thread and cached.
+     * book cache for this file version, else extracted on the opener's I/O thread and cached. Then the C-083 book pages.
+     * Stats never wait for the pages pass: cached ones are published first; a chunked book (M8) gets its own (its
+     * parts) before the pages pass over the original document, one pass at a time (both at once would hold the huge
+     * document's text twice, the memory pressure C-003 met); only an unchunked book's first open takes them from the
+     * pages pass, which reads the book once for both.
      */
     private fun loadStats(s: Session) {
         scope.launch {
             val id = s.bookId ?: return@launch
             try {
                 val kind = statsKind(s.map)
+                val publish: (List<SectionStat>?) -> Unit = { st ->
+                    if (session === s) {
+                        s.stats = st
+                        probe.ev("stats_ready", "${st?.size}")
+                        onStats(s)
+                    }
+                }
                 var stats = library.cached(id, kind, s.cdDigest)?.let { runCatching { BridgeJson.decodeFromString(STATS, it) }.getOrNull() }
-                // C-083: the book pages, stored with the book once computed; the computing pass also gives the section
-                // stats of an unchunked book, so a first open reads the book once for both.
+                var statsTried = stats != null
+                suspend fun ownStats() {
+                    statsTried = true
+                    stats = opener.sectionStats(s.id)?.also { library.storeCache(id, kind, s.cdDigest, BridgeJson.encodeToString(STATS, it)) }
+                }
+                val shared = s.map === PositionMap.Identity // the pages pass can give the stats
+                if (stats == null && !shared) ownStats()
+                if (statsTried) publish(stats)
+                if (session !== s) return@launch
+                // C-083: the book pages, stored with the book once computed.
                 val pages = try {
-                    library.bookPages(id, s.cdDigest) ?: opener.bookPages(s.id, withStats = stats == null)?.let { r ->
-                        if (stats == null && r.stats != null && s.map === PositionMap.Identity) {
+                    library.bookPages(id, s.cdDigest) ?: opener.bookPages(s.id, withStats = !statsTried)?.let { r ->
+                        if (!statsTried && r.stats != null) {
+                            statsTried = true
                             stats = r.stats
                             library.storeCache(id, kind, s.cdDigest, BridgeJson.encodeToString(STATS, r.stats))
+                            publish(stats)
                         }
                         library.storeBookPages(id, s.cdDigest, r.pages)
                         r.pages
@@ -355,11 +376,10 @@ class ReaderController(
                 bookPagesMissing.value = pages == null
                 probe.ev("book_pages_ready", pages?.let { "${it.source} ${it.count}" } ?: "none")
                 requestListPages(s)
-                if (stats == null) stats = opener.sectionStats(s.id)?.also { library.storeCache(id, kind, s.cdDigest, BridgeJson.encodeToString(STATS, it)) }
-                if (session !== s) return@launch
-                s.stats = stats
-                probe.ev("stats_ready", "${stats?.size}")
-                onStats(s)
+                if (!statsTried) {
+                    ownStats()
+                    publish(stats)
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
