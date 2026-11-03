@@ -139,12 +139,12 @@ import kotlinx.serialization.json.Json
     @Serializable @SerialName("externalLink") data class ExternalLink(val v: Int = 1, val sessionId: String, val href: String) : FromWeb
     /** F-061: a tap landed on the user annotation [id] (a link inside it stays a link); it is not a [Tap]. */
     @Serializable @SerialName("annotationTapped") data class AnnotationTapped(val v: Int = 1, val sessionId: String, val id: String) : FromWeb
+    /** C-083: answer to [ToWeb.TextOffsets]: [section, offset] per CFI in order (virtual), [-1, -1] when one did not resolve. */
+    @Serializable @SerialName("textOffsets") data class TextOffsets(val v: Int = 1, val sessionId: String, val id: Int, val offsets: List<List<Int>>) : FromWeb
     /**
      * F-060: the text selection settled: [text] exactly the document's Selection.toString(), [cfi] its virtual range CFI,
      * [sectionIndex] its (virtual) section. Cleared: [cfi] null, [text] empty, [sectionIndex] -1.
      */
-    /** C-083: answer to [ToWeb.TextOffsets]: [section, offset] per CFI in order (virtual), [-1, -1] when one did not resolve. */
-    @Serializable @SerialName("textOffsets") data class TextOffsets(val v: Int = 1, val sessionId: String, val id: Int, val offsets: List<List<Int>>) : FromWeb
     @Serializable @SerialName("selection") data class Selection(
         val v: Int = 1, val sessionId: String, val text: String = "", val cfi: String? = null, val sectionIndex: Int = -1,
     ) : FromWeb
