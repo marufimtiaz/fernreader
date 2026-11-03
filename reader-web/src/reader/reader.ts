@@ -236,6 +236,15 @@ export class Reader {
         const lefts = [...el.getClientRects()].map(r => (f?.left ?? 0) + r.left)
         return lefts.find(l => l >= 0 && l < window.innerWidth) ?? lefts[0] ?? null
       },
+      /** C-088: left and right edges (host px) of the first [selector] in loaded section [index], its box on screen; null if none. */
+      blockBox: (index: number, selector: string) => {
+        const doc: Document | undefined = this.view?.renderer?.getContents?.().find((x: any) => x.index === index)?.doc
+        const el = doc?.querySelector(selector)
+        if (!doc || !el) return null
+        const f = (doc.defaultView?.frameElement as HTMLElement | null)?.getBoundingClientRect()
+        const rects = [...el.getClientRects()].map(r => ({ left: (f?.left ?? 0) + r.left, right: (f?.left ?? 0) + r.right }))
+        return rects.find(r => r.left >= 0 && r.left < window.innerWidth) ?? rects[0] ?? null
+      },
       goIndex: (i: number) => { void this.view?.renderer?.goTo({ index: i, anchor: 0 }) },
       htmlVar: (index: number, name: string) => this.view?.renderer?.getContents?.().find((x: any) => x.index === index)?.doc?.documentElement.style.getPropertyValue(name) ?? null,
       /** F-043: text of the open footnote popup, or null. */

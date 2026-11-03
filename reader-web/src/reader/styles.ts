@@ -71,10 +71,13 @@ export function readerCss(base: string): string {
     'html[data-er-align="justify"] body :is(p, li, blockquote, dd) { text-align: justify !important; }',
     'html[data-er-font] body, html[data-er-font] body :not(code, pre, kbd, samp, tt, code *, pre *, math, math *) { font-family: var(--er-font) !important; }',
     'math { font-family: "Noto Sans Math", math !important; }',
-    // C-082: the side margin setting is the whole edge-to-text distance: the book's own horizontal margins and padding
-    // on html, body and wrappers around the whole content (marked by applySettings) don't add to it. Indents of blocks
-    // inside the text (blockquotes, lists, centred headings) stay. The paginator's inline !important padding on html wins.
-    'html[data-er-theme], html[data-er-theme] body, html[data-er-theme] [data-er-wrapper] { margin-left: 0 !important; margin-right: 0 !important; padding-left: 0 !important; padding-right: 0 !important; }',
+    // C-082: the side margin setting is the whole edge-to-text distance: the book's own fixed horizontal margins and
+    // padding on html, body and wrappers around the whole content don't add to it. applySettings marks each such
+    // element with the sides to zero (data-er-wrapper tokens, see markWrappers); auto margins are never zeroed, so a
+    // block the book centres stays centred (C-088). Indents of blocks inside the text (blockquotes, lists, centred
+    // headings) stay. The paginator's inline !important padding on html wins.
+    ...SIDES.map(([token, prop]) =>
+      `html[data-er-theme][data-er-wrapper~="${token}"], html[data-er-theme] [data-er-wrapper~="${token}"] { ${prop}: 0 !important; }`),
     ...themes,
     // The paper is the host page (it follows the theme); section documents stay transparent, so margins, the page and
     // the edges always have the same colour, also right after a theme change.
@@ -99,16 +102,55 @@ export function applySettings(doc: Document, s: WebSettings) {
   if (font) { html.setAttribute('data-er-font', s.fontFamily); html.style.setProperty('--er-font', font) }
   else { html.removeAttribute('data-er-font'); html.style.removeProperty('--er-font') }
   html.setAttribute('data-er-theme', THEMES[s.theme] ? s.theme : 'light')
+  markSides(html)
+  if (doc.body) markSides(doc.body)
   markWrappers(doc)
 }
 
 const WRAPPER = new Set(['div', 'section', 'article', 'main'])
 
+/** C-082 sides: the data-er-wrapper token of each horizontal margin and padding, and its property. */
+const SIDES = [['ml', 'margin-left'], ['mr', 'margin-right'], ['pl', 'padding-left'], ['pr', 'padding-right']] as const
+
+/**
+ * C-088: the computed value of [prop] on [el] as written: 'auto' for an auto margin. Typed OM gives computed values
+ * (getComputedStyle resolves a rendered element's margins to the used px, so auto would look fixed); without it
+ * (jsdom in tests) getComputedStyle's value, which is the cascaded one there.
+ */
+function sideValue(el: Element, prop: string): string {
+  const map = (el as Element & { computedStyleMap?: () => { get(p: string): unknown } }).computedStyleMap
+  if (typeof map === 'function') {
+    try { return String(map.call(el).get(prop) ?? '') } catch { /* fall through */ }
+  }
+  const view = el.ownerDocument.defaultView ?? (typeof window === 'undefined' ? null : window) // a parsed document has no view
+  return view?.getComputedStyle(el).getPropertyValue(prop) ?? ''
+}
+
+/**
+ * C-082/C-088: the sides of [el] (a whole-content element: html, body or a wrapper) whose horizontal margin or padding
+ * is a fixed length, as data-er-wrapper tokens: the reader CSS zeroes those. An auto margin is centring (with a width,
+ * or in a flex container) and is kept; padding is never auto. Pure function of the values, for tests.
+ */
+export function fixedSides(value: (prop: string) => string): string[] {
+  return SIDES.filter(([, prop]) => value(prop).trim() !== 'auto').map(([token]) => token)
+}
+
+/**
+ * Marks [el] with the sides to zero (data-er-wrapper="ml mr pl pr", fewer where a margin is auto). Decided from its
+ * computed style each time (the tokens zero only fixed sides, so a side that was zeroed reads as a fixed 0 again: the
+ * decision is stable); the attribute is only written when it changes. A few elements per document: cheap.
+ */
+function markSides(el: Element) {
+  const tokens = fixedSides(p => sideValue(el, p)).join(' ')
+  if (el.getAttribute('data-er-wrapper') !== tokens) el.setAttribute('data-er-wrapper', tokens)
+}
+
 /**
  * C-082: marks the chain of elements that wrap the whole body content (`<body><div class="main"><section>…`): each
- * is the only element child of its parent, with no text beside it. Their horizontal margins and padding are then
- * neutralised by [readerCss]. Idempotent; a document with several top-level blocks has no wrapper. [start] is the
- * element standing for the section's body: the page counter puts each section's body in its own box (counter.ts).
+ * is the only element child of its parent, with no text beside it. Their fixed horizontal margins and padding are then
+ * neutralised by [readerCss]; auto margins stay (C-088, markSides). Idempotent; a document with several top-level
+ * blocks has no wrapper. [start] is the element standing for the section's body: the page counter puts each
+ * section's body in its own box (counter.ts), so a book's wrappers get the same marks there as on screen (C-003).
  */
 export function markWrappers(doc: Document, start: Element | null = doc.body) {
   let el: Element | null = start
@@ -118,7 +160,7 @@ export function markWrappers(doc: Document, start: Element | null = doc.body) {
     const only: Element | null = kids.length === 1 && !text ? kids[0] : null
     // the page counter's section boxes are its column boxes, never a book's wrapper (their padding is the margin)
     if (!only || !WRAPPER.has(only.localName) || only.classList.contains('er-box')) return
-    if (!only.hasAttribute('data-er-wrapper')) only.setAttribute('data-er-wrapper', '')
+    markSides(only)
     el = only
   }
 }
