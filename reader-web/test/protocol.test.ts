@@ -7,7 +7,7 @@ import type { ToWeb } from '../src/bridge/protocol'
 const fixture = (n: string) => readFileSync(resolve(__dirname, `../../bridge/fixtures/${n}.json`), 'utf8').trim()
 
 describe('protocol v1', () => {
-  it.each(['open', 'openChapterTexts', 'openContinued', 'close', 'next', 'prev', 'goTo', 'goToSeek', 'setSettings', 'goToFraction', 'goToText', 'clearSearchHighlight', 'back', 'closeFootnote', 'setBookmarks', 'addAnnotation', 'clearSelection', 'setAnnotations', 'removeAnnotation', 'goToOffset', 'textOffsets'])('dispatches %s to handlers unchanged', name => {
+  it.each(['open', 'openChapterTexts', 'openContinued', 'close', 'next', 'prev', 'goTo', 'goToSeek', 'setSettings', 'goToFraction', 'goToFractionSeek', 'goToText', 'clearSearchHighlight', 'back', 'closeFootnote', 'setBookmarks', 'addAnnotation', 'clearSelection', 'setAnnotations', 'removeAnnotation', 'goToOffset', 'textOffsets'])('dispatches %s to handlers unchanged', name => {
     const seen: ToWeb[] = []
     const b = new Bridge(vi.fn())
     b.onMessage(m => seen.push(m))

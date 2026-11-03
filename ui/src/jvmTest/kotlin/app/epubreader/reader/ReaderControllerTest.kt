@@ -272,7 +272,7 @@ class ReaderControllerTest {
         assertEquals(PageIndicator(page = 3 + 1 + 2, total = 8, exact = true, chapterScope = false), c.page.value)
         assertEquals(0.5, c.state.value.fraction)
         c.seek(0.25)
-        assertEquals(ToWeb.GoToFraction(fraction = 0.25), reader.sent.last())
+        assertEquals(0.25, (reader.sent.last() as ToWeb.GoToFraction).fraction)
     }
 
     @Test fun dragging_the_slider_previews_the_target_and_cancel_returns_to_the_current_position() = runTest(dispatcher) {
@@ -296,9 +296,32 @@ class ReaderControllerTest {
 
         // released: the preview stays until the jump lands
         c.previewSeek(0.75); c.seek(0.75)
-        assertEquals(ToWeb.GoToFraction(fraction = 0.75), reader.sent.last())
+        assertEquals(0.75, (reader.sent.last() as ToWeb.GoToFraction).fraction)
         assertEquals("Three", c.seekPreview.value?.chapter)
         reader.events.emit(FromWeb.Relocate(sessionId = "s-1", cfi = "y", fraction = 0.75, sectionIndex = 2, tocHref = "c2.xhtml", page = 3, pages = 4)); advanceUntilIdle()
+        assertNull(c.seekPreview.value)
+    }
+
+    /** Review fix 6: a seek the web side answers without a relocate (it stayed, no location) still ends the preview. */
+    @Test fun a_seek_preview_ends_on_its_seeked_even_without_a_relocate() = runTest(dispatcher) {
+        val c = controller()
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened().copy(sizes = listOf(1_000L, 1_000L, 2_000L))); advanceUntilIdle()
+        c.previewSeek(0.75); c.seek(0.75)
+        val sent = reader.sent.last() as ToWeb.GoToFraction
+        val id = assertNotNull(sent.id) // asks for `seeked`
+        assertNotNull(c.seekPreview.value)
+        reader.events.emit(FromWeb.Seeked(sessionId = "s-1", id = id + 100)); advanceUntilIdle()
+        assertNotNull(c.seekPreview.value) // another jump's answer
+        reader.events.emit(FromWeb.Seeked(sessionId = "s-1", id = id)); advanceUntilIdle()
+        assertNull(c.seekPreview.value)
+        // A new drag started before the last seek landed is the user's: that seek's answer does not end it.
+        c.previewSeek(0.3); c.seek(0.3)
+        val second = (reader.sent.last() as ToWeb.GoToFraction).id!!
+        assertTrue(second != id)
+        c.previewSeek(0.6)
+        reader.events.emit(FromWeb.Seeked(sessionId = "s-1", id = second)); advanceUntilIdle()
+        assertEquals(0.6, c.seekPreview.value?.fraction)
+        c.cancelSeek()
         assertNull(c.seekPreview.value)
     }
 

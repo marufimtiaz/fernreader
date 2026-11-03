@@ -152,8 +152,11 @@ class ReaderController(
         var sections = 0
         /** Section sizes from `opened`, for where a seek lands (C-073). */
         var sizes: List<Long> = emptyList()
-        /** A slider seek was sent: its preview stays until the next `relocate` (where it landed). */
-        var seekSent = false
+        /**
+         * Id of the slider seek sent while its preview shows: the preview stays until the next `relocate` (where it
+         * landed) or that seek's `seeked` (which also comes when there was no location to report). A new drag clears it.
+         */
+        var seekSent: Int? = null
         /** The book's page-progression-direction from `opened` ("ltr" | "rtl"). */
         var dir = "ltr"
         /** A fixed-layout book (`opened`): it has no book pages; Book pages shows its screen pages. */
@@ -411,22 +414,27 @@ class ReaderController(
     fun previewSeek(fraction: Double) {
         val s = session ?: return
         val f = fraction.coerceIn(0.0, 1.0)
-        val (section, inSection) = sectionAt(s.sizes, f) ?: run { _seekPreview.value = SeekPreview(f, null, PageIndicator(null, null, false, false)); return }
+        val (section, inSection) = sectionAt(s.sizes, f) ?: run { s.seekSent = null; _seekPreview.value = SeekPreview(f, null, PageIndicator(null, null, false, false)); return }
         val st = _state.value
         val entry = tocEntryAt(st.toc, section, inSection, st.currentTocHref.takeIf { s.at?.sectionIndex == section })
         val page = if (bookPagesShown) bookNumbers.previewAt(section, inSection) else totals.previewAt(section, inSection)
+        s.seekSent = null // a new drag: the preview is the user's, not a seek's waiting to land
         _seekPreview.value = SeekPreview(f, entry?.label?.trim()?.takeIf { it.isNotEmpty() }, page)
     }
 
     /** C-073: the drag ended without a seek: the bar shows the current position again. */
     fun cancelSeek() { _seekPreview.value = null }
 
-    /** F-034 seek slider: jump to [fraction] of the book. A preview (C-073) stays until the jump has landed. */
+    /**
+     * F-034 seek slider: jump to [fraction] of the book. A preview (C-073) stays until the jump has landed: its
+     * `relocate`, or its `seeked` (the command carries an id).
+     */
     fun seek(fraction: Double) {
         val s = session ?: return
-        s.seekSent = _seekPreview.value != null
+        val id = ++seeks
+        s.seekSent = id.takeIf { _seekPreview.value != null }
         probe.ev("seek_cmd", "$fraction")
-        reader.send(ToWeb.GoToFraction(fraction = fraction.coerceIn(0.0, 1.0)))
+        reader.send(ToWeb.GoToFraction(fraction = fraction.coerceIn(0.0, 1.0), id = id))
     }
 
     /** Releases a session that never became [session] (the open was cancelled); never throws. */
@@ -544,7 +552,7 @@ class ReaderController(
         return when {
             st.externalLink != null -> { cancelExternalLink(); true }
             // C-073: Back during a slider drag cancels it: the controls close (the slider with them), nothing seeks.
-            _seekPreview.value != null && s?.seekSent == false && st.chromeVisible -> { cancelSeek(); _state.update { it.copy(chromeVisible = false) }; true }
+            _seekPreview.value != null && s?.seekSent == null && st.chromeVisible -> { cancelSeek(); _state.update { it.copy(chromeVisible = false) }; true }
             // A selection first: Back never reaches the WebView (OnBackInvokedCallback), so it is dismissed here.
             s?.selection != null -> { s.selection = null; reader.send(ToWeb.ClearSelection()); true }
             st.highlightPicker != null -> { dismissHighlightPicker(); true }
@@ -1043,7 +1051,7 @@ class ReaderController(
                     publishBookmarks(s)
                     totals.onRelocate(m)
                     bookNumbers.onRelocate(m)
-                    if (s.seekSent) { s.seekSent = false; _seekPreview.value = null }
+                    if (s.seekSent != null) { s.seekSent = null; _seekPreview.value = null }
                 }
             }
             is FromWeb.PageBookmarks -> if (m.sessionId == s.id) { s.marks = m.cfis.toSet(); publishBookmarks(s) }
@@ -1057,7 +1065,10 @@ class ReaderController(
                 }
                 if (labels.isNotEmpty()) _state.update { it.copy(bookPageLabels = it.bookPageLabels + labels) }
             }
-            is FromWeb.Seeked -> if (m.sessionId == s.id && m.id == s.seek) { s.seek = null; probe.ev("seeked", "") }
+            is FromWeb.Seeked -> if (m.sessionId == s.id) {
+                if (m.id == s.seek) { s.seek = null; probe.ev("seeked", "") }
+                if (m.id == s.seekSent) { s.seekSent = null; _seekPreview.value = null } // landed without a relocate
+            }
             is FromWeb.Painted -> if (m.sessionId == s.id) {
                 probe.ev("painted", "")
                 if (!s.painted) { s.painted = true; probe.ev("painted_first", ""); _state.update { it.copy(loading = false) }; loadStats(s); watchAnnotations(s) }

@@ -310,6 +310,21 @@ describe('initial seek (I1) and goTo during open (C1, F-037)', () => {
     expect(sent.filter(m => m.type !== 'painted').at(-1)).toEqual({ v: 1, type: 'seeked', sessionId: 's1', id: 3 })
   })
 
+  it('a goToFraction with id (slider seek) answers seeked after its relocate; without id it does not', async () => {
+    open('s1', null); await settle()
+    const v = FakeView.all[0] as any
+    v.goToFraction = vi.fn(async (f: number) => { await tick(); v.relocateTo(`frac-${f}`) })
+    sent = []
+    send({ v: 1, type: 'goToFraction', fraction: 0.5 }); await settle()
+    expect(types()).not.toContain('seeked')
+    sent = []
+    send({ v: 1, type: 'goToFraction', fraction: 0.75, id: 4 }); await settle()
+    expect(v.goToFraction).toHaveBeenLastCalledWith(0.75)
+    const noPaint = sent.filter(m => m.type !== 'painted')
+    expect(noPaint.at(-2)).toMatchObject({ type: 'relocate', cfi: 'frac-0.75' })
+    expect(noPaint.at(-1)).toEqual({ v: 1, type: 'seeked', sessionId: 's1', id: 4 })
+  })
+
   it('a goTo queued for a book that was closed is dropped', async () => {
     let release!: () => void
     h.epubInit.mockImplementation(() => new Promise(r => { release = () => r(book()) }))

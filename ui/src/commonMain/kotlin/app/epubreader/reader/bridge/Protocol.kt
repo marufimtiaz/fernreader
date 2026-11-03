@@ -28,8 +28,11 @@ import kotlinx.serialization.json.Json
     ) : ToWeb
     /** Display settings, applied live (F-070..F-074, F-031); the flow is already resolved (AUTO → by orientation). */
     @Serializable @SerialName("setSettings") data class SetSettings(val v: Int = 1, val settings: WebSettings) : ToWeb
-    /** F-034 slider: seek to a fraction of the book (0..1). */
-    @Serializable @SerialName("goToFraction") data class GoToFraction(val v: Int = 1, val fraction: Double) : ToWeb
+    /** F-034 slider: seek to a fraction of the book (0..1). With [id], answered by [FromWeb.Seeked] as [GoTo] is. */
+    @OptIn(ExperimentalSerializationApi::class)
+    @Serializable @SerialName("goToFraction") data class GoToFraction(
+        val v: Int = 1, val fraction: Double, @EncodeDefault(EncodeDefault.Mode.NEVER) val id: Int? = null,
+    ) : ToWeb
     /**
      * F-050: jump to a search hit. [offset]/[length] index the section's text (virtual spine, already mapped), [needle] is
      * the hit's text; the web side verifies it there (or finds it nearby) and highlights it until the next jump.
@@ -119,7 +122,7 @@ import kotlinx.serialization.json.Json
     /** F-041: answer to [ToWeb.SetBookmarks] for the page now visible. */
     @Serializable @SerialName("pageBookmarks") data class PageBookmarks(val v: Int = 1, val sessionId: String, val cfis: List<String>) : FromWeb
     @Serializable @SerialName("painted") data class Painted(val v: Int = 1, val sessionId: String) : FromWeb
-    /** Sent after the `relocate` of a [ToWeb.GoTo] that carried an id. */
+    /** Sent after the `relocate` of a [ToWeb.GoTo] or [ToWeb.GoToFraction] that carried an id. */
     @Serializable @SerialName("seeked") data class Seeked(val v: Int = 1, val sessionId: String, val id: Int) : FromWeb
     /**
      * Page counts of one layout generation [gen] (F-034, P-021): [linear] (the counted sections, first message of a

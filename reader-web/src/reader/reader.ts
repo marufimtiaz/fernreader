@@ -340,7 +340,7 @@ export class Reader {
           this.continued = new Set(m.continued ?? [])
           void this.open(m.sessionId, m.position, m.texts.missingPart); break
         case 'setSettings': this.setSettings(m.settings); break
-        case 'goToFraction': this.enqueue({ kind: 'fraction', fraction: m.fraction }); break
+        case 'goToFraction': this.enqueue({ kind: 'fraction', fraction: m.fraction, id: m.id }); break
         case 'close': this.close(); break
         case 'next': this.turn('next'); break
         case 'prev': this.turn('prev'); break
@@ -520,7 +520,7 @@ export class Reader {
         this.seeking = false
         // One relocate where it landed (or, if the target did not resolve, where it stayed), then the answer.
         if (view.lastLocation) this.onRelocate(view, sessionId, view.lastLocation)
-        if (c.kind === 'goTo' && c.id != null) this.bridge.send({ v: 1, type: 'seeked', sessionId, id: c.id })
+        if ((c.kind === 'goTo' || c.kind === 'fraction') && c.id != null) this.bridge.send({ v: 1, type: 'seeked', sessionId, id: c.id })
         if (c.kind === 'text') {
           if (hit) { this.search = hit; this.drawSearch(view) }
           else this.bridge.send({ v: 1, type: 'error', sessionId, kind: 'hit_not_found', message: 'The search result was not found in the section text.' })
@@ -952,7 +952,7 @@ const MAX_TURNS = 3
  */
 const SEARCH_COLOR = '#ff9800'
 
-type Cmd = { kind: 'turn'; dir: 'next' | 'prev' } | { kind: 'goTo'; target: string; id?: number } | { kind: 'fraction'; fraction: number }
+type Cmd = { kind: 'turn'; dir: 'next' | 'prev' } | { kind: 'goTo'; target: string; id?: number } | { kind: 'fraction'; fraction: number; id?: number }
   | { kind: 'offset'; index: number; offset: number }
   | { kind: 'text'; index: number; offset: number; length: number; needle: string } | { kind: 'clearSearch' }
 
