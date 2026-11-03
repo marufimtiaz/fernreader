@@ -3,6 +3,7 @@ package app.epubreader.core.library
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -24,6 +25,12 @@ class ScanController(
     private val probe: (String, String) -> Unit = { _, _ -> },
     private val onBookAdded: (bookId: String) -> Unit = {},
     private val onComplete: () -> Unit = {},
+    /**
+     * P-002: a scan for a return to the foreground or a view coming into view starts this much later, so it doesn't
+     * compete with drawing the resumed screen's first frame (a hot start measured ~20 % slower with it right away).
+     * The app start scan (already after the first frame) and manual rescans start at once.
+     */
+    private val resumeDelayMs: Long = 0,
 ) {
     private val _state = MutableStateFlow(ScanState())
     val state: StateFlow<ScanState> = _state
@@ -32,19 +39,27 @@ class ScanController(
     @kotlin.concurrent.Volatile private var loudPending = false
     /** The app start scan was requested: the library's first composition must not scan before the first frame. */
     @kotlin.concurrent.Volatile private var started = false
+    /** The pending request came from a resume or a view change ([resumeDelayMs]). */
+    @kotlin.concurrent.Volatile private var deferPending = false
 
     init {
-        scope.launch { for (r in requests) runOnce() }
+        scope.launch {
+            for (r in requests) {
+                if (deferPending && !loudPending && resumeDelayMs > 0) delay(resumeDelayMs)
+                deferPending = false
+                runOnce()
+            }
+        }
     }
 
     fun onAccessGranted() = request(quiet = false)
     fun onAppStart() { started = true; request(quiet = true) }
     fun rescan() = request(quiet = false)
     /** Back from another app (recents, launcher), on any screen. */
-    fun onForeground() = request(quiet = true)
+    fun onForeground() { deferPending = true; request(quiet = true) }
     /** The library, a collection, the folder list or a folder came into view. */
     fun onViewShown() {
-        if (started) request(quiet = true)
+        if (started) { deferPending = true; request(quiet = true) }
     }
 
     private fun request(quiet: Boolean) {

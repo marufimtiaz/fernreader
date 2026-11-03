@@ -2,6 +2,7 @@ package app.epubreader.core.library
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -55,6 +56,25 @@ class ScanControllerTest {
         c.onForeground(); c.onViewShown()
         gate!!.complete(Unit); runCurrent()
         assertEquals(4, runs) // the walk may have passed the new folder already: one more scan, not none
+    }
+
+    /** P-002: resume and view scans start after [resumeDelayMs] (off the resumed screen's first frame); others at once. */
+    @Test fun resume_and_view_scans_wait_a_moment_app_start_and_rescan_do_not() = runTest {
+        val c = ScanController(::fakeScan, backgroundScope, access = { true }, resumeDelayMs = 300)
+        c.onAppStart(); runCurrent()
+        assertEquals(1, runs) // app start: at once
+        c.onForeground(); runCurrent()
+        assertEquals(1, runs)
+        advanceTimeBy(299); runCurrent()
+        assertEquals(1, runs)
+        advanceTimeBy(2); runCurrent()
+        assertEquals(2, runs) // after the delay
+        c.onViewShown(); runCurrent()
+        assertEquals(2, runs)
+        advanceTimeBy(301); runCurrent()
+        assertEquals(3, runs)
+        c.rescan(); runCurrent()
+        assertEquals(4, runs) // manual: at once
     }
 
     /** C-075: an automatic scan shows no progress unless it finds something; a manual rescan always does. */

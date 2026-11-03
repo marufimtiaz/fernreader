@@ -115,6 +115,7 @@ class AppGraph(app: Application) {
         scopeSetting = { settings.get(SettingsStore.LIBRARY_SCOPE)?.takeIf { it != "everywhere" }?.let { ScanScope.Folder(it) } ?: ScanScope.Everywhere },
         probe = { n, x -> Probe.ev(n, x) },
         onComplete = { covers.fillMissing() },
+        resumeDelayMs = 300, // P-002: off the resumed screen's first frame
     )
     /** F-090: a discovery folder from a backup is restored only if it exists on this device. */
     val backup = Backup(db, clock, folderExists = { java.io.File(it).isDirectory })
