@@ -156,6 +156,8 @@ class ReaderController(
         var seekSent = false
         /** The book's page-progression-direction from `opened` ("ltr" | "rtl"). */
         var dir = "ltr"
+        /** A fixed-layout book (`opened`): it has no book pages; Book pages shows its screen pages. */
+        var fixedLayout = false
         /**
          * Id of the resume jump sent after `opened` (same book, new source) until the web side answers `seeked`.
          * Relocates before that are where the book opened (its start), not where the reader is: not stored (R-009).
@@ -213,7 +215,10 @@ class ReaderController(
     private val bookNumbers = BookPageNumbers()
     /** C-083: the book page at the visible location (null page until the book's pages are known). */
     val bookPage: StateFlow<PageIndicator> = bookNumbers.state
-    /** C-083: the book's pages could not be computed (an unreadable book): Book pages falls back to screen pages. */
+    /**
+     * C-083: the book has no book pages (they could not be computed, or it is fixed-layout): Book pages falls back to
+     * screen pages.
+     */
     private val bookPagesMissing = MutableStateFlow(false)
     private var listRequests = 0
     /** Counted pages of a section in the current layout (diagnostics for the C-003 agreement test). */
@@ -225,6 +230,9 @@ class ReaderController(
     val shownPage: StateFlow<PageIndicator> = combine(_settings, totals.state, bookNumbers.state, bookPagesMissing) { set, screen, book, missing ->
         if (set.pageNumbers == PageNumbers.BOOK_PAGES && !missing) book else screen
     }.stateIn(scope, SharingStarted.Eagerly, PageIndicator(null, null, false, false))
+    /** C-083: Book pages are what the reader shows (the setting, and the book has them): go to page and the lists' book pages. */
+    val bookPagesInUse: StateFlow<Boolean> = combine(_settings, bookPagesMissing) { set, missing -> set.pageNumbers == PageNumbers.BOOK_PAGES && !missing }
+        .stateIn(scope, SharingStarted.Eagerly, false)
     private val bookPagesShown: Boolean get() = _settings.value.pageNumbers == PageNumbers.BOOK_PAGES && bookNumbers.pages != null
     /** F-050 search state for the open book (reset when another opens). */
     val searcher = ReaderSearch(
@@ -350,12 +358,13 @@ class ReaderController(
                     statsTried = true
                     stats = opener.sectionStats(s.id)?.also { library.storeCache(id, kind, s.cdDigest, BridgeJson.encodeToString(STATS, it)) }
                 }
-                val shared = s.map === PositionMap.Identity // the pages pass can give the stats
+                val shared = s.map === PositionMap.Identity && !s.fixedLayout // the pages pass can give the stats
                 if (stats == null && !shared) ownStats()
                 if (statsTried) publish(stats)
                 if (session !== s) return@launch
-                // C-083: the book pages, stored with the book once computed.
-                val pages = try {
+                // C-083: the book pages, stored with the book once computed. A fixed-layout book has none (a comic
+                // would be about one virtual page): Book pages shows its screen pages, as for a book without pages.
+                val pages = if (s.fixedLayout) null else try {
                     library.bookPages(id, s.cdDigest) ?: opener.bookPages(s.id, withStats = !statsTried)?.let { r ->
                         if (!statsTried && r.stats != null) {
                             statsTried = true
@@ -374,7 +383,7 @@ class ReaderController(
                 if (session !== s) return@launch
                 bookNumbers.setPages(pages, s.map)
                 bookPagesMissing.value = pages == null
-                probe.ev("book_pages_ready", pages?.let { "${it.source} ${it.count}" } ?: "none")
+                probe.ev("book_pages_ready", pages?.let { "${it.source} ${it.count}" } ?: if (s.fixedLayout) "none fixed-layout" else "none")
                 requestListPages(s)
                 if (!statsTried) {
                     ownStats()
@@ -1014,6 +1023,8 @@ class ReaderController(
                 s.sections = m.sections
                 s.sizes = m.sizes
                 s.dir = m.dir
+                s.fixedLayout = m.fixedLayout
+                if (m.fixedLayout) bookPagesMissing.value = true
                 _state.update { it.copy(title = m.title, authors = m.authors, toc = m.toc) }
                 watchBookmarks(s, rec.bookId)
                 watchAnnotations(s) // only if the first page was already painted

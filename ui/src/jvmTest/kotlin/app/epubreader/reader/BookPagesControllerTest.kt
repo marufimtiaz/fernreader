@@ -94,7 +94,8 @@ class BookPagesControllerTest {
     )
     private fun relocate(section: Int, start: Int, end: Int = start + 700) =
         FromWeb.Relocate(sessionId = "s-1", cfi = "c$section:$start", fraction = 0.2, sectionIndex = section, textOffset = start, textEnd = end)
-    private fun opened() = FromWeb.Opened(sessionId = "s-1", identifier = "urn:x", title = "A", authors = emptyList(), dir = "ltr", fixedLayout = false, sections = 3, toc = emptyList(), sizes = listOf(3000, 0, 500))
+    private var fixedLayout = false
+    private fun opened() = FromWeb.Opened(sessionId = "s-1", identifier = "urn:x", title = "A", authors = emptyList(), dir = "ltr", fixedLayout = fixedLayout, sections = 3, toc = emptyList(), sizes = listOf(3000, 0, 500))
 
     private suspend fun kotlinx.coroutines.test.TestScope.openPainted(c: ReaderController) {
         c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
@@ -194,5 +195,37 @@ class BookPagesControllerTest {
         opener.gate!!.complete(Unit); advanceUntilIdle()
         assertEquals("ii", c.shownPage.value.label)
         assertEquals(listOf("stats", "pages"), opener.calls)
+    }
+
+    /**
+     * Review fix 2 (gatekeeper question in M9.md): a fixed-layout book (a comic: about one virtual page of text) shows
+     * screen pages under Book pages, in the indicator, the slider preview and the lists; go to page is not offered.
+     */
+    @Test fun a_fixed_layout_book_shows_screen_pages_under_book_pages() = runTest(dispatcher) {
+        fixedLayout = true
+        val c = controller()
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
+        reader.events.emit(relocate(0, 0)); advanceUntilIdle()
+        assertEquals(PageNumbers.BOOK_PAGES, c.settings.value.pageNumbers)
+        assertEquals(c.page.value, c.shownPage.value) // screen pages from the start, not an empty Book pages indicator
+        reader.events.emit(FromWeb.Painted(sessionId = "s-1")); advanceUntilIdle()
+        assertEquals(0, opener.pagesCalls) // no pages pass at all
+        assertEquals(1, opener.statsCalls) // the screen-page estimate still gets its stats
+        assertNotNull(c.sectionStats)
+        assertEquals(c.page.value, c.shownPage.value)
+        assertNull(c.bookPage.value.page)
+        c.previewSeek(0.5)
+        val preview = c.seekPreview.value!!.page
+        c.cancelSeek()
+        c.updateSettings { it.copy(pageNumbers = PageNumbers.SCREEN_BOOK) }; advanceUntilIdle()
+        c.previewSeek(0.5)
+        assertEquals(c.seekPreview.value!!.page, preview) // the slider preview of the screen modes
+        c.cancelSeek()
+        c.updateSettings { it.copy(pageNumbers = PageNumbers.BOOK_PAGES) }; advanceUntilIdle()
+        assertNull(c.searchHitPage(0, 10))
+        assertTrue(reader.sent.filterIsInstance<ToWeb.TextOffsets>().isEmpty()) // lists keep their screen-mode text
+        assertFalse(c.bookPagesInUse.value) // the screen offers no go to page and the lists no book pages
+        c.showGoToPage(); assertFalse(c.state.value.goToPageVisible)
+        assertFalse(c.goToPage("1"))
     }
 }

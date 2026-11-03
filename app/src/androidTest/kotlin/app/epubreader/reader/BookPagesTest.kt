@@ -28,10 +28,12 @@ import app.epubreader.reader.bridge.FromWeb
 import app.epubreader.reader.bridge.ToWeb
 import app.epubreader.ui.Copy
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -217,6 +219,46 @@ class BookPagesTest {
                 // The number held after landing: the chunked screen, mapped to the original, holds the page's start
                 // (BookPageNumbers drops the go-to pin otherwise, and the screen's first character is on the page before).
             } finally { graph.opener.policy = ChunkPolicy(); h.stop() }
+        }
+    }
+
+    /**
+     * Review fix 2: a fixed-layout book (page-blanche, a picture book: about one virtual page of text) shows its screen
+     * pages under Book pages (the default); the bottom bar's label is no "Go to page" entry and go to page is refused.
+     */
+    @Test fun a_fixed_layout_book_shows_screen_pages(): Unit = runBlocking {
+        warAndPeace() // grants all-files access
+        val f = File("/sdcard/Books/epub3-samples/page-blanche.epub").also { check(it.isFile) { "corpus not pushed: $it" } }
+        ActivityScenario.launch(MainActivity::class.java).use { sc ->
+            val h = ReaderHarness(sc, this)
+            val c = h.a.controller
+            try {
+                h.ready()
+                sc.onActivity { it.controller.updateSettings { ReaderSettings() } } // Book pages is the default
+                h.drain()
+                sc.onActivity { it.openBook(SourceRef.File(f.path)) }
+                h.relocate(30_000); h.painted(30_000)
+                withTimeout(20_000) { c.state.first { !it.loading } }
+                assertFalse(c.bookPagesInUse.value) // known from `opened`, before the first page's pages step
+                delay(3_000) // the stats and pages step after the first paint has run: still screen pages
+                val (screen, shown) = withTimeout(20_000) { combine(c.page, c.shownPage) { a, b -> a to b }.first { (a, b) -> a == b } }
+                Log.i("EPR", "fixed layout: screen $screen shown $shown book ${c.bookPage.value} stats ${c.sectionStats?.size}")
+                assertFalse(c.bookPagesInUse.value)
+                assertNull(c.bookPage.value.page)
+                assertNotNull("screen-page stats", c.sectionStats)
+                sc.onActivity { it.controller.toggleChrome() }
+                clearCache()
+                assertTrue(dev.wait(Until.hasObject(By.desc(Copy.seek)), 5_000))
+                assertFalse("no go-to entry on a fixed-layout book", dev.hasObject(By.descContains(Copy.goToPage)))
+                Copy.pageLabel(c.shownPage.value)?.let { text ->
+                    val label = dev.wait(Until.findObject(By.text(text)), 5_000)
+                    assertNotNull("page label $text", label)
+                    assertFalse("the label is not a button", label.isClickable)
+                }
+                var ok = true
+                sc.onActivity { ok = it.controller.goToPage("1") }
+                assertFalse(ok)
+            } finally { h.stop() }
         }
     }
 }
