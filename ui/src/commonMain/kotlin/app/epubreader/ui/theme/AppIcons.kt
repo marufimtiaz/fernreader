@@ -87,6 +87,8 @@ object AppIcons {
     val Info: ImageVector get() = Icons.Filled.Info
     val Expand: ImageVector get() = Icons.Filled.ChevronRight
     val Collapse: ImageVector get() = Icons.Filled.ExpandMore
+    /** C-083: the bottom bar's page label opens "Go to page" (a picker, so the dropdown mark). */
+    val GoToPage: ImageVector get() = Icons.Filled.ExpandMore
     val Check: ImageVector get() = Icons.Filled.Check
 
     // Menus

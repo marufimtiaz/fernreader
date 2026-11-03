@@ -148,8 +148,15 @@ class BookPagesTest {
                 // The controls' page label opens "Go to page".
                 sc.onActivity { it.controller.toggleChrome() }
                 clearCache()
-                val label = dev.wait(Until.findObject(By.text("Page i of 6").clickable(true)), 5_000)
-                assertNotNull("page label in the bottom bar", label)
+                // Review fix 3 (C-086): a 48 dp button found by its accessible name, the label text shown in it.
+                val label = dev.wait(Until.findObject(By.desc(Copy.goToPageEntry("Page i of 6"))), 5_000)
+                assertNotNull("Go to page button in the bottom bar", label)
+                // The accessibility tree exposes the clickable 48 dp node and its description as parent and child.
+                val button = if (label.isClickable) label else label.parent
+                assertTrue("a button", button?.isClickable == true)
+                val minPx = 48 * inst.targetContext.resources.displayMetrics.density - 1
+                assertTrue("48 dp target: ${button!!.visibleBounds}", button.visibleBounds.height() >= minPx && button.visibleBounds.width() >= minPx)
+                assertTrue("label text kept", dev.findObjects(By.text("Page i of 6")).any { button.visibleBounds.contains(it.visibleBounds) })
                 label.click()
                 assertTrue("dialog", dev.wait(Until.hasObject(By.text(Copy.goToPage)), 5_000))
                 assertTrue("range shown", dev.hasObject(By.text(Copy.pageRange("i", "vi"))))
