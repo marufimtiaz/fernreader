@@ -9,7 +9,9 @@ regression rule, no jank/frame-time groups.
 - Never per build. For that use `tools/smoke.sh`.
 
 ## Prerequisites
-- Emulator `Medium_Phone` running (serial `emulator-5554`).
+- Emulator `Medium_Phone` running (serial `emulator-5554`), started with **`bench/emulator.sh`** (`-gpu host`; it fails if the
+  emulator fell back to software rendering: `-gpu auto` picked `lavapipe` after a host reboot, M9 part B). Check a running
+  one with `bench/emulator.sh check` before every benchmark.
 - Device tool: `device_open` then `export AD=...` (groups that tap/type need it; `start` does not).
 - Benchmark APK installed: `./gradlew :app:installPlayBenchmark`.
 - Corpus pushed: `bench/push_corpus.sh`.
