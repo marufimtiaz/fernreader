@@ -23,13 +23,22 @@ android {
     val signingProp = { name: String ->
         providers.gradleProperty("fernreader.signing.$name").orElse(providers.environmentVariable("FERNREADER_SIGNING_" + name.uppercase())).orNull
     }
-    val releaseKeystore = signingProp("storeFile")
+    // Some but not all four set is a mistake (a typo, a missing variable): fail here, not with an unsigned or half-signed release.
+    val signing = listOf("storeFile", "storePassword", "keyAlias", "keyPassword").associateWith(signingProp)
+    val missingSigning = signing.filterValues { it == null }.keys
+    if (missingSigning.size in 1..3) {
+        throw GradleException(
+            "Release signing is half configured: set all four fernreader.signing.* properties or none. Missing: " +
+                missingSigning.joinToString { "fernreader.signing.$it (FERNREADER_SIGNING_${it.uppercase()})" },
+        )
+    }
+    val releaseKeystore = signing["storeFile"]
     if (releaseKeystore != null) {
         signingConfigs.create("release") {
             storeFile = file(releaseKeystore)
-            storePassword = signingProp("storePassword")
-            keyAlias = signingProp("keyAlias")
-            keyPassword = signingProp("keyPassword")
+            storePassword = signing["storePassword"]
+            keyAlias = signing["keyAlias"]
+            keyPassword = signing["keyPassword"]
         }
     }
     flavorDimensions += "distribution"

@@ -152,10 +152,15 @@ class ReaderController(
         var sections = 0
         /** Section sizes from `opened`, for where a seek lands (C-073). */
         var sizes: List<Long> = emptyList()
-        /** A slider seek was sent: its preview stays until the next `relocate` (where it landed). */
-        var seekSent = false
+        /**
+         * Id of the slider seek sent while its preview shows: the preview stays until the next `relocate` (where it
+         * landed) or that seek's `seeked` (which also comes when there was no location to report). A new drag clears it.
+         */
+        var seekSent: Int? = null
         /** The book's page-progression-direction from `opened` ("ltr" | "rtl"). */
         var dir = "ltr"
+        /** A fixed-layout book (`opened`): it has no book pages; Book pages shows its screen pages. */
+        var fixedLayout = false
         /**
          * Id of the resume jump sent after `opened` (same book, new source) until the web side answers `seeked`.
          * Relocates before that are where the book opened (its start), not where the reader is: not stored (R-009).
@@ -213,7 +218,10 @@ class ReaderController(
     private val bookNumbers = BookPageNumbers()
     /** C-083: the book page at the visible location (null page until the book's pages are known). */
     val bookPage: StateFlow<PageIndicator> = bookNumbers.state
-    /** C-083: the book's pages could not be computed (an unreadable book): Book pages falls back to screen pages. */
+    /**
+     * C-083: the book has no book pages (they could not be computed, or it is fixed-layout): Book pages falls back to
+     * screen pages.
+     */
     private val bookPagesMissing = MutableStateFlow(false)
     private var listRequests = 0
     /** Counted pages of a section in the current layout (diagnostics for the C-003 agreement test). */
@@ -225,6 +233,9 @@ class ReaderController(
     val shownPage: StateFlow<PageIndicator> = combine(_settings, totals.state, bookNumbers.state, bookPagesMissing) { set, screen, book, missing ->
         if (set.pageNumbers == PageNumbers.BOOK_PAGES && !missing) book else screen
     }.stateIn(scope, SharingStarted.Eagerly, PageIndicator(null, null, false, false))
+    /** C-083: Book pages are what the reader shows (the setting, and the book has them): go to page and the lists' book pages. */
+    val bookPagesInUse: StateFlow<Boolean> = combine(_settings, bookPagesMissing) { set, missing -> set.pageNumbers == PageNumbers.BOOK_PAGES && !missing }
+        .stateIn(scope, SharingStarted.Eagerly, false)
     private val bookPagesShown: Boolean get() = _settings.value.pageNumbers == PageNumbers.BOOK_PAGES && bookNumbers.pages != null
     /** F-050 search state for the open book (reset when another opens). */
     val searcher = ReaderSearch(
@@ -326,21 +337,43 @@ class ReaderController(
 
     /**
      * Per-section text sizes for the page estimate, after the first page is on screen (never delays it): from the
-     * book cache for this file version, else extracted on the opener's I/O thread and cached.
+     * book cache for this file version, else extracted on the opener's I/O thread and cached. Then the C-083 book pages.
+     * Stats never wait for the pages pass: cached ones are published first; a chunked book (M8) gets its own (its
+     * parts) before the pages pass over the original document, one pass at a time (both at once would hold the huge
+     * document's text twice, the memory pressure C-003 met); only an unchunked book's first open takes them from the
+     * pages pass, which reads the book once for both.
      */
     private fun loadStats(s: Session) {
         scope.launch {
             val id = s.bookId ?: return@launch
             try {
                 val kind = statsKind(s.map)
+                val publish: (List<SectionStat>?) -> Unit = { st ->
+                    if (session === s) {
+                        s.stats = st
+                        probe.ev("stats_ready", "${st?.size}")
+                        onStats(s)
+                    }
+                }
                 var stats = library.cached(id, kind, s.cdDigest)?.let { runCatching { BridgeJson.decodeFromString(STATS, it) }.getOrNull() }
-                // C-083: the book pages, stored with the book once computed; the computing pass also gives the section
-                // stats of an unchunked book, so a first open reads the book once for both.
-                val pages = try {
-                    library.bookPages(id, s.cdDigest) ?: opener.bookPages(s.id, withStats = stats == null)?.let { r ->
-                        if (stats == null && r.stats != null && s.map === PositionMap.Identity) {
+                var statsTried = stats != null
+                suspend fun ownStats() {
+                    statsTried = true
+                    stats = opener.sectionStats(s.id)?.also { library.storeCache(id, kind, s.cdDigest, BridgeJson.encodeToString(STATS, it)) }
+                }
+                val shared = s.map === PositionMap.Identity && !s.fixedLayout // the pages pass can give the stats
+                if (stats == null && !shared) ownStats()
+                if (statsTried) publish(stats)
+                if (session !== s) return@launch
+                // C-083: the book pages, stored with the book once computed. A fixed-layout book has none (a comic
+                // would be about one virtual page): Book pages shows its screen pages, as for a book without pages.
+                val pages = if (s.fixedLayout) null else try {
+                    library.bookPages(id, s.cdDigest) ?: opener.bookPages(s.id, withStats = !statsTried)?.let { r ->
+                        if (!statsTried && r.stats != null) {
+                            statsTried = true
                             stats = r.stats
                             library.storeCache(id, kind, s.cdDigest, BridgeJson.encodeToString(STATS, r.stats))
+                            publish(stats)
                         }
                         library.storeBookPages(id, s.cdDigest, r.pages)
                         r.pages
@@ -353,13 +386,12 @@ class ReaderController(
                 if (session !== s) return@launch
                 bookNumbers.setPages(pages, s.map)
                 bookPagesMissing.value = pages == null
-                probe.ev("book_pages_ready", pages?.let { "${it.source} ${it.count}" } ?: "none")
+                probe.ev("book_pages_ready", pages?.let { "${it.source} ${it.count}" } ?: if (s.fixedLayout) "none fixed-layout" else "none")
                 requestListPages(s)
-                if (stats == null) stats = opener.sectionStats(s.id)?.also { library.storeCache(id, kind, s.cdDigest, BridgeJson.encodeToString(STATS, it)) }
-                if (session !== s) return@launch
-                s.stats = stats
-                probe.ev("stats_ready", "${stats?.size}")
-                onStats(s)
+                if (!statsTried) {
+                    ownStats()
+                    publish(stats)
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -382,22 +414,27 @@ class ReaderController(
     fun previewSeek(fraction: Double) {
         val s = session ?: return
         val f = fraction.coerceIn(0.0, 1.0)
-        val (section, inSection) = sectionAt(s.sizes, f) ?: run { _seekPreview.value = SeekPreview(f, null, PageIndicator(null, null, false, false)); return }
+        val (section, inSection) = sectionAt(s.sizes, f) ?: run { s.seekSent = null; _seekPreview.value = SeekPreview(f, null, PageIndicator(null, null, false, false)); return }
         val st = _state.value
         val entry = tocEntryAt(st.toc, section, inSection, st.currentTocHref.takeIf { s.at?.sectionIndex == section })
         val page = if (bookPagesShown) bookNumbers.previewAt(section, inSection) else totals.previewAt(section, inSection)
+        s.seekSent = null // a new drag: the preview is the user's, not a seek's waiting to land
         _seekPreview.value = SeekPreview(f, entry?.label?.trim()?.takeIf { it.isNotEmpty() }, page)
     }
 
     /** C-073: the drag ended without a seek: the bar shows the current position again. */
     fun cancelSeek() { _seekPreview.value = null }
 
-    /** F-034 seek slider: jump to [fraction] of the book. A preview (C-073) stays until the jump has landed. */
+    /**
+     * F-034 seek slider: jump to [fraction] of the book. A preview (C-073) stays until the jump has landed: its
+     * `relocate`, or its `seeked` (the command carries an id).
+     */
     fun seek(fraction: Double) {
         val s = session ?: return
-        s.seekSent = _seekPreview.value != null
+        val id = ++seeks
+        s.seekSent = id.takeIf { _seekPreview.value != null }
         probe.ev("seek_cmd", "$fraction")
-        reader.send(ToWeb.GoToFraction(fraction = fraction.coerceIn(0.0, 1.0)))
+        reader.send(ToWeb.GoToFraction(fraction = fraction.coerceIn(0.0, 1.0), id = id))
     }
 
     /** Releases a session that never became [session] (the open was cancelled); never throws. */
@@ -515,7 +552,7 @@ class ReaderController(
         return when {
             st.externalLink != null -> { cancelExternalLink(); true }
             // C-073: Back during a slider drag cancels it: the controls close (the slider with them), nothing seeks.
-            _seekPreview.value != null && s?.seekSent == false && st.chromeVisible -> { cancelSeek(); _state.update { it.copy(chromeVisible = false) }; true }
+            _seekPreview.value != null && s?.seekSent == null && st.chromeVisible -> { cancelSeek(); _state.update { it.copy(chromeVisible = false) }; true }
             // A selection first: Back never reaches the WebView (OnBackInvokedCallback), so it is dismissed here.
             s?.selection != null -> { s.selection = null; reader.send(ToWeb.ClearSelection()); true }
             st.highlightPicker != null -> { dismissHighlightPicker(); true }
@@ -994,6 +1031,8 @@ class ReaderController(
                 s.sections = m.sections
                 s.sizes = m.sizes
                 s.dir = m.dir
+                s.fixedLayout = m.fixedLayout
+                if (m.fixedLayout) bookPagesMissing.value = true
                 _state.update { it.copy(title = m.title, authors = m.authors, toc = m.toc) }
                 watchBookmarks(s, rec.bookId)
                 watchAnnotations(s) // only if the first page was already painted
@@ -1012,7 +1051,7 @@ class ReaderController(
                     publishBookmarks(s)
                     totals.onRelocate(m)
                     bookNumbers.onRelocate(m)
-                    if (s.seekSent) { s.seekSent = false; _seekPreview.value = null }
+                    if (s.seekSent != null) { s.seekSent = null; _seekPreview.value = null }
                 }
             }
             is FromWeb.PageBookmarks -> if (m.sessionId == s.id) { s.marks = m.cfis.toSet(); publishBookmarks(s) }
@@ -1026,7 +1065,10 @@ class ReaderController(
                 }
                 if (labels.isNotEmpty()) _state.update { it.copy(bookPageLabels = it.bookPageLabels + labels) }
             }
-            is FromWeb.Seeked -> if (m.sessionId == s.id && m.id == s.seek) { s.seek = null; probe.ev("seeked", "") }
+            is FromWeb.Seeked -> if (m.sessionId == s.id) {
+                if (m.id == s.seek) { s.seek = null; probe.ev("seeked", "") }
+                if (m.id == s.seekSent) { s.seekSent = null; _seekPreview.value = null } // landed without a relocate
+            }
             is FromWeb.Painted -> if (m.sessionId == s.id) {
                 probe.ev("painted", "")
                 if (!s.painted) { s.painted = true; probe.ev("painted_first", ""); _state.update { it.copy(loading = false) }; loadStats(s); watchAnnotations(s) }

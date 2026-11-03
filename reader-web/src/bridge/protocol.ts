@@ -14,7 +14,7 @@ export type ToWeb =
   | { v: 1; type: 'prev' }
   | { v: 1; type: 'goTo'; target: string; id?: number }
   | { v: 1; type: 'setSettings'; settings: WebSettings }
-  | { v: 1; type: 'goToFraction'; fraction: number }
+  | { v: 1; type: 'goToFraction'; fraction: number; id?: number }
   /** Search hit (F-050): [needle] is the hit text; the web side finds it near [offset] in the section's text. */
   | { v: 1; type: 'goToText'; sectionIndex: number; offset: number; length: number; needle: string }
   | { v: 1; type: 'clearSearchHighlight' }

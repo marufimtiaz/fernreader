@@ -53,8 +53,10 @@ class ControlsTitleSeekPreviewTest {
         return dev.findObjects(By.text(text)).firstOrNull { val b = it.visibleBounds; b.bottom <= slider.top + 4 && b.top >= slider.top - slider.height() * 3 }
     }
 
-    private fun texts(): String = dev.findObjects(By.textContains("")).filter { it.visibleBounds.top > dev.displayHeight * 3 / 4 }
-        .joinToString { "'${it.text}' ${it.visibleBounds}" }
+    /** Diagnostics only: texts in the bottom quarter (a node that went away meanwhile is skipped, never a failure). */
+    private fun texts(): String = dev.findObjects(By.textContains("")).mapNotNull { o ->
+        runCatching { o.visibleBounds.takeIf { it.top > dev.displayHeight * 3 / 4 }?.let { "'${o.text}' $it" } }.getOrNull()
+    }.joinToString()
 
     /** A finger held on the screen after [pressAndMove]; [lift] ends the gesture (once). */
     private inner class Held(val down: Long, var x: Int, val y: Int) {
@@ -110,7 +112,7 @@ class ControlsTitleSeekPreviewTest {
                     val target = checkNotNull(p.chapter) { "no chapter for ${p.fraction}" }
                     assertTrue("a contents entry's title", c.state.value.toc.any { it.label.trim() == target })
                     assertNotEquals("the label changes from where the reader is", current, target)
-                    assertNotNull("target chapter '$target' shown mid-drag; on screen: ${texts()}", inRow(target, slider))
+                    inRow(target, slider) ?: throw AssertionError("target chapter '$target' shown mid-drag; on screen: ${texts()}")
                     Copy.pageLabel(p.page)?.let { assertNotNull("target page '$it' shown mid-drag", inRow(it, slider)) }
                     h.drain(); assertEquals("the page did not move before release", before!!.sectionIndex, h.at!!.sectionIndex)
                     assertEquals(startFraction, c.state.value.fraction, 0.005)

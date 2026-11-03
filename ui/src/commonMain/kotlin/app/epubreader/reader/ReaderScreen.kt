@@ -67,7 +67,7 @@ fun ReaderScreen(
     val s by c.state.collectAsState()
     val settings by c.settings.collectAsState()
     val page by c.shownPage.collectAsState() // C-083: book or screen pages, as the setting says
-    val bookPages = settings.pageNumbers == app.epubreader.core.data.PageNumbers.BOOK_PAGES
+    val bookPages by c.bookPagesInUse.collectAsState() // the setting, unless the book has none (fixed-layout, unreadable)
     val preview by c.seekPreview.collectAsState()
     var bookInfo by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { withFrameNanos { }; probe.ev("reader_frame", "") }

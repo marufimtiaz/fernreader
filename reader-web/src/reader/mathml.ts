@@ -1,5 +1,10 @@
 const MATHML = 'http://www.w3.org/1998/Math/MathML'
 const KEEP = ['id', 'class', 'style', 'dir', 'mathcolor', 'mathbackground', 'displaystyle', 'scriptlevel']
+/**
+ * Marks the `<mo>` fences and separators the polyfill adds: they are not book text (the app's canonical text has none,
+ * `<mfenced>` keeps them in attributes), so the text walk behind search hits and book pages skips them (C-083).
+ */
+export const POLYFILL_ATTR = 'data-epr-polyfill'
 
 /**
  * F-083: MathML Core engines (Chromium, the WebView) do not render `<mfenced>` (deprecated in MathML 3, absent from
@@ -18,6 +23,7 @@ export function polyfillMfenced(doc: Document): number {
       const o = doc.createElementNS(MATHML, 'mo')
       o.textContent = text
       o.setAttribute(fence ? 'fence' : 'separator', 'true')
+      o.setAttribute(POLYFILL_ATTR, '')
       return o
     }
     const row = doc.createElementNS(MATHML, 'mrow')

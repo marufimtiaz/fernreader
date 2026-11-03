@@ -54,6 +54,7 @@ class ProtocolFixtureTest {
             "back" to ToWeb.Back(), "closeFootnote" to ToWeb.CloseFootnote(),
             "setBookmarks" to ToWeb.SetBookmarks(sessionId = "s-1", cfis = listOf("epubcfi(/6/4!/4/2/1:10)", "epubcfi(/6/8!/4/6/1:0)")),
             "goToFraction" to ToWeb.GoToFraction(fraction = 0.25),
+            "goToFractionSeek" to ToWeb.GoToFraction(fraction = 0.25, id = 2),
             "addAnnotation" to ToWeb.AddAnnotation(sessionId = "s-1", id = "a-1", cfi = "epubcfi(/6/4!/4/2,/1:4,/1:9)", color = "yellow", style = "highlight"),
             "clearSelection" to ToWeb.ClearSelection(),
             "setAnnotations" to ToWeb.SetAnnotations(sessionId = "s-1", items = listOf(

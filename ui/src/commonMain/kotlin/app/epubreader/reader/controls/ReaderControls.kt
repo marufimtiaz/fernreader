@@ -1,14 +1,20 @@
 package app.epubreader.reader.controls
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
@@ -90,6 +96,30 @@ fun BookInfoDialog(title: String, authors: List<String>, onDismiss: () -> Unit) 
 }
 
 /**
+ * C-083/C-086: the page label as the "Go to page" entry: a 48 dp target (ripple, button role, an accessible name that
+ * keeps the page shown) around a tonal chip with the label and a dropdown mark, so it reads as tappable.
+ */
+@Composable
+private fun GoToPageButton(pageLabel: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val entry = Copy.goToPageEntry(pageLabel)
+    Box(
+        modifier.heightIn(min = 48.dp).widthIn(min = 48.dp).clip(RoundedCornerShape(24.dp))
+            .clickable(role = Role.Button, onClickLabel = Copy.goToPage, onClick = onClick)
+            .semantics { contentDescription = entry }
+            .padding(horizontal = 4.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(
+            Modifier.background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(16.dp)).padding(start = 10.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(pageLabel, maxLines = 1, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSecondaryContainer)
+            Icon(AppIcons.GoToPage, contentDescription = null, Modifier.padding(start = 2.dp).size(18.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
+        }
+    }
+}
+
+/**
  * Bottom half: the chapter (start) and page label (end) on one row, the seek slider, display and reader settings.
  * While the slider is dragged, [chapter] and [pageLabel] are the target's (C-073: the caller passes the preview).
  */
@@ -109,13 +139,13 @@ fun ReaderBottomBar(
         shadowElevation = 4.dp,
     ) {
         Column(Modifier.navigationBarsPadding().padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 4.dp)) {
-            Row(Modifier.padding(end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            // 48 dp tall whether or not the page label is the Go to page button (no jump when a drag's preview replaces it).
+            Row(Modifier.padding(end = 12.dp).heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(chapter ?: "", maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge,
                     modifier = Modifier.weight(1f))
-                Text(pageLabel ?: "", maxLines = 1, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 12.dp).then(
-                        if (onPageLabel != null) Modifier.clickable(onClickLabel = Copy.goToPage, onClick = onPageLabel) else Modifier,
-                    ))
+                if (onPageLabel != null && pageLabel != null) GoToPageButton(pageLabel, onPageLabel, Modifier.padding(start = 4.dp))
+                else Text(pageLabel ?: "", maxLines = 1, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 12.dp))
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 val shown = drag ?: fraction.toFloat()

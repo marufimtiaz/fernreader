@@ -388,6 +388,8 @@ object Copy {
     /** A book page in the bookmark, highlight and search lists ("xii" as printed, or a number). */
     fun bookPage(label: String) = "Page $label"
     const val goToPage = "Go to page"
+    /** The bottom bar's page label as a "Go to page" button (its accessible name keeps the page shown). */
+    fun goToPageEntry(pageLabel: String) = "$pageLabel. $goToPage"
     const val goToPageAction = "Go"
     const val pageField = "Page"
     /** Which pages exist, under the field: "i to 350" (first and last label). */

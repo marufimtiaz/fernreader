@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { polyfillMfenced } from '../src/reader/mathml'
+import { POLYFILL_ATTR, polyfillMfenced } from '../src/reader/mathml'
+import { resolveTextRange, textNodes, textOffsetOf } from '../src/reader/textpos'
 
 const M = 'http://www.w3.org/1998/Math/MathML'
 const xhtml = (math: string) => new DOMParser().parseFromString(
@@ -35,5 +36,25 @@ describe('polyfillMfenced: <mfenced> becomes an <mrow> with <mo> fences (MathML 
   it('a document without MathML is untouched', () => {
     const doc = new DOMParser().parseFromString('<html><body><p>x</p></body></html>', 'text/html')
     expect(polyfillMfenced(doc)).toBe(0)
+  })
+})
+
+// Review fix 7 (C-083): the fences the polyfill adds are not book text, so book-page and search offsets (indexed on the
+// canonical text, which has no fence characters) do not drift by one or more characters after each <mfenced>.
+describe('polyfillMfenced and text offsets', () => {
+  it('text after rewritten mfenced keeps its canonical offset; search still resolves it', () => {
+    const doc = new DOMParser().parseFromString(
+      `<html xmlns="http://www.w3.org/1999/xhtml"><body><p>Before <math xmlns="${M}"><mfenced><mi>a</mi><mi>b</mi></mfenced></math>`
+      + ` middle <math xmlns="${M}"><mfenced open="[" close="]" separators=";"><mi>c</mi><mi>d</mi></mfenced></math> after the end.</p></body></html>`,
+      'application/xhtml+xml')
+    const canonical = textNodes(doc).map(n => n.data).join('') // before the polyfill: what the app's extractor sees
+    expect(canonical).toBe('Before ab middle cd after the end.')
+    expect(polyfillMfenced(doc)).toBe(2)
+    expect(doc.body.textContent).toContain('(a,b)') // the fences are drawn
+    const after = textNodes(doc).find(n => n.data.includes('after the end'))!
+    expect(textOffsetOf(doc, after, 1)).toBe(canonical.indexOf('after the end'))
+    expect(resolveTextRange(doc, canonical.indexOf('after'), 5, 'after')?.toString()).toBe('after')
+    expect(textNodes(doc).map(n => n.data).join('')).toBe(canonical)
+    for (const mo of doc.getElementsByTagNameNS(M, 'mo')) expect(mo.hasAttribute(POLYFILL_ATTR)).toBe(true)
   })
 })

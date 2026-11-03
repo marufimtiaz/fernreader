@@ -33,6 +33,7 @@ current session.
 | app to web | `setSettings` | `settings {fontScale, fontFamily, lineHeight, marginPercent, align: publisher\|start\|justify, theme: light\|dark\|black\|warm, flow: paginated\|scrolled, swipeDirection: auto\|ltr\|rtl, pageAnimation: slide\|none, chapters: continuous\|one-at-a-time}` (M4; AUTO flow already resolved by the app; `swipeDirection`/`pageAnimation` M6, optional, default auto/slide; `auto` = the book's page-progression-direction, resolved on the web side so `open` already uses it; `chapters` C-085, optional, default continuous, used in scrolled flow only: one-at-a-time stops at each chapter's end) |
 | app to web | `close`, `next`, `prev` | none |
 | app to web | `goTo` | `target` (CFI or href), `id` (optional integer: ask for `seeked`) |
+| app to web | `goToFraction` | `fraction` (0..1, F-034 slider), `id` (optional integer: ask for `seeked`; the app ends the slider preview on it, also when no `relocate` came) |
 | app to web | `goToText` | `sectionIndex`, `offset`, `length` (UTF-16, in the section's extracted text), `needle` (the hit text) (M5, F-050) |
 | app to web | `clearSearchHighlight` | none |
 | app to web | `back` | none (M6, F-042: back to where the last followed link was tapped; sent only while `history.depth` > 0) |
@@ -49,7 +50,7 @@ current session.
 | web to app | `opened` | `sessionId`, `identifier` (unique-identifier text or null), `title`, `authors[]`, `dir`, `fixedLayout`, `sections`, `toc[] {label, href, depth, missing, index}` (`index`: spine section of the target, -1 if none; M5), `sizes[]` (C-073: per section, the byte size foliate's progress uses, 0 for non-linear ones; the app maps a slider fraction to its section with it) |
 | web to app | `relocate` | `sessionId`, `cfi`, `fraction`, `sectionIndex`, `tocHref`, `page`/`pages` (paged: 1-based text page in the section and its text pages; 0/0 scrolled), `sectionFraction` (M4), `bookmarks[]` (M6, optional: the `setBookmarks` entries on the visible page, same strings; omitted when none), `textOffset`/`textEnd` (C-083, optional: the visible range's start and end as offsets in the section's text, the coordinates of search hits; the app maps them to book pages) |
 | web to app | `painted` | `sessionId` (two animation frames after `relocate`) |
-| web to app | `seeked` | `sessionId`, `id` (after the `relocate` of a `goTo` that carried `id`) |
+| web to app | `seeked` | `sessionId`, `id` (after the `relocate` of a `goTo` or `goToFraction` that carried `id`) |
 | web to app | `tap` | `sessionId`, `x`, `y` (fractions of the viewport; links and selections excluded) |
 | web to app | `history` | `sessionId`, `depth` (M6, F-042: entries in the followed-links history, after every push and every `back`) |
 | web to app | `footnote` | `sessionId`, `open` (M6, F-043: the popup opened, or closed on the web side or by `closeFootnote`) |
