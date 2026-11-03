@@ -1,3 +1,5 @@
+import { POLYFILL_ATTR } from './mathml'
+
 /** How far from the indexed offset the needle is looked for: the DOM text may drift a little from the indexed text. */
 const DRIFT = 500
 const SKIP = new Set(['script', 'style', 'template'])
@@ -16,14 +18,17 @@ export function foldText(s: string): string {
   return out
 }
 
-/** Text and CDATA nodes under body outside script/style/template, in document order (the indexed text's source). */
+/**
+ * Text and CDATA nodes under body outside script/style/template and outside what the reader added (the mfenced
+ * polyfill's fences, F-083), in document order: the indexed (canonical) text's source.
+ */
 export function textNodes(doc: Document): Text[] {
   if (!doc.body) return []
   const out: Text[] = []
   const w = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_CDATA_SECTION, {
     acceptNode(n) {
       for (let e = n.parentElement; e && e !== doc.body; e = e.parentElement)
-        if (SKIP.has(e.localName.toLowerCase())) return NodeFilter.FILTER_REJECT
+        if (SKIP.has(e.localName.toLowerCase()) || e.hasAttribute(POLYFILL_ATTR)) return NodeFilter.FILTER_REJECT
       return NodeFilter.FILTER_ACCEPT
     },
   })
