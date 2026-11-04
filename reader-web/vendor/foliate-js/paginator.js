@@ -1990,6 +1990,8 @@ export class Paginator extends HTMLElement {
         const frames = []
         this.#lastSlide = frames
         this.#sliding = { from, to }
+        // a touch during the slide lands on the paginator, not on a frame the swap destroys: its swipe must not be lost
+        for (const m of moving) m.style.pointerEvents = 'none'
         const set = t => {
             const f = slideFrame(t, sign, width)
             for (const m of moving) m.style.transform = `translateX(${f.old}px)`
@@ -2001,7 +2003,7 @@ export class Paginator extends HTMLElement {
             await animate(0, 1, SLIDE_MS, easeOutQuad, set)
         } finally {
             this.#sliding = null
-            for (const m of moving) m.style.transform = ''
+            for (const m of moving) { m.style.transform = ''; m.style.pointerEvents = '' }
             to.slot.style.transform = ''
             el.style.overflow = ''
         }
