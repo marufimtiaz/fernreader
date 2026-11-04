@@ -8,6 +8,7 @@ import { makeLoader, packageProblem } from './loader'
 import { flattenToc } from './toc'
 import { resolveSaved } from './position'
 import { PageCounter } from './counter'
+import { decoded, pageImages } from './paint'
 import { polyfillMfenced } from './mathml'
 import { shareSections } from './sections'
 import { rangeAtOffset, resolveTextRange, textOffsetOf, textSpanOf } from './textpos'
@@ -68,6 +69,8 @@ export class Reader {
   private readonly css = readerCss(new URL('./', location.href).href)
   /** Page counts for the open book (F-034); one generation per layout. */
   private counter: PageCounter | null = null
+  /** The session whose first page has gone through [onRelocate]. */
+  private firstPaint: string | null = null
   private countGen = 0
   private countTimer: ReturnType<typeof setTimeout> | null = null
   /** The one temporary search highlight (F-050): its CFI and section, drawn again whenever that section's overlayer is made. */
@@ -741,11 +744,15 @@ export class Reader {
       sectionIndex: d.section?.current ?? 0, tocHref: d.tocItem?.href ?? null, ...pageOf(view.renderer),
       ...onPage(this.bookmarks, d.cfi), ...spanOf(d.range),
     })
-    requestAnimationFrame(() => requestAnimationFrame(() => {
+    const paint = () => requestAnimationFrame(() => requestAnimationFrame(() => {
       if (this.token !== token) return
       this.bridge.send({ v: 1, type: 'painted', sessionId })
       if (!this.counter) this.startCounter(sessionId) // first page on screen: counting may start
     }))
+    const images = this.firstPaint === sessionId ? [] : pageImages(view.renderer?.getContents?.() ?? [], window.innerWidth, window.innerHeight)
+    this.firstPaint = sessionId
+    if (images.length) void decoded(images).then(paint) // C-089: the first page replaces the loading screen whole
+    else paint()
   }
 
   /** F-041: remember the bookmarks and tell the app which are on the page now showing (the page itself did not change). */
