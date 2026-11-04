@@ -31,9 +31,14 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.text
 import androidx.compose.ui.text.input.ImeAction
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
@@ -192,7 +197,7 @@ fun LibraryScreen(state: LibraryState, actions: LibraryActions, probe: EventProb
                         }
                         // inside the list's area: above the failure notice, whose buttons are at the same end
                         val book = resume
-                        if (book != null && ui.showsResume) ResumeButton(book.title, onClick = { actions.onOpen(book) }, Modifier.align(Alignment.BottomEnd).padding(16.dp))
+                        if (book != null && ui.showsResume) ResumeButton(book.title, open = { actions.onOpen(book) }, Modifier.align(Alignment.BottomEnd).padding(16.dp))
                     }
                     if (ui.failureNoticeVisible) FailureNotice(ui.failures.size, onDetails = { failuresOpen = true }, onDismiss = state::dismissFailures)
                 }
@@ -526,11 +531,19 @@ private fun ListLayout(books: List<LibraryBook>, query: String, selected: Set<St
 /** C-092: what the lists leave free at their end: the button (56 dp), its 16 dp margin and a small gap. */
 private val ResumeRoom = 80.dp
 
-/** C-092: one tap back into the last book. The visible label is short; the accessible one names the book. */
+/**
+ * C-092: one tap back into the last book. The visible label is short; the accessible one names the book. One semantics
+ * node: a plain `semantics` here lands on a child of the clickable node, which then has no label of its own.
+ */
 @Composable
-private fun ResumeButton(title: String, onClick: () -> Unit, modifier: Modifier) {
+private fun ResumeButton(title: String, open: () -> Unit, modifier: Modifier) {
     val label = Copy.resumeBook(title)
-    ExtendedFloatingActionButton(onClick, modifier.semantics { contentDescription = label }) {
+    ExtendedFloatingActionButton(open, modifier.clearAndSetSemantics {
+        contentDescription = label
+        text = AnnotatedString(Copy.resume)
+        role = Role.Button
+        onClick { open(); true }
+    }) {
         Icon(AppIcons.Play, null)
         Spacer(Modifier.width(8.dp))
         Text(Copy.resume)
