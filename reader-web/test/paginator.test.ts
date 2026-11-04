@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { pagedVerticalRl, scrolledInlineInset, verticalPagesRootStyles } from '../vendor/foliate-js/paginator.js'
+import { heldShift, pagedVerticalRl, scrolledInlineInset, verticalPagesRootStyles } from '../vendor/foliate-js/paginator.js'
 
 // Local patch (F-081, PATCHES.md): vertical-rl sections in paginated flow are laid out as horizontal pages moving
 // right-to-left (CSS multicol rows, `column-wrap: wrap`), not foliate's top-to-bottom vertical pages.
@@ -93,4 +93,14 @@ describe('scrolledInlineInset: the scrolled text column equals the paged one', (
     expect(inset).toBeCloseTo(41.1, 1)
     expect(411 - 2 * inset).toBeCloseTo(328.8, 0)
   })
+})
+
+describe('heldShift: the text on screen is held in stack mode, the user\'s scrolling is not undone', () => {
+  const screen = { top: -100, scrollTop: 5000 }
+  it('nothing changed: no shift', () => expect(heldShift(screen, -100, 5000)).toBe(0))
+  it('the user scrolled 48 px since the capture, nothing grew: no shift', () => expect(heldShift(screen, -148, 5048)).toBe(0))
+  it('something above grew by 30 px: the shift is 30', () => expect(heldShift(screen, -70, 5000)).toBe(30))
+  it('both: only the growth counts', () => expect(heldShift(screen, -118, 5048)).toBe(30))
+  it('a slot above was dropped and scrollTop already followed (the capture moved with it): no shift', () =>
+    expect(heldShift({ top: -100, scrollTop: 5000 - 786 }, -100, 5000 - 786)).toBe(0))
 })

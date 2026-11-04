@@ -49,6 +49,13 @@ const easeOutQuad = x => 1 - (1 - x) * (1 - x)
 /** Local patch (C-071): the boundary slide's duration, as an in-section turn. */
 export const SLIDE_MS = 300
 
+/**
+ * Stack mode (#holdScreen): how far the text held by [screen] ({ top, scrollTop } when captured) moved in the document,
+ * which is what scrollTop must follow. Its offset in the viewport also changes when the user scrolls; that part is
+ * taken out, or holding the text would undo the scroll made since the capture.
+ */
+export const heldShift = (screen, now, scrollTop) => (now - screen.top) + (scrollTop - screen.scrollTop)
+
 export const slideSign = (dir, rtl) => (dir > 0 ? -1 : 1) * (rtl ? -1 : 1)
 export const slideFrame = (t, sign, width) => ({ old: sign * width * t + 0, next: -sign * width * (1 - t) + 0 })
 // local patch (C-085): a deliberate overscroll pull in "one chapter at a time" scrolling. [p] holds the finger's y
@@ -620,11 +627,13 @@ export class Paginator extends HTMLElement {
     #keepStack(mutate) {
         if (!this.#stack || !this.#cache.has(this.#index)) { mutate(); this.#fixStack(); return }
         const cur = this.#cache.get(this.#index)
-        const rel = this.#container.scrollTop - cur.slot.offsetTop
+        const was = cur.slot.offsetTop
+        const rel = this.#container.scrollTop - was
         mutate()
         if (this.#cache.get(this.#index) !== cur) { this.#fixStack(); return }
         this.#container.scrollTop = cur.slot.offsetTop + rel
         this.#stackTop = cur.slot.offsetTop
+        this.#screenMoved(cur.slot.offsetTop - was)
     }
     /** Keeps what is on screen in place when slots above the current one change height. */
     #fixStack() {
@@ -633,12 +642,13 @@ export class Paginator extends HTMLElement {
         const delta = top - this.#stackTop
         if (delta) this.#container.scrollTop += delta
         this.#stackTop = top
+        this.#screenMoved(delta)
     }
     // local patch (C-079/C-080): stack-mode stability
     #jumps = 0 // deliberate jumps or re-layouts being applied (they can overlap): no following, no 'scroll' relocates, no stack work
     get #jumping() { return this.#jumps > 0 }
     #restoring = false // since the last deliberate jump the user has not scrolled: layout changes re-apply its anchor
-    #screen = null // { view, el, top }: the element at the top of the viewport and its offset there (user scrolling)
+    #screen = null // { view, el, top, scrollTop }: the element at the top of the viewport, its offset there and the scroll position then (user scrolling)
     // after the last stacked slot: one screen of room while more sections follow, so a jump to a short section (or the
     // end of one) is not clamped by the scroll range into the section before it (C-080)
     #stackPad = Object.assign(document.createElement('div'), { className: 'stack-pad' })
@@ -700,15 +710,23 @@ export class Paginator extends HTMLElement {
         const y = c.top + 1 - f.top
         let el = y >= 0 && y < f.height ? doc.elementFromPoint(f.width / 2, y) : null
         if (el === doc.body || el === doc.documentElement) el = null // a gap: no element to hold (the slot is held)
-        this.#screen = el ? { view: e.view, el, top: this.#screenTop(e.view, el) } : null
+        this.#screen = el ? { view: e.view, el, top: this.#screenTop(e.view, el), scrollTop: this.#container.scrollTop } : null
     }
     /** A slot's height changed: the text on screen stays where it is (the captured element, else the current slot). */
     #holdScreen() {
         const s = this.#screen
         if (!s || !s.el.isConnected || this.#cache.get(this.#index)?.view !== s.view) { this.#fixStack(); return }
         const now = this.#screenTop(s.view, s.el)
-        if (now != null && Math.abs(now - s.top) > 0.5) this.#container.scrollTop += now - s.top
+        const moved = now == null ? 0 : heldShift(s, now, this.#container.scrollTop)
+        if (Math.abs(moved) > 0.5) {
+            this.#container.scrollTop += moved
+            this.#screenMoved(moved)
+        }
         this.#stackTop = this.#slotOffset()
+    }
+    /** The text on screen was kept in place by moving scrollTop by [delta]: that part of it isn't the user's scrolling. */
+    #screenMoved(delta) {
+        if (this.#screen) this.#screen.scrollTop += delta
     }
     #linearFrom(index, dir) {
         for (let i = index + dir; this.#canGoToIndex(i); i += dir) if (this.sections[i]?.linear !== 'no') return i
