@@ -569,6 +569,53 @@ describe('swipes (F-032, C-026)', () => {
     expect(v.turnsMade).toEqual(['next', 'prev'])
   })
 
+  describe('in scroll mode, One at a time (C-093): a swipe changes chapter', () => {
+    const ONE = { ...DEFAULTS, flow: 'scrolled', chapters: 'one-at-a-time', pageAnimation: 'slide' } as const
+    const opened = async () => {
+      send({ v: 1, type: 'open', sessionId: 's1', position: null, texts: { missingPart: 'm' }, settings: ONE })
+      await settle()
+      const v = FakeView.all[0]
+      const made: number[] = []
+      v.renderer.turnChapter = vi.fn(async (d: number) => { await tick(); made.push(d) })
+      return { v, made }
+    }
+
+    it('forward and back go through the chapter turn, not the scroll-by-a-screen turn', async () => {
+      const { v, made } = await opened()
+      swipe(v, -200); await settle()
+      swipe(v, 200); await settle()
+      expect(made).toEqual([1, -1])
+      expect(v.turnsMade).toEqual([])
+    })
+
+    it('follows the reading direction: in an rtl book a finger moving right is forward', async () => {
+      h.epubInit.mockImplementation(async () => ({ ...book(), dir: 'rtl' }))
+      const { v, made } = await opened()
+      swipe(v, 200); await settle()
+      expect(made).toEqual([1])
+    })
+
+    it('a short slow drag changes nothing', async () => {
+      const { v, made } = await opened()
+      swipe(v, -30, 0, 800); await settle()
+      expect(made).toEqual([])
+    })
+
+    it('swipes during a running chapter turn queue up, within the same cap as page turns', async () => {
+      const { v, made } = await opened()
+      for (let i = 0; i < 6; i++) swipe(v, -200)
+      await settle()
+      expect(made).toHaveLength(3)
+    })
+
+    it('not while text is selected (the gesture was a selection drag)', async () => {
+      const { v, made } = await opened()
+      v.renderer.getContents = () => [{ doc: { getSelection: () => ({ isCollapsed: false }) } }]
+      swipe(v, -200); await settle()
+      expect(made).toEqual([])
+    })
+  })
+
   it('swipes of a closed book are dropped', async () => {
     open('s1', null); await settle()
     const v = FakeView.all[0]

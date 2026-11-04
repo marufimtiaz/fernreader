@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { pullStep, pullThreshold, pullTurn } from '../vendor/foliate-js/paginator.js'
+import { pullStep, pullThreshold, pullTurn, scrollsSideways, sideLock } from '../vendor/foliate-js/paginator.js'
 import { chapterEdgeLabel, chapterSpan, DEFAULT_CHAPTER_TEXTS, sectionTitle } from '../src/reader/chapters'
 import type { TocItem } from '../src/bridge/protocol'
 
@@ -119,5 +119,70 @@ describe('chapterSpan: a chapter is a section and the parts that continue it', (
     expect(chapterSpan(new Set(), 3, 1)).toEqual([1, 1])
     expect(chapterSpan(new Set([1, 2]), 3, 2)).toEqual([0, 2])
     expect(chapterSpan(new Set([0]), 2, 0)).toEqual([0, 0]) // a first section can't continue anything
+  })
+})
+
+// C-093: a sideways swipe in One at a time. The paginator decides on the first move past the touch slop whether the
+// gesture can be a chapter swipe; everything else stays the browser's.
+describe('sideLock: a gesture is a chapter swipe only if it is clearly horizontal', () => {
+  it('nothing is decided inside the touch slop', () => {
+    expect(sideLock(null, 0, 0)).toBe(null)
+    expect(sideLock(null, 7, 0)).toBe(null)
+    expect(sideLock(null, -5, 5)).toBe(null)
+  })
+
+  it('the first move past the slop decides, either finger direction', () => {
+    expect(sideLock(null, 8, 0)).toBe('side')
+    expect(sideLock(null, -40, 10)).toBe('side')
+    expect(sideLock(null, 0, 8)).toBe('off')
+    expect(sideLock(null, 3, -30)).toBe('off')
+  })
+
+  it('a diagonal is a scroll: the horizontal part must be at least twice the vertical one', () => {
+    expect(sideLock(null, 30, 30)).toBe('off')
+    expect(sideLock(null, 30, 16)).toBe('off')
+    expect(sideLock(null, 30, 15)).toBe('side')
+  })
+
+  it('a scroll never becomes a swipe later in the gesture', () => {
+    expect(sideLock('off', 300, 0)).toBe('off')
+  })
+
+  it('a swipe that drifts out of the angle stops being one, and stays stopped', () => {
+    expect(sideLock('side', 100, 40)).toBe('side')
+    expect(sideLock('side', 100, 60)).toBe('off')
+    expect(sideLock('off', 300, 60)).toBe('off')
+  })
+})
+
+describe('scrollsSideways: a touch inside content that scrolls sideways by itself belongs to that content', () => {
+  const el = (parentElement: any, box: { scrollWidth: number; clientWidth: number }, overflowX = 'visible') =>
+    ({ parentElement, ...box, overflowX, ownerDocument: { defaultView: { getComputedStyle: (e: any) => ({ overflowX: e.overflowX }) } } })
+  const fits = { scrollWidth: 300, clientWidth: 300 }
+  const wide = { scrollWidth: 900, clientWidth: 300 }
+  const root = el(null, fits)
+
+  it('an element with overflow to scroll, or anything inside it', () => {
+    expect(scrollsSideways(el(root, wide, 'auto'))).toBe(true)
+    expect(scrollsSideways(el(root, wide, 'scroll'))).toBe(true)
+    expect(scrollsSideways(el(el(el(root, wide, 'auto'), fits), fits))).toBe(true)
+  })
+
+  it('not one that fits, however it is styled', () => {
+    expect(scrollsSideways(el(root, fits, 'auto'))).toBe(false)
+  })
+
+  it('not wide content the reader cannot scroll (clipped or overflowing visibly)', () => {
+    expect(scrollsSideways(el(root, wide, 'hidden'))).toBe(false)
+    expect(scrollsSideways(el(root, wide, 'visible'))).toBe(false)
+  })
+
+  it('the document root does not count: section frames do not scroll themselves', () => {
+    expect(scrollsSideways(el(null, wide, 'auto'))).toBe(false)
+  })
+
+  it('a target that is no element (a touch on the document) is fine', () => {
+    expect(scrollsSideways(null)).toBe(false)
+    expect(scrollsSideways({ parentElement: undefined })).toBe(false)
   })
 })
