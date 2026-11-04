@@ -129,10 +129,25 @@ function sideValue(el: Element, prop: string): string {
 /**
  * C-082/C-088: the sides of [el] (a whole-content element: html, body or a wrapper) whose horizontal margin or padding
  * is a fixed length, as data-er-wrapper tokens: the reader CSS zeroes those. An auto margin is centring (with a width,
- * or in a flex container) and is kept; padding is never auto. Pure function of the values, for tests.
+ * or in a flex container) and is kept; padding is never auto. [ownWidth]: the element sets its own width narrower than
+ * its container (`width: 60%; margin: 0 20%`, a common title page): its side margins are kept as the book sets them
+ * (C-088 as amended, spec 8bf1df4); only auto-width wrappers, which stretch to the column, lose them. Pure, for tests.
  */
-export function fixedSides(value: (prop: string) => string): string[] {
-  return SIDES.filter(([, prop]) => value(prop).trim() !== 'auto').map(([token]) => token)
+export function fixedSides(value: (prop: string) => string, ownWidth = false): string[] {
+  return SIDES.filter(([token, prop]) => !(ownWidth && token.startsWith('m')) && value(prop).trim() !== 'auto').map(([token]) => token)
+}
+
+/** C-088: [el] sets a width (or max-width) of its own and is laid out narrower than its parent's content box. */
+function ownNarrowWidth(el: Element): boolean {
+  const width = sideValue(el, 'width').trim(), max = sideValue(el, 'max-width').trim()
+  if ((width === '' || width === 'auto') && (max === '' || max === 'none')) return false
+  const parent = el.parentElement
+  if (!parent) return false
+  const view = el.ownerDocument.defaultView
+  const ps = view?.getComputedStyle(parent)
+  const inner = parent.clientWidth - (ps ? parseFloat(ps.paddingLeft) + parseFloat(ps.paddingRight) : 0)
+  const w = el.getBoundingClientRect().width
+  return w > 0 && inner > 0 && w < inner - 1
 }
 
 /**
@@ -141,7 +156,7 @@ export function fixedSides(value: (prop: string) => string): string[] {
  * decision is stable); the attribute is only written when it changes. A few elements per document: cheap.
  */
 function markSides(el: Element) {
-  const tokens = fixedSides(p => sideValue(el, p)).join(' ')
+  const tokens = fixedSides(p => sideValue(el, p), ownNarrowWidth(el)).join(' ')
   if (el.getAttribute('data-er-wrapper') !== tokens) el.setAttribute('data-er-wrapper', tokens)
 }
 

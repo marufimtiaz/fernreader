@@ -132,6 +132,9 @@ describe('fixed sides (C-088)', () => {
     expect(fixedSides(v({ 'margin-left': 'auto', 'margin-right': 'auto', 'padding-left': '2em' }))).toEqual(['pl', 'pr'])
     expect(fixedSides(v({ 'margin-left': 'auto', 'margin-right': '10%' }))).toEqual(['mr', 'pl', 'pr'])
     expect(fixedSides(v({ 'margin-left': '5%', 'margin-right': '3em' }))).toEqual(['ml', 'mr', 'pl', 'pr'])
+    // C-088 as amended: a wrapper with its own narrower width keeps its side margins (`width: 60%; margin: 0 20%`)
+    expect(fixedSides(v({ 'margin-left': '20%', 'margin-right': '20%' }), true)).toEqual(['pl', 'pr'])
+    expect(fixedSides(v({ 'margin-left': 'auto', 'margin-right': 'auto' }), true)).toEqual(['pl', 'pr'])
   })
   it('a narrow centred title-page div (60 %, margin auto) keeps its auto margins; its padding goes', () => {
     const doc = parse('#t { width: 60%; margin: 0 auto; padding: 0 1em; text-align: center }', '<div id="t"><h1>Title</h1><p>Author</p></div>')

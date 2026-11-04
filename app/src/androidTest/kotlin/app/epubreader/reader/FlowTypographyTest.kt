@@ -105,19 +105,23 @@ class FlowTypographyTest {
                 val problems = mutableListOf<String>()
                 for (flow in listOf(Flow.PAGED, Flow.SCROLLED)) {
                     sc.onActivity { it.controller.updateSettings { s -> s.copy(flow = flow, marginPercent = 5) } }
-                    delay(800); h.drain(); sc.js("window.__readerTest.goIndex(0)"); h.relocate(10_000) { it.sectionIndex == 0 }
+                    delay(800)
+                    // C-088: title pages built as one narrow div, centred with auto margins (section 0) or with equal fixed
+                    // margins on its own width (section 2, `width: 60%; margin: 0 20%`): equal gaps to the column's edges
+                    for ((index, sel) in listOf(0 to "div.title", 2 to "div.title2")) {
+                    h.drain(); sc.js("window.__readerTest.goIndex($index)"); h.relocate(10_000) { it.sectionIndex == index }
                     for (m in listOf(0, 5, 10)) {
-                        // C-088: the title page's narrow centred div, equal gaps to the text column's edges
                         sc.onActivity { it.controller.updateSettings { s -> s.copy(marginPercent = m) } }
                         delay(900)
-                        val box = JSONTokener(sc.js("JSON.stringify(window.__readerTest.blockBox(0, 'div.title'))")).nextValue().let { JSONObject(it as String) }
+                        val box = JSONTokener(sc.js("JSON.stringify(window.__readerTest.blockBox($index, '$sel'))")).nextValue().let { JSONObject(it as String) }
                         val vw = (JSONTokener(sc.js("JSON.stringify(window.innerWidth)")).nextValue() as String).toDouble()
                         val colLeft = vw * m / 100; val colRight = vw - colLeft
                         val gapL = box.getDouble("left") - colLeft; val gapR = colRight - box.getDouble("right")
                         val w = box.getDouble("right") - box.getDouble("left")
-                        Log.i("EPR", "C-088 $flow $m %: title ${box.getDouble("left")}..${box.getDouble("right")} gaps $gapL / $gapR (column $colLeft..$colRight)")
-                        if (kotlin.math.abs(gapL - gapR) > 1.0) problems += "$flow $m %: title page not centred: gaps $gapL left, $gapR right"
-                        if (kotlin.math.abs(w - 0.6 * (colRight - colLeft)) > 2.0) problems += "$flow $m %: title width $w, want 60 % of ${colRight - colLeft}"
+                        Log.i("EPR", "C-088 $flow $m % $sel: ${box.getDouble("left")}..${box.getDouble("right")} gaps $gapL / $gapR (column $colLeft..$colRight)")
+                        if (kotlin.math.abs(gapL - gapR) > 1.0) problems += "$flow $m % $sel: title page not centred: gaps $gapL left, $gapR right"
+                        if (kotlin.math.abs(w - 0.6 * (colRight - colLeft)) > 2.0) problems += "$flow $m % $sel: title width $w, want 60 % of ${colRight - colLeft}"
+                    }
                     }
                     sc.js("window.__readerTest.goIndex(1)"); h.relocate(10_000) { it.sectionIndex == 1 }
                     for (m in listOf(0, 5, 10)) {
@@ -155,10 +159,11 @@ class FlowTypographyTest {
             z.write(mt); z.closeEntry()
             fun put(name: String, text: String) { z.putNextEntry(java.util.zip.ZipEntry(name)); z.write(text.toByteArray()); z.closeEntry() }
             put("META-INF/container.xml", """<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>""")
-            put("OEBPS/content.opf", """<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="uid">urn:uuid:c0820000-0000-4000-8000-000000000082</dc:identifier><dc:title>Margins test</dc:title><dc:language>en</dc:language></metadata><manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/><item id="css" href="book.css" media-type="text/css"/><item id="c0" href="c0.xhtml" media-type="application/xhtml+xml"/><item id="c1" href="c1.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="c0"/><itemref idref="c1"/></spine></package>""")
+            put("OEBPS/content.opf", """<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="uid">urn:uuid:c0820000-0000-4000-8000-000000000082</dc:identifier><dc:title>Margins test</dc:title><dc:language>en</dc:language></metadata><manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/><item id="css" href="book.css" media-type="text/css"/><item id="c0" href="c0.xhtml" media-type="application/xhtml+xml"/><item id="c1" href="c1.xhtml" media-type="application/xhtml+xml"/><item id="c2" href="c2.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="c0"/><itemref idref="c1"/><itemref idref="c2"/></spine></package>""")
             put("OEBPS/nav.xhtml", """<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>Contents</title></head><body><nav epub:type="toc"><ol><li><a href="c1.xhtml">One</a></li></ol></nav></body></html>""")
-            put("OEBPS/book.css", "html { margin: 0 2em; padding: 0 1em } body { margin: 0 3em; padding: 0 20px } div.main { margin: 0 5%; padding: 0 1em } section { padding-left: 12px; margin-right: 8px } blockquote { margin: 1em 2em } div.title { width: 60%; margin: 0 auto; padding: 0 1em; text-align: center }")
+            put("OEBPS/book.css", "html { margin: 0 2em; padding: 0 1em } body { margin: 0 3em; padding: 0 20px } div.main { margin: 0 5%; padding: 0 1em } section { padding-left: 12px; margin-right: 8px } blockquote { margin: 1em 2em } div.title { width: 60%; margin: 0 auto; padding: 0 1em; text-align: center } div.title2 { width: 60%; margin: 0 20%; text-align: center }")
             put("OEBPS/c0.xhtml", """<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Title</title><link rel="stylesheet" href="book.css"/></head><body><div class="title"><h1>Margins test</h1><p>A narrow centred title page</p></div></body></html>""")
+            put("OEBPS/c2.xhtml", """<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Half-title</title><link rel="stylesheet" href="book.css"/></head><body><div class="title2"><h1>Second title</h1><p>Centred with equal fixed margins</p></div></body></html>""")
             val paras = (1..12).joinToString("") { "<p>Paragraph $it. " + "The quick brown fox jumps over the lazy dog and keeps running along the river bank. ".repeat(6) + "</p>" }
             put("OEBPS/c1.xhtml", """<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>One</title><link rel="stylesheet" href="book.css"/></head><body><div class="main"><section><h1>One</h1><blockquote><p>An indented quotation that must keep its indent.</p></blockquote>$paras</section></div></body></html>""")
         }
