@@ -31,8 +31,14 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.text
 import androidx.compose.ui.text.input.ImeAction
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
@@ -49,6 +55,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -60,6 +67,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -85,6 +93,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.epubreader.core.data.LibraryBook
 import app.epubreader.reader.EventProbe
@@ -134,6 +143,9 @@ private sealed interface Dialog {
 @Composable
 fun LibraryScreen(state: LibraryState, actions: LibraryActions, probe: EventProbe) {
     val ui by state.ui.collectAsState()
+    val resume by state.resume.collectAsState()
+    // C-092: the room stays while selecting (the button goes, but the end of the list doesn't jump under the finger)
+    val listEnd = if (resume != null) ResumeRoom else 0.dp
     var failuresOpen by remember { mutableStateOf(false) }
     var dialog by remember { mutableStateOf<Dialog?>(null) }
     val drawer = rememberDrawerState(DrawerValue.Closed)
@@ -145,7 +157,7 @@ fun LibraryScreen(state: LibraryState, actions: LibraryActions, probe: EventProb
     val topTitle = ui.books.firstOrNull()?.title
     // Bench (bench/device_pass.sh return): the book on top of the view changed (a new book sorts first, C-076)
     LaunchedEffect(topTitle) { if (topTitle != null) probe.ev("library_top", topTitle) }
-    LaunchedEffect(ui.view) { actions.onShown() } // entering the library route, and every change of view (C-075)
+    LaunchedEffect(ui.view) { actions.onShown(); state.checkResume() } // entering the library route, and every change of view (C-075, C-092)
     LaunchedEffect(ui.drawerOpen) { if (ui.drawerOpen) drawer.open() else drawer.close() }
     LaunchedEffect(drawer) { snapshotFlow { drawer.currentValue }.collect { state.setDrawer(it == DrawerValue.Open) } }
     LaunchedEffect(state) { for (m in state.messages) snackbar.showSnackbar(m) } // one at a time, each shown in full
@@ -177,12 +189,15 @@ fun LibraryScreen(state: LibraryState, actions: LibraryActions, probe: EventProb
                         when {
                             !ui.loaded -> Unit
                             ui.total == 0 && ui.view == LibraryView.All -> EmptyLibrary(ui.scan.running, actions.onRescan, actions.onOpenPicker)
-                            ui.view == LibraryView.Folders -> FolderList(ui.folderTree, onOpen = { state.pushView(LibraryView.Folder(it)) }, onToggle = state::toggleFolder)
+                            ui.view == LibraryView.Folders -> FolderList(ui.folderTree, listEnd, onOpen = { state.pushView(LibraryView.Folder(it)) }, onToggle = state::toggleFolder)
                             ui.inView == 0 -> EmptyView(ui.view, onAddBooks = { dialog = Dialog.AddBooks }, onAllBooks = { state.openView(LibraryView.All) })
                             ui.books.isEmpty() -> Text(Copy.noMatch(ui.query), Modifier.padding(24.dp), style = MaterialTheme.typography.bodyLarge)
-                            ui.layout == LibraryLayout.GRID -> Grid(ui.books, ui.query, ui.selected, state, actions.onOpen, probe)
-                            else -> ListLayout(ui.books, ui.query, ui.selected, state, actions.onOpen, probe)
+                            ui.layout == LibraryLayout.GRID -> Grid(ui.books, ui.query, ui.selected, listEnd, state, actions.onOpen, probe)
+                            else -> ListLayout(ui.books, ui.query, ui.selected, listEnd, state, actions.onOpen, probe)
                         }
+                        // inside the list's area: above the failure notice, whose buttons are at the same end
+                        val book = resume
+                        if (book != null && ui.showsResume) ResumeButton(book.title, open = { actions.onOpen(book) }, Modifier.align(Alignment.BottomEnd).padding(16.dp))
                     }
                     if (ui.failureNoticeVisible) FailureNotice(ui.failures.size, onDetails = { failuresOpen = true }, onDismiss = state::dismissFailures)
                 }
@@ -409,9 +424,9 @@ private fun FolderBar(path: String, includeSubfolders: Boolean, onInclude: (Bool
 
 /** F-017: the folder tree, with book counts; tap opens the folder, the chevron folds its subfolders. */
 @Composable
-private fun FolderList(rows: List<FolderNode>, onOpen: (String) -> Unit, onToggle: (String) -> Unit) {
+private fun FolderList(rows: List<FolderNode>, listEnd: Dp, onOpen: (String) -> Unit, onToggle: (String) -> Unit) {
     if (rows.isEmpty()) { Text(Copy.noFolders, Modifier.padding(24.dp), style = MaterialTheme.typography.bodyLarge); return }
-    LazyColumn {
+    LazyColumn(contentPadding = PaddingValues(bottom = listEnd)) {
         items(rows, key = { it.path }) { r ->
             Row(Modifier.fillMaxWidth().clickable { onOpen(r.path) }.padding(start = (8 + 20 * r.depth).dp, end = 16.dp, top = 4.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically) {
@@ -469,8 +484,8 @@ private fun SelectedMark(modifier: Modifier) {
 }
 
 @Composable
-private fun Grid(books: List<LibraryBook>, query: String, selected: Set<String>, state: LibraryState, onOpen: (LibraryBook) -> Unit, probe: EventProbe) {
-    LazyVerticalGrid(GridCells.Adaptive(112.dp), contentPadding = PaddingValues(12.dp),
+private fun Grid(books: List<LibraryBook>, query: String, selected: Set<String>, listEnd: Dp, state: LibraryState, onOpen: (LibraryBook) -> Unit, probe: EventProbe) {
+    LazyVerticalGrid(GridCells.Adaptive(112.dp), contentPadding = PaddingValues(start = 12.dp, top = 12.dp, end = 12.dp, bottom = 12.dp + listEnd),
         horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         itemsIndexed(books, key = { _, b -> b.id }) { i, b ->
             val on = b.id in selected
@@ -490,8 +505,8 @@ private fun Grid(books: List<LibraryBook>, query: String, selected: Set<String>,
 }
 
 @Composable
-private fun ListLayout(books: List<LibraryBook>, query: String, selected: Set<String>, state: LibraryState, onOpen: (LibraryBook) -> Unit, probe: EventProbe) {
-    LazyColumn {
+private fun ListLayout(books: List<LibraryBook>, query: String, selected: Set<String>, listEnd: Dp, state: LibraryState, onOpen: (LibraryBook) -> Unit, probe: EventProbe) {
+    LazyColumn(contentPadding = PaddingValues(bottom = listEnd)) {
         itemsIndexed(books, key = { _, b -> b.id }) { i, b ->
             val on = b.id in selected
             Row(Modifier.firstEntry(i, probe).fillMaxWidth()
@@ -510,6 +525,28 @@ private fun ListLayout(books: List<LibraryBook>, query: String, selected: Set<St
             }
             HorizontalDivider()
         }
+    }
+}
+
+/** C-092: what the lists leave free at their end: the button (56 dp), its 16 dp margin and a small gap. */
+private val ResumeRoom = 80.dp
+
+/**
+ * C-092: one tap back into the last book. The visible label is short; the accessible one names the book. One semantics
+ * node: a plain `semantics` here lands on a child of the clickable node, which then has no label of its own.
+ */
+@Composable
+private fun ResumeButton(title: String, open: () -> Unit, modifier: Modifier) {
+    val label = Copy.resumeBook(title)
+    ExtendedFloatingActionButton(open, modifier.clearAndSetSemantics {
+        contentDescription = label
+        text = AnnotatedString(Copy.resume)
+        role = Role.Button
+        onClick { open(); true }
+    }) {
+        Icon(AppIcons.Play, null)
+        Spacer(Modifier.width(8.dp))
+        Text(Copy.resume)
     }
 }
 

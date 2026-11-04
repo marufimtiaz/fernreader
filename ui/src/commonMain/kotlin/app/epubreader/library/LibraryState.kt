@@ -14,10 +14,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.channels.Channel
@@ -68,7 +72,12 @@ data class LibraryUi(
     /** C-074: the drawer's folder rows (empty while the folder view is off). */
     val drawerFolders: DrawerFolders = DrawerFolders(),
     val includeSubfolders: Boolean = false,
-)
+    /** C-092: every library book that has been read, most recent first (whatever the view and search show). */
+    val read: List<LibraryBook> = emptyList(),
+) {
+    /** C-092: the screen may show the Resume button (not before the saved layout is known, nor while selecting). */
+    val showsResume: Boolean get() = loaded && selected.isEmpty()
+}
 
 /**
  * The library screen's state (F-020, F-022, F-023, F-016). [books] is every library entry; the UI gets them
@@ -124,8 +133,22 @@ class LibraryState(
             drawerOpen = p.drawerOpen, nested = p.views.size > 2, folderViewEnabled = folderOn, includeSubfolders = p.includeSubfolders,
             folderTree = if (view == LibraryView.Folders) FolderTree.build(folders, p.collapsed) else emptyList(),
             drawerFolders = if (folderOn) DrawerFolders.build(folders, p.drawerExpanded) else DrawerFolders(),
+            read = readOrder(all),
         )
     }.flowOn(compute).stateIn(scope, SharingStarted.Eagerly, LibraryUi()) // R-005: sorting off the main thread
+
+    private val resumeChecks = MutableStateFlow(0)
+    /**
+     * C-092: the book the Resume button offers: the most recently read one that can still be opened, null when there
+     * is none. Derived from [ui], so the library is not queried a second time; a stat or two, off the main thread (R-005).
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val resume: StateFlow<LibraryBook?> = combine(ui.map { it.read }.distinctUntilChanged(), resumeChecks) { read, _ -> read }
+        .mapLatest { read -> read.firstOrNull { openablePath(it) != null } }
+        .flowOn(compute).stateIn(scope, SharingStarted.Eagerly, null)
+
+    /** C-092: looks at the files again; no event reaches the app when one is deleted (the library came into view, the app came back). */
+    fun checkResume() { resumeChecks.value++ }
 
     /** True once the screen has composed a non-empty library (the app waits for it before heavy main-thread work). */
     val shown = MutableStateFlow(false)
@@ -243,10 +266,11 @@ class LibraryState(
      */
     fun open(book: LibraryBook, onOpen: (path: String) -> Unit) {
         scope.launch {
-            val path = (listOf(book.path) + book.paths).distinct().firstOrNull { !it.startsWith("/") || exists(it) }
-            if (path != null) onOpen(path) else prefs.value = prefs.value.copy(missing = book)
+            val path = openablePath(book)
+            if (path != null) onOpen(path) else { prefs.value = prefs.value.copy(missing = book); checkResume() }
         }
     }
+    private suspend fun openablePath(book: LibraryBook): String? = (listOf(book.path) + book.paths).distinct().firstOrNull { !it.startsWith("/") || exists(it) }
     fun dismissMissing() { prefs.value = prefs.value.copy(missing = null) }
     fun removeMissing() { prefs.value.missing?.let { remove(it.id) }; dismissMissing() }
 
@@ -261,6 +285,10 @@ class LibraryState(
                 all.filter { b -> b.folders.any { it == dir || (includeSubfolders && it.startsWith("$dir/")) } }
             }
         }
+
+        /** C-092: the books that have been read, most recent first. */
+        fun readOrder(all: List<LibraryBook>): List<LibraryBook> =
+            all.filter { it.lastOpenedAt != null }.sortedWith(compareByDescending<LibraryBook> { it.lastOpenedAt }.thenBy { it.id })
 
         /** The books of each folder that directly holds one of their files (a duplicate is in each of its folders, once). */
         fun folderBooks(all: List<LibraryBook>): Map<String, Set<String>> {

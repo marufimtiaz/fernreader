@@ -22,6 +22,8 @@ object Copy {
     const val settings = "Settings"
     const val about = "About"
     const val openMenu = "Open navigation"
+    const val resume = "Resume"
+    fun resumeBook(title: String) = "Resume $title"
     const val endSelection = "End selection"
     const val selectAll = "Select all"
     fun selectedCount(n: Int) = "$n selected"
