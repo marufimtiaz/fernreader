@@ -119,6 +119,9 @@ contents, preface) and War and Peace. In the reader: Display panel → Layout �
    little diagonally. Sideways swipes on a wide table scroll the table.
 2. Read a book, go back to the library: the Resume button reopens it at the same place; it doesn't cover the last row.
 
+**P-020 and P-060 (open from the emulator runs).** Record P-020's video and command → painted numbers from the `p020` step. Measure
+P-060 once: War and Peace, 20 page turns, wait 35 s, then `env PKG=app.fernreader ADB="adb -s $S" tools/mem_total.sh`; pass at ≤ 215 MB.
+
 ## 3. Record the results
 
 In `docs/milestones/M9.md` → "Real-device pass": phone model, Android version, refresh rate, WebView version, the
