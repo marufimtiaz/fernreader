@@ -42,6 +42,7 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.ScreenRotation
@@ -96,6 +97,7 @@ object AppIcons {
     val Rename: ImageVector get() = Icons.Filled.DriveFileRenameOutline
     val Rescan: ImageVector get() = Icons.Filled.Refresh
     val OpenBook: ImageVector get() = Icons.Filled.FileOpen
+    val Play: ImageVector get() = Icons.Filled.PlayArrow
     val RemoveFromCollection: ImageVector get() = Icons.Filled.PlaylistRemove
     val SortRecent: ImageVector get() = Icons.Filled.History
     val SortAdded: ImageVector get() = Icons.Filled.DateRange

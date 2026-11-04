@@ -514,6 +514,7 @@ class MainActivity : ComponentActivity() {
         // window is the system default, and re-applying it on every hot start costs P-002 time.
         if (nav.top == Route.Reader) windowLook.reapply()
         onAccessMaybeGranted()
+        library.checkResume() // C-092: a file may have been deleted while the app was away
         // F-012/C-075: back in the foreground (on any screen) → incremental scan. The first resume is the app start.
         // It used to run only when the library was on top and was not repeated when the library came back into view
         // (Back from the reader or settings), so a book copied meanwhile stayed missing until a manual rescan.
