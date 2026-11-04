@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { applySettings, DEFAULT_SETTINGS, fixedSides, markWrappers, readerCss, THEMES, type WebSettings } from '../src/reader/styles'
 
 const base: WebSettings = { fontScale: 1, fontFamily: 'publisher', lineHeight: 1.5, marginPercent: 5, align: 'publisher', theme: 'light', flow: 'paginated' }
@@ -173,5 +173,16 @@ describe('fixed sides (C-088)', () => {
     applySettings(doc, DEFAULT_SETTINGS)
     expect(el.getAttribute('data-er-wrapper')).toBe('pl pr')
     return new Promise<void>(r => setTimeout(() => { expect(writes).toBe(0); r() }, 0))
+  })
+})
+
+describe('C-088: the wrapper width check stays off html and body', () => {
+  it('applySettings reads no layout from body, whose max-width the paginator always sets', () => {
+    const doc = document.implementation.createHTMLDocument('t')
+    doc.body.style.maxWidth = '400px'
+    doc.body.innerHTML = '<p>One</p><p>Two</p>'
+    const rect = vi.spyOn(doc.body, 'getBoundingClientRect')
+    applySettings(doc, DEFAULT_SETTINGS)
+    expect(rect).not.toHaveBeenCalled()
   })
 })

@@ -102,8 +102,8 @@ export function applySettings(doc: Document, s: WebSettings) {
   if (font) { html.setAttribute('data-er-font', s.fontFamily); html.style.setProperty('--er-font', font) }
   else { html.removeAttribute('data-er-font'); html.style.removeProperty('--er-font') }
   html.setAttribute('data-er-theme', THEMES[s.theme] ? s.theme : 'light')
-  markSides(html)
-  if (doc.body) markSides(doc.body)
+  markSides(html, false)
+  if (doc.body) markSides(doc.body, false)
   markWrappers(doc)
 }
 
@@ -153,10 +153,12 @@ function ownNarrowWidth(el: Element): boolean {
 /**
  * Marks [el] with the sides to zero (data-er-wrapper="ml mr pl pr", fewer where a margin is auto). Decided from its
  * computed style each time (the tokens zero only fixed sides, so a side that was zeroed reads as a fixed 0 again: the
- * decision is stable); the attribute is only written when it changes. A few elements per document: cheap.
+ * decision is stable); the attribute is only written when it changes. A few elements per document: cheap. [wrapper]: only
+ * a wrapper gets the C-088 width check. It reads layout, and html and body always have a set width in paged flow (the
+ * paginator's max-width), so on them it would force a layout of the section on every settings change.
  */
-function markSides(el: Element) {
-  const tokens = fixedSides(p => sideValue(el, p), ownNarrowWidth(el)).join(' ')
+function markSides(el: Element, wrapper = true) {
+  const tokens = fixedSides(p => sideValue(el, p), wrapper && ownNarrowWidth(el)).join(' ')
   if (el.getAttribute('data-er-wrapper') !== tokens) el.setAttribute('data-er-wrapper', tokens)
 }
 
