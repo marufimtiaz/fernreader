@@ -16,6 +16,7 @@ import org.junit.runner.RunWith
 /** P-026 / F-031 basis: neighbour sections are preloaded and boundary turns bring them in (War and Peace); C-071: with a slide. */
 @RunWith(AndroidJUnit4::class)
 class ReaderBoundaryTest {
+    private companion object { const val SLIDE_MS = 300.0 } // paginator.js SLIDE_MS
     private suspend fun ReaderHarness.loaded(): List<Int> = JSONArray(sc.js("window.__readerTest.loaded()")).let { a -> List(a.length()) { a.getInt(it) } }
 
     /** Waits until the neighbour after the current section has a loaded document. */
@@ -72,8 +73,19 @@ class ReaderBoundaryTest {
      * in every frame (no gap, so no blank shows), moving the way the turn goes ([sign] -1 = content to the left), ending in place.
      */
     private fun assertSlide(frames: List<JSONObject>, sign: Int) {
+        // Frame-rate independent (a 300 ms slide gets ~18 frames on a phone, 2-3 on this emulator where a WebView frame
+        // costs ~120 ms): at least one frame between start and end (not one swap), the moving frames span most of the
+        // slide's duration (not a short jerk), and every frame moves further in the turn's direction (no back-and-forth).
         val mid = frames.map { it.getDouble("t") }.filter { it > 0.0 && it < 1.0 }.distinct()
-        assertTrue("several in-between frames, not one swap: $frames", mid.size >= 3)
+        assertTrue("an in-between frame, not one swap: $frames", mid.isNotEmpty())
+        val moving = frames.filter { it.getDouble("t") > 0.0 }
+        val span = moving.last().getDouble("at") - moving.first().getDouble("at")
+        assertTrue("the slide's moving frames span ≥ 70 % of $SLIDE_MS ms: $span ms, $frames", span >= 0.7 * SLIDE_MS)
+        for (k in 1 until frames.size) {
+            val a = frames[k - 1]; val b = frames[k]
+            // the incoming page moves from -sign * width towards 0 in the turn's direction (sign): never back
+            assertTrue("monotonic at frame $k: $frames", b.getDouble("t") >= a.getDouble("t") && sign * (b.getDouble("next") - a.getDouble("next")) >= -0.5)
+        }
         val width = Math.abs(frames.first().getDouble("next"))
         assertTrue("starts one width away: $frames", width > 100)
         for (f in frames) assertEquals("adjacent pages at t=${f.getDouble("t")}", sign * width, f.getDouble("old") - f.getDouble("next"), 0.5)

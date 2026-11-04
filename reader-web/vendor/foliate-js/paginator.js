@@ -46,6 +46,9 @@ const easeOutQuad = x => 1 - (1 - x) * (1 - x)
 // (1 = next): toward the line start, so left in left-to-right books, right in right-to-left ones. [slideFrame]: at
 // progress [t] (0..1, eased) the old page's and the incoming page's offsets for a viewport [width]; they stay exactly one
 // width apart, so no gap (blank) ever shows between them.
+/** Local patch (C-071): the boundary slide's duration, as an in-section turn. */
+export const SLIDE_MS = 300
+
 export const slideSign = (dir, rtl) => (dir > 0 ? -1 : 1) * (rtl ? -1 : 1)
 export const slideFrame = (t, sign, width) => ({ old: sign * width * t + 0, next: -sign * width * (1 - t) + 0 })
 // local patch (C-085): a deliberate overscroll pull in "one chapter at a time" scrolling. [p] holds the finger's y
@@ -1845,11 +1848,11 @@ export class Paginator extends HTMLElement {
             const f = slideFrame(t, sign, width)
             old.style.transform = `translateX(${base + f.old}px)`
             to.slot.style.transform = `translateX(${f.next}px)`
-            frames.push({ t, old: f.old, next: f.next })
+            frames.push({ t, old: f.old, next: f.next, at: performance.now() }) // at: frame time (C-071 test hook)
         }
         try {
             set(0)
-            await animate(0, 1, 300, easeOutQuad, set)
+            await animate(0, 1, SLIDE_MS, easeOutQuad, set)
         } finally {
             this.#sliding = null
             to.slot.style.transform = ''
