@@ -13,5 +13,8 @@ MIT licence (`LICENSE`, third-party licences in `docs/licenses.md` and in the ap
   replaces the estimate once counting finishes. Book pages, the default numbering (C-083), do not use the estimate.
 - **Text-selection menu without icons (C-086).** Android draws the app's selection menu (Highlight, Note, Copy, …)
   as text only; icons there would need our own selection toolbar.
+- **Brief empty page on some first opens (C-089).** On a first open of a book whose first page is image-heavy, about one
+  in three to one in six opens shows a page with no content for about 120 ms between the loading screen and the page.
+  The previous build showed it every time. Reopens don't show it.
 - **Real-device pass.** Smoothness and some checks are confirmed on a real phone before the store release
   (`docs/real-device-pass.md`).
