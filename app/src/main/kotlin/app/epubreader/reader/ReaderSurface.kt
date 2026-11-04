@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.systemBarsIgnoringVisibility
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
@@ -37,13 +38,33 @@ import kotlin.coroutines.resume
  * While the app is in the foreground it stays VISIBLE: hidden, it would not run animation frames (page turns, `painted`).
  * Coming back straight into the reader (system picker, open-with while running, P-003) takes the same path: the
  * first frame shows the reader's opaque loading screen, and the WebView is revealed one frame later.
+ *
+ * C-089: while [covered] in the foreground, or while the reader shows its opaque loading screen over it ([loading]), the
+ * WebView stays VISIBLE (so the page keeps running and stays laid out) but its alpha is 0, so the render thread skips its
+ * draw (a RenderNode with alpha 0 has nothing to draw). Before, its draw (~117 ms on the emulator) ran on every library
+ * frame and the first reader frame (the loading screen, P-015) queued behind it. The alpha returns to 1 in the
+ * composition that removes the loading screen (the page has painted), so the page replaces it in the same frame.
+ * Checked before every draw against the controller's current state, which the loading screen's composition never runs
+ * ahead of: the page is drawn no later than the frame that removes the loading screen (no blank frame).
  */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-fun ReaderSurface(engine: ReaderEngine, covered: Boolean, background: Color, fullscreen: Boolean = false) {
+fun ReaderSurface(engine: ReaderEngine, covered: Boolean, background: Color, fullscreen: Boolean = false, loading: () -> Boolean = { false }) {
     val created by engine.created.collectAsState()
     if (!created) return
     val coveredNow by rememberUpdatedState(covered)
+    val loadingNow by rememberUpdatedState(loading)
+    // Before every draw of the window (after the frame's composition): drawn only when neither covered nor loading.
+    DisposableEffect(engine) {
+        val w = engine.webView
+        val l = ViewTreeObserver.OnPreDrawListener {
+            val a = if (coveredNow || loadingNow()) 0f else 1f
+            if (w.alpha != a) w.alpha = a
+            true
+        }
+        w.viewTreeObserver.addOnPreDrawListener(l)
+        onDispose { w.viewTreeObserver.removeOnPreDrawListener(l) }
+    }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(lifecycle) {
         val w = engine.webView
