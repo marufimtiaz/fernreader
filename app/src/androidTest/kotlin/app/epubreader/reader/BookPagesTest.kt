@@ -281,8 +281,9 @@ class BookPagesTest {
                 sc.onActivity { it.controller.updateSettings { ReaderSettings() } }
                 sc.onActivity { it.controller.toggleChrome() }
                 clearCache()
-                val label = dev.wait(Until.findObject(By.text(after)), 5_000)
-                assertNotNull("page label $after on the bar", label)
+                val short = Copy.pageLabelShort(c.shownPage.value)!! // C-091: what the bar shows
+                val label = dev.wait(Until.findObject(By.text(short)), 5_000)
+                assertNotNull("page label $short on the bar", label)
                 assertTrue("the go-to entry is offered", dev.hasObject(By.descContains(Copy.goToPage)))
                 sc.onActivity { it.controller.toggleChrome() }
                 h.drain()
