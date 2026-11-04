@@ -293,7 +293,7 @@ private fun DrawerFolderRow(f: DrawerFolder, selected: Boolean, onOpen: () -> Un
                 Icon(AppIcons.Folder, null)
             }
         },
-        badge = { Text(Copy.folderCount(n.direct, n.total)) },
+        badge = { Text(Copy.folderCount(n.direct, n.total, n.hasChildren)) },
         selected = selected, onClick = onOpen,
     )
 }
@@ -424,7 +424,7 @@ private fun FolderList(rows: List<FolderNode>, onOpen: (String) -> Unit, onToggl
                     if (r.parent.isNotEmpty()) Text(r.parent, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1, overflow = TextOverflow.StartEllipsis)
                 }
-                Text(Copy.folderCount(r.direct, r.total), style = MaterialTheme.typography.labelMedium,
+                Text(Copy.folderCount(r.direct, r.total, r.hasChildren), style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }

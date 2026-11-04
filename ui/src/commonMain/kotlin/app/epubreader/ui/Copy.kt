@@ -33,8 +33,8 @@ object Copy {
     const val emptyCollection = "No books in this collection yet."
     const val emptyFolder = "No books in this folder."
     const val noFolders = "No folders with books."
-    /** "41", or "41 · 1 here" when some of them are in subfolders. */
-    fun folderCount(direct: Int, total: Int) = if (direct == 0 || direct == total) "$total" else "$total · $direct here"
+    /** "41", or "41 · 1 here" when the folder has subfolders with books and books of its own (C-090: "1 · 1 here" if they're the same book). */
+    fun folderCount(direct: Int, total: Int, hasChildren: Boolean) = if (direct == 0 || !hasChildren) "$total" else "$total · $direct here"
     const val includeSubfolders = "Subfolders"
     const val expand = "Show subfolders"
     const val collapse = "Hide subfolders"

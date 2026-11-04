@@ -14,7 +14,7 @@ data class DrawerFolders(val rows: List<DrawerFolder> = emptyList(), val showAll
     companion object {
         const val CAP = 15
 
-        fun build(direct: Map<String, Int>, expanded: Set<String>, cap: Int = CAP): DrawerFolders {
+        fun build(direct: Map<String, Set<String>>, expanded: Set<String>, cap: Int = CAP): DrawerFolders {
             if (direct.isEmpty()) return DrawerFolders()
             // names are compared over the whole tree, so a folder is told apart even while its namesake is folded away
             val names = FolderTree.build(direct, collapsed = emptySet()).groupingBy { it.name.lowercase() }.eachCount()

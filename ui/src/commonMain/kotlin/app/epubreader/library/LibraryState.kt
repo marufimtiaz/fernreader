@@ -106,7 +106,7 @@ class LibraryState(
         val inView = inView(all, view, p.includeSubfolders)
         val shown = arrange(inView, p.query, p.sort)
         val visible = all.mapTo(HashSet()) { it.id }
-        val counts = if (folderOn || view == LibraryView.Folders) folderCounts(all) else emptyMap()
+        val folders = if (folderOn || view == LibraryView.Folders) folderBooks(all) else emptyMap()
         LibraryUi(
             books = shown, total = all.size, query = p.query, searchOpen = p.searchOpen, layout = p.layout, sort = p.sort, scan = s,
             failures = fails,
@@ -122,8 +122,8 @@ class LibraryState(
             collections = cols.map { c -> CollectionSummary(c.id, c.name, all.count { c.id in it.collectionIds }) },
             selected = p.selected.filterTo(LinkedHashSet()) { it in visible },
             drawerOpen = p.drawerOpen, nested = p.views.size > 2, folderViewEnabled = folderOn, includeSubfolders = p.includeSubfolders,
-            folderTree = if (view == LibraryView.Folders) FolderTree.build(counts, p.collapsed) else emptyList(),
-            drawerFolders = if (folderOn) DrawerFolders.build(counts, p.drawerExpanded) else DrawerFolders(),
+            folderTree = if (view == LibraryView.Folders) FolderTree.build(folders, p.collapsed) else emptyList(),
+            drawerFolders = if (folderOn) DrawerFolders.build(folders, p.drawerExpanded) else DrawerFolders(),
         )
     }.flowOn(compute).stateIn(scope, SharingStarted.Eagerly, LibraryUi()) // R-005: sorting off the main thread
 
@@ -262,10 +262,10 @@ class LibraryState(
             }
         }
 
-        /** Books per folder that directly holds one of their files (a duplicate counts in each of its folders). */
-        fun folderCounts(all: List<LibraryBook>): Map<String, Int> {
-            val m = HashMap<String, Int>()
-            for (b in all) for (f in b.folders) m[f] = (m[f] ?: 0) + 1
+        /** The books of each folder that directly holds one of their files (a duplicate is in each of its folders, once). */
+        fun folderBooks(all: List<LibraryBook>): Map<String, Set<String>> {
+            val m = HashMap<String, MutableSet<String>>()
+            for (b in all) for (f in b.folders) m.getOrPut(f) { HashSet() } += b.id
             return m
         }
 
