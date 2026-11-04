@@ -154,7 +154,7 @@ class BookPagesTest {
                 assertTrue("a button", button?.isClickable == true)
                 val minPx = 48 * inst.targetContext.resources.displayMetrics.density - 1
                 assertTrue("48 dp target: ${button!!.visibleBounds}", button.visibleBounds.height() >= minPx && button.visibleBounds.width() >= minPx)
-                assertTrue("label text kept", dev.findObjects(By.text("Page i of 6")).any { button.visibleBounds.contains(it.visibleBounds) })
+                assertTrue("label text kept", dev.findObjects(By.text("i/6")).any { button.visibleBounds.contains(it.visibleBounds) })
                 label.click()
                 assertTrue("dialog", dev.wait(Until.hasObject(By.text(Copy.goToPage)), 5_000))
                 assertTrue("range shown", dev.hasObject(By.text(Copy.pageRange("i", "vi"))))

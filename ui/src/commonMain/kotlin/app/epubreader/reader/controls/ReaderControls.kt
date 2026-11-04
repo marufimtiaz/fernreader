@@ -100,8 +100,8 @@ fun BookInfoDialog(title: String, authors: List<String>, onDismiss: () -> Unit) 
  * keeps the page shown) around a tonal chip with the label and a dropdown mark, so it reads as tappable.
  */
 @Composable
-private fun GoToPageButton(pageLabel: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val entry = Copy.goToPageEntry(pageLabel)
+private fun GoToPageButton(pageLabel: String, spoken: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val entry = Copy.goToPageEntry(spoken)
     Box(
         modifier.heightIn(min = 48.dp).widthIn(min = 48.dp).clip(RoundedCornerShape(24.dp))
             .clickable(role = Role.Button, onClickLabel = Copy.goToPage, onClick = onClick)
@@ -125,7 +125,7 @@ private fun GoToPageButton(pageLabel: String, onClick: () -> Unit, modifier: Mod
  */
 @Composable
 fun ReaderBottomBar(
-    chapter: String?, pageLabel: String?, fraction: Double, a: ControlActions, modifier: Modifier = Modifier,
+    chapter: String?, pageLabel: String?, pageSpoken: String?, fraction: Double, a: ControlActions, modifier: Modifier = Modifier,
     /** C-083: tapping the page label opens "Go to page" (Book pages); null = not offered. */
     onPageLabel: (() -> Unit)? = null,
 ) {
@@ -143,9 +143,9 @@ fun ReaderBottomBar(
             Row(Modifier.padding(end = 12.dp).heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(chapter ?: "", maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge,
                     modifier = Modifier.weight(1f))
-                if (onPageLabel != null && pageLabel != null) GoToPageButton(pageLabel, onPageLabel, Modifier.padding(start = 4.dp))
+                if (onPageLabel != null && pageLabel != null) GoToPageButton(pageLabel, pageSpoken ?: pageLabel, onPageLabel, Modifier.padding(start = 4.dp))
                 else Text(pageLabel ?: "", maxLines = 1, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 12.dp))
+                    modifier = Modifier.padding(start = 12.dp).semantics { pageSpoken?.let { contentDescription = it } })
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 val shown = drag ?: fraction.toFloat()

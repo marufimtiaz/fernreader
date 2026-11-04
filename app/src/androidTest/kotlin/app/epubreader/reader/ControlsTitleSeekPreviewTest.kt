@@ -113,7 +113,7 @@ class ControlsTitleSeekPreviewTest {
                     assertTrue("a contents entry's title", c.state.value.toc.any { it.label.trim() == target })
                     assertNotEquals("the label changes from where the reader is", current, target)
                     inRow(target, slider) ?: throw AssertionError("target chapter '$target' shown mid-drag; on screen: ${texts()}")
-                    Copy.pageLabel(p.page)?.let { assertNotNull("target page '$it' shown mid-drag", inRow(it, slider)) }
+                    Copy.pageLabelShort(p.page)?.let { assertNotNull("target page '$it' shown mid-drag", inRow(it, slider)) }
                     h.drain(); assertEquals("the page did not move before release", before!!.sectionIndex, h.at!!.sectionIndex)
                     assertEquals(startFraction, c.state.value.fraction, 0.005)
 

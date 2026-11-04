@@ -113,13 +113,14 @@ fun ReaderScreen(
         }
         // F-034: always visible, in the page's bottom margin (32 px). Paged mode keeps that margin free of text; in scroll
         // mode text scrolls through it, so the label sits on a strip of page colour and the text passes under it.
-        if (!s.loading && s.error == null) Copy.pageLabel(page)?.let { label ->
+        if (!s.loading && s.error == null) Copy.pageLabelShort(page)?.let { label ->
+            val spoken = Copy.pageLabel(page) ?: label
             Box(
                 Modifier.align(Alignment.BottomCenter).navigationBarsPadding().fillMaxWidth().height(32.dp)
                     .background(MaterialTheme.colorScheme.background),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f))
+                Text(label, Modifier.semantics { contentDescription = spoken }, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f))
             }
         }
         if (s.chromeVisible && s.error == null) {
@@ -127,7 +128,7 @@ fun ReaderScreen(
             val p = preview
             ReaderBottomBar(
                 if (p != null) p.chapter else chapterLabel(s.toc, s.currentTocHref),
-                Copy.pageLabel(p?.page ?: page), p?.fraction ?: s.fraction, actions, Modifier.align(Alignment.BottomCenter),
+                Copy.pageLabelShort(p?.page ?: page), Copy.pageLabel(p?.page ?: page), p?.fraction ?: s.fraction, actions, Modifier.align(Alignment.BottomCenter),
                 onPageLabel = if (bookPages && page.page != null && p == null) c::showGoToPage else null,
             )
         }

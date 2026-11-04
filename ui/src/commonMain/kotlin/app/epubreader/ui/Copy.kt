@@ -107,6 +107,17 @@ object Copy {
     fun authorsLine(authors: List<String>) = authors.joinToString(", ").ifBlank { unknownAuthor }
     /** "12,345": grouping by thousands, no locale needed for digits. */
     private fun n(x: Int) = x.toString().reversed().chunked(3).joinToString(",").reversed()
+    /** C-091: what the reader shows, "212/718" ("xii/400" with print labels). [pageLabel] stays the spoken wording. */
+    fun pageLabelShort(p: app.epubreader.reader.PageIndicator): String? {
+        val page = p.page ?: return null
+        val shown = p.label ?: n(page)
+        val total = p.total ?: return shown
+        return when {
+            p.label != null || p.exact && !p.chapterScope -> "$shown/${n(total)}"
+            p.chapterScope -> "$shown/${n(total)} in chapter"
+            else -> "$shown/≈${n(total)}"
+        }
+    }
     fun pageLabel(p: app.epubreader.reader.PageIndicator): String? {
         val page = p.page ?: return null
         return when {
