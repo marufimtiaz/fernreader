@@ -112,6 +112,13 @@ contents, preface) and War and Peace. In the reader: Display panel → Layout �
 3. With Display → page animation "None", every turn is instant, boundaries included.
 4. Swipe twice quickly at a boundary: both turns happen, in order.
 
+**One at a time swipe, Resume (C-092, C-093).**
+
+1. In Scroll with Chapters: One at a time, swipe sideways on the text: the next chapter slides in at its top; swipe back: the
+   previous chapter at its end. Vertical scrolling and flings aren't delayed or stolen, including slow drags that start a
+   little diagonally. Sideways swipes on a wide table scroll the table.
+2. Read a book, go back to the library: the Resume button reopens it at the same place; it doesn't cover the last row.
+
 ## 3. Record the results
 
 In `docs/milestones/M9.md` → "Real-device pass": phone model, Android version, refresh rate, WebView version, the
