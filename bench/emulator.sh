@@ -30,7 +30,11 @@ check() {
 
 if [ "${1:-}" = check ]; then check; exit $?; fi
 if pgrep -f "qemu-system.*-avd $AVD" >/dev/null; then echo "emulator.sh: $AVD is already running"; check; exit $?; fi
-nohup "$SDK/emulator/emulator" -avd "$AVD" -no-audio -no-window -gpu "$GPU" -no-boot-anim -port 5554 >/tmp/emulator-$AVD.log 2>&1 &
+# In its own systemd scope: started from a tool's shell it would otherwise die with that tool's scope (a T3 Code restart
+# SIGKILLed it mid-benchmark, M9 part B). Stop it with `adb -s emulator-5554 emu kill`.
+SCOPE=()
+command -v systemd-run >/dev/null && SCOPE=(systemd-run --user --scope --collect --quiet --unit=fern-emulator)
+nohup "${SCOPE[@]}" "$SDK/emulator/emulator" -avd "$AVD" -no-audio -no-window -gpu "$GPU" -no-boot-anim -port 5554 >/tmp/emulator-$AVD.log 2>&1 &
 "$A" -s emulator-5554 wait-for-device
 for _ in $(seq 1 120); do [ "$("$A" -s emulator-5554 shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ] && break; sleep 2; done
 for _ in $(seq 1 60); do "$A" -s emulator-5554 shell ls /sdcard/Books >/dev/null 2>&1 && break; sleep 2; done # storage mounted
