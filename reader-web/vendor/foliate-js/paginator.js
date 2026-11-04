@@ -5,6 +5,9 @@
 // LOCAL PATCH (M9 C-085, see PATCHES.md): `chapter-stop` attribute ("Chapters: One at a time" in scroll mode): stack mode
 // holds only the current section, so scrolling stops at its end; a control below its last line (above its first line)
 // or a deliberate overscroll pull opens the next (previous) section (#edges, pullStep).
+// LOCAL PATCH (M9 C-093, see PATCHES.md): in One at a time a clearly horizontal gesture (sideLock, decided on the first
+// move past the touch slop) is reported as a `swipe`; the host answers with turnChapter(), which slides the adjacent
+// chapter in. Those chapters wait laid out in hidden slots outside the stack (`side` entries).
 // LOCAL PATCH (M9 C-071, see PATCHES.md): a turn into a preloaded neighbour section slides (`animated`) instead of
 // swapping instantly: #slideIn moves the old and the new slot side by side over 300 ms.
 // LOCAL PATCH (M6 Task 9, see PATCHES.md): `vertical-pages` attribute: vertical-rl sections paged right-to-left as
@@ -70,6 +73,31 @@ export const pullStep = (p, { y, atStart, atEnd }) => {
 export const pullThreshold = viewport => Math.max(96, viewport * 0.2)
 /** 1 = open the next section, -1 = the previous one, 0 = no turn. */
 export const pullTurn = (p, threshold) => p?.next >= threshold ? 1 : p?.prev >= threshold ? -1 : 0
+// local patch (C-093): the direction lock of a sideways swipe in "one chapter at a time" scrolling. [lock]: null until
+// the finger has moved [SIDE_LOCK_PX] from where it went down ([dx], [dy]: that movement, CSS px); Chromium holds back
+// touchmoves inside its touch slop (8 dp), so the first move a page sees decides, and that one is also the only one
+// that can still stop the native scroll. 'side': clearly horizontal, a chapter swipe so far; 'off': not one, for the
+// rest of the gesture (a scroll never turns into a swipe, and a swipe that drifts out of the angle is dropped).
+const SIDE_LOCK_PX = 8
+const SIDE_RATIO = 2
+export const sideLock = (lock, dx, dy) => {
+    if (lock === 'off') return 'off'
+    const x = Math.abs(dx), y = Math.abs(dy)
+    if (lock == null && Math.max(x, y) < SIDE_LOCK_PX) return null
+    return x >= SIDE_RATIO * y ? 'side' : 'off'
+}
+/**
+ * Local patch (C-093): whether [el] is inside content that scrolls sideways by itself (a wide table or `pre` in an
+ * overflow box). The document root is left out: a section's frame has `scrolling="no"`.
+ */
+export const scrollsSideways = el => {
+    for (; el?.parentElement; el = el.parentElement) {
+        if (el.scrollWidth <= el.clientWidth + 1) continue
+        const { overflowX } = el.ownerDocument.defaultView.getComputedStyle(el)
+        if (overflowX === 'auto' || overflowX === 'scroll') return true
+    }
+    return false
+}
 const animate = (a, b, duration, ease, render) => new Promise(resolve => {
     let start
     const step = now => {
@@ -612,8 +640,9 @@ export class Paginator extends HTMLElement {
     get #single() { return this.#stack && this.hasAttribute('chapter-stop') }
     #mode = null // 'paged' | 'stack' | 'single' | null: what the cached slots are laid out for
     #stackTop = 0 // offsetTop of the current slot when the scroll position was last set or fixed
-    #slotStyle(slot, current) {
-        slot.style.cssText = this.#stack ? ''
+    // [side] (C-093): a chapter next to the current one in One at a time, laid out and hidden, outside the stack's flow
+    #slotStyle(slot, current, side = false) {
+        slot.style.cssText = this.#stack && !side ? ''
             : current ? 'height: 100%'
             : 'position: absolute; inset: 0; overflow: hidden; visibility: hidden; pointer-events: none'
     }
@@ -663,8 +692,10 @@ export class Paginator extends HTMLElement {
     /** C-085: the first and last section of the chapter [index] is in; [chapterSpan] is the host's (parts of one document). */
     chapterSpan = null
     #span(index) { return this.chapterSpan?.(index) ?? [index, index] }
+    /** The slots of the stack, without the hidden chapters beside it (C-093). */
+    get #stacked() { return [...this.#cache.values()].filter(e => !e.side) }
     #padStack() {
-        const last = Math.max(-1, ...this.#cache.keys())
+        const last = Math.max(-1, ...this.#stacked.map(e => e.index))
         const vh = this.#container.clientHeight
         let h = 0
         if (this.#stack && last >= 0) {
@@ -738,7 +769,7 @@ export class Paginator extends HTMLElement {
     #ensureStack() {
         this.#padStack()
         if (!this.#stack || this.#jumping) return
-        const entries = [...this.#cache.values()].sort((a, b) => a.index - b.index)
+        const entries = this.#stacked.sort((a, b) => a.index - b.index)
         if (!entries.length) return
         const el = this.#container, vh = el.clientHeight || 1, top = el.scrollTop
         const first = entries[0], last = entries.at(-1)
@@ -846,7 +877,7 @@ export class Paginator extends HTMLElement {
         const y = this.#container.scrollTop + 1
         for (const e of this.#cache.values()) {
             const { offsetTop, offsetHeight } = e.slot
-            if (e.loaded && e.index !== this.#index && y >= offsetTop && y < offsetTop + offsetHeight) {
+            if (e.loaded && !e.side && e.index !== this.#index && y >= offsetTop && y < offsetTop + offsetHeight) {
                 this.#view = e.view
                 this.#index = e.index
                 this.#stackTop = offsetTop
@@ -856,9 +887,9 @@ export class Paginator extends HTMLElement {
         }
         return false
     }
-    #newEntry(index, current) {
+    #newEntry(index, current, side = false) {
         const slot = document.createElement('div')
-        this.#slotStyle(slot, current)
+        this.#slotStyle(slot, current, side)
         const view = new View({
             container: this,
             // local patch (C-079): a jump's anchor is re-applied only until the user scrolls; otherwise the text on
@@ -871,11 +902,11 @@ export class Paginator extends HTMLElement {
         })
         slot.append(view.element)
         // in reading order, so stacked slots read top to bottom
-        const after = [...this.#cache.values()].filter(e => e.index > index).sort((a, b) => a.index - b.index)[0]
+        const after = side ? null : this.#stacked.filter(e => e.index > index).sort((a, b) => a.index - b.index)[0]
         this.#padStack()
         this.#keepStack(() => this.#container.insertBefore(slot, after?.slot ?? this.#stackPad))
         this.#padStack()
-        const entry = { index, slot, view, loaded: false }
+        const entry = { index, slot, view, loaded: false, side }
         this.#cache.set(index, entry)
         return entry
     }
@@ -912,9 +943,9 @@ export class Paginator extends HTMLElement {
             $style.textContent = styles[1]
         } else $style.textContent = styles
     }
-    #preloadIndex(index) {
-        if (index == null || this.#cache.has(index)) return
-        const entry = this.#newEntry(index, false)
+    #preloadIndex(index, side = false) {
+        if (index == null || this.#cache.has(index) || (side && this.#noStack.has(index))) return
+        const entry = this.#newEntry(index, false, side)
         entry.ready = (async () => {
             const src = await this.sections[index].load()
             if (this.#cache.get(index) !== entry) return // evicted meanwhile (its unload released the section)
@@ -942,12 +973,15 @@ export class Paginator extends HTMLElement {
     #afterSwap(below = false) {
         if (this.#single) { // C-085: the current chapter alone (its parts, if split), between its edge controls
             const [f, l] = this.#span(this.#index)
-            for (const i of [...this.#cache.keys()]) if (i < f || i > l) this.#evict(i)
+            const sides = [this.#chapterTarget(1), this.#chapterTarget(-1)] // C-093: ready to slide in
+            for (const [i, e] of [...this.#cache]) if ((i < f || i > l) && !(e.side && sides.includes(i))) this.#evict(i)
             this.#placeEdges()
             this.#preloadIndex(this.#nextStacked(this.#index, 1))
             if (!below) this.#preloadIndex(this.#nextStacked(this.#index, -1))
+            for (const i of sides) this.#preloadIndex(i, true)
             return
         }
+        for (const [i, e] of [...this.#cache]) if (e.side) this.#evict(i) // left One at a time
         this.#placeEdges()
         if (!this.#preload) return
         if (below) { this.#preloadIndex(this.#adjacentIndex(1)); return }
@@ -962,6 +996,7 @@ export class Paginator extends HTMLElement {
         if (!entry.loaded || this.#cache.get(index) !== entry) return false
         const cur = this.#cache.get(this.#index)
         if (cur) this.#slotStyle(cur.slot, false)
+        entry.side = false
         this.#slotStyle(entry.slot, true)
         this.#view = entry.view
         this.#index = index
@@ -1002,7 +1037,7 @@ export class Paginator extends HTMLElement {
         return { scrollTop: this.#container.scrollTop, viewport: this.#container.clientHeight, current: this.#index, stackTop: this.#stackTop, mode: this.#mode,
             slots: [...this.#container.children].map(el => {
                 const e = [...this.#cache.values()].find(x => x.slot === el)
-                return { index: e?.index, top: el.offsetTop, height: el.offsetHeight, loaded: e?.loaded, css: e ? undefined : el.style.cssText.slice(0, 90), raw: el === this.#view?.element }
+                return { index: e?.index, top: el.offsetTop, height: el.offsetHeight, loaded: e?.loaded, side: e?.side, css: e ? undefined : el.style.cssText.slice(0, 90), raw: el === this.#view?.element }
             }) }
     }
     /** True while a page turn or a jump is running (navigation is locked). */
@@ -1514,6 +1549,7 @@ export class Paginator extends HTMLElement {
             vx: 0, xy: 0,
             // local patch (host-swipe): where and when the gesture started, and whether a second finger joined
             x0: touch?.screenX, y0: touch?.screenY, t0: e.timeStamp, multi: e.touches.length > 1,
+            lock: e.touches.length > 1 ? 'off' : null, // local patch (C-093): sideLock
         }
     }
     #onTouchMove(e) {
@@ -1521,7 +1557,10 @@ export class Paginator extends HTMLElement {
         if (!state) return // local patch: a move without a start (began outside) is ignored
         if (state.pinched) return
         state.pinched = globalThis.visualViewport.scale > 1
-        if (this.#single && !state.pinched) this.#pullMove(e) // local patch (C-085)
+        if (this.#single && !state.pinched) { // local patch (C-085, C-093)
+            this.#sideMove(e, state)
+            this.#pullMove(e)
+        }
         if (this.scrolled || state.pinched) return
         if (e.touches.length > 1) {
             state.multi = true
@@ -1545,18 +1584,16 @@ export class Paginator extends HTMLElement {
     }
     #onTouchEnd(e) {
         this.#touchScrolled = false
-        if (this.scrolled) { this.#pullEnd(e); return } // local patch (C-085)
+        if (this.scrolled) { // local patch (C-085, C-093): a gesture is either a swipe or a pull, never both
+            this.#sideEnd(e)
+            this.#pullEnd(e)
+            return
+        }
         // local patch (host-swipe): report the finished one-finger gesture as a `swipe` event (finger displacement in
         // CSS px, positive = right/down, and its duration in ms) instead of scrollBy/snap, so every swipe can go through
         // the host's turn queue (a swipe during a turn animation or before the first layout is not lost)
         if (this.hasAttribute('host-swipe')) {
-            const state = this.#touchState
-            const touch = e?.changedTouches?.[0]
-            if (!state || !touch || state.multi || state.pinched || e.touches?.length
-                || globalThis.visualViewport?.scale > 1) return
-            this.dispatchEvent(new CustomEvent('swipe', { detail: {
-                dx: touch.screenX - state.x0, dy: touch.screenY - state.y0, dt: e.timeStamp - state.t0,
-            } }))
+            this.#reportSwipe(e)
             return
         }
 
@@ -1567,6 +1604,38 @@ export class Paginator extends HTMLElement {
             if (globalThis.visualViewport.scale === 1)
                 this.snap(this.#touchState.vx, this.#touchState.vy)
         })
+    }
+    /** Local patch (host-swipe): the finished one-finger, unpinched gesture as a `swipe` event. */
+    #reportSwipe(e) {
+        const state = this.#touchState
+        const touch = e?.changedTouches?.[0]
+        if (!state || !touch || state.multi || state.pinched || e.touches?.length
+            || globalThis.visualViewport?.scale > 1) return
+        this.dispatchEvent(new CustomEvent('swipe', { detail: {
+            dx: touch.screenX - state.x0, dy: touch.screenY - state.y0, dt: e.timeStamp - state.t0,
+        } }))
+    }
+    /**
+     * Local patch (C-093), a move in One at a time. Only a gesture that has locked sideways is touched: it stops being a
+     * pull, and the native scroll stays out of it (cancelling the first move is what does that). Text being selected and
+     * content that scrolls sideways by itself keep their gesture. A vertical one is never cancelled, so it isn't delayed.
+     */
+    #sideMove(e, state) {
+        const touch = e.changedTouches?.[0]
+        if (!touch || e.touches?.length > 1) { state.lock = 'off'; return }
+        const first = state.lock == null
+        state.lock = sideLock(state.lock, touch.screenX - state.x0, touch.screenY - state.y0)
+        if (state.lock !== 'side') return
+        const sel = first ? e.target.ownerDocument?.getSelection?.() : null
+        if (first && ((sel && !sel.isCollapsed) || scrollsSideways(e.target))) { state.lock = 'off'; return }
+        this.#pull = null
+        this.#armEdges(0)
+        if (e.cancelable) e.preventDefault()
+    }
+    #sideEnd(e) {
+        const state = this.#touchState, touch = e?.changedTouches?.[0]
+        if (!this.#single || !state?.lock || !touch) return
+        if (sideLock(state.lock, touch.screenX - state.x0, touch.screenY - state.y0) === 'side') this.#reportSwipe(e)
     }
     // allows one to process rects as if they were LTR and horizontal
     #getRectMapper() {
@@ -1721,7 +1790,8 @@ export class Paginator extends HTMLElement {
         // resume) comes here in both flows; in stack mode the old position's sections go first, so nothing restores it
         if (!this.#stack) return this.#goToTarget(target)
         return this.#navigate(async () => {
-            for (const i of [...this.#cache.keys()]) if (i !== target.index && i !== this.#index) this.#evict(i)
+            // (side slots stay: they hold nothing the old position could restore, and #afterSwap drops those out of reach)
+            for (const [i, e] of [...this.#cache]) if (i !== target.index && i !== this.#index && !e.side) this.#evict(i)
             if (target.index !== this.#index && this.#cache.has(this.#index) && this.#cache.get(target.index)?.loaded) {
                 this.#evict(this.#index) // the target is laid out already: it takes over alone
             }
@@ -1876,6 +1946,66 @@ export class Paginator extends HTMLElement {
             to.slot.style.transform = ''
             old.style.transform = ''
             if (this.#cache.get(this.#index)?.slot !== old) this.#slotStyle(old, false)
+        }
+    }
+    /**
+     * Local patch (C-093): the chapter after ([dir] 1, at its top) or before (-1, at its end) comes in the way a page turn
+     * does, then it is opened like the Next and Previous controls open it. The book's first and last chapters have
+     * nothing on that side: nothing happens, as at the book's ends in paged flow.
+     */
+    async turnChapter(dir) {
+        if (this.#locked) return
+        this.#locked = true
+        try {
+            const index = this.#chapterTarget(dir)
+            if (index == null || !this.#single) return
+            const anchor = dir > 0 ? 0 : 1
+            if (this.hasAttribute('animated') && !document.hidden) {
+                this.#preloadIndex(index, true) // only if the swipe came before its slot did
+                const entry = this.#cache.get(index)
+                await entry?.ready
+                if (this.#chapterTarget(dir) !== index) return // a jump got in first
+                if (entry?.loaded && this.#cache.get(index) === entry) await this.#slideChapter(entry, dir, anchor)
+            }
+            await this.#goTo({ index, anchor })
+        } finally { this.#locked = false }
+    }
+    /**
+     * Local patch (C-093): the boundary slide of scrolled flow. The stack stays as it is, scrolled where it was, and moves
+     * out with its edge controls; [to] (a side slot) is staged over the viewport showing the screen it opens at
+     * ([anchor]: 0 its top, 1 its end). The swap follows in the same frame as the last step (#goTo is synchronous up to
+     * the scroll for a loaded section), so the stage's picture and the stack's are one.
+     */
+    async #slideChapter(to, dir, anchor) {
+        const el = this.#container
+        const from = this.#cache.get(this.#index)
+        const width = el.getBoundingClientRect().width
+        if (!from || !(width > 0)) return
+        const moving = [...this.#stacked.map(e => e.slot), this.#edgeHead, this.#edgeFoot]
+        const height = el.clientHeight
+        to.slot.style.cssText = `position: absolute; top: ${el.scrollTop}px; left: 0; width: 100%; height: ${height}px; overflow: hidden; pointer-events: none`
+        to.slot.scrollTop = anchor ? Math.max(0, to.view.element.getBoundingClientRect().height - height) : 0
+        el.style.overflow = 'hidden' // nothing scrolls under the slide, and the moving slots add no scroll range
+        const sign = slideSign(dir, this.#rtl)
+        const frames = []
+        this.#lastSlide = frames
+        this.#sliding = { from, to }
+        // a touch during the slide lands on the paginator, not on a frame the swap destroys: its swipe must not be lost
+        for (const m of moving) m.style.pointerEvents = 'none'
+        const set = t => {
+            const f = slideFrame(t, sign, width)
+            for (const m of moving) m.style.transform = `translateX(${f.old}px)`
+            to.slot.style.transform = `translateX(${f.next}px)`
+            frames.push({ t, old: f.old, next: f.next, at: performance.now() })
+        }
+        try {
+            set(0)
+            await animate(0, 1, SLIDE_MS, easeOutQuad, set)
+        } finally {
+            this.#sliding = null
+            for (const m of moving) { m.style.transform = ''; m.style.pointerEvents = '' }
+            to.slot.style.transform = ''
+            el.style.overflow = ''
         }
     }
     prev(distance) {

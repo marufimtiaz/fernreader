@@ -1,7 +1,8 @@
 /**
- * Swipe recognition for page turns (F-032). The paginator reports each finished one-finger gesture in paginated flow as
- * its finger displacement ([dx], [dy] in CSS px, positive = right / down) and duration [dt] in ms; this decides whether
- * it was a page turn and which way. Every recognised swipe is exactly one turn, queued like a bridge turn (C-026).
+ * Swipe recognition for page turns (F-032). The paginator reports each finished one-finger gesture in paginated flow,
+ * and each clearly horizontal one in One at a time scrolling (C-093, a chapter turn), as its finger displacement ([dx],
+ * [dy] in CSS px, positive = right / down) and duration [dt] in ms; this decides whether it was a turn and which way.
+ * Every recognised swipe is exactly one turn, queued like a bridge turn (C-026).
  */
 
 export type Dir = 'ltr' | 'rtl'

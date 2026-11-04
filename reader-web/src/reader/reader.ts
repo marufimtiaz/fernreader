@@ -477,9 +477,9 @@ export class Reader {
   }
 
   /** At most [MAX_TURNS] pending; more are dropped (a burst of taps still moves that many pages, in order). */
-  private turn(dir: 'next' | 'prev') {
+  private turn(dir: 'next' | 'prev', chapter = false) {
     if (this.queue.filter(c => c.kind === 'turn').length >= MAX_TURNS) return
-    this.enqueue({ kind: 'turn', dir })
+    this.enqueue({ kind: 'turn', dir, chapter })
   }
 
   /** Commands that arrive while the open is still loading wait for it (C1: the resume goTo after `opened`). */
@@ -501,7 +501,10 @@ export class Reader {
         const c = this.queue.shift()!
         if (c.kind === 'turn') {
           // Resolves after the turn (and foliate's lock) is over, so the next one is not ignored.
-          try { await (c.dir === 'next' ? view.next() : view.prev()) } catch (e) { console.warn('turn failed', e) }
+          try {
+            if (c.chapter) await view.renderer.turnChapter(c.dir === 'next' ? 1 : -1)
+            else await (c.dir === 'next' ? view.next() : view.prev())
+          } catch (e) { console.warn('turn failed', e) }
           continue
         }
         if (c.kind === 'clearSearch') { this.clearSearch(view); continue }
@@ -817,7 +820,8 @@ export class Reader {
   /**
    * A finished one-finger gesture in paginated flow, reported by the paginator (`host-swipe`, PATCHES.md): one recognised
    * swipe = one queued turn, so a swipe during a running turn or before the first layout settled is not lost (C-026).
-   * Ignored while text is selected (the gesture was a selection drag).
+   * Ignored while text is selected (the gesture was a selection drag). In scrolled flow only One at a time reports
+   * swipes, those clearly horizontal (C-093): the turn is to the next or previous chapter.
    */
   private onSwipe(view: any, d: { dx: number; dy: number; dt: number } | null) {
     if (this.view !== view || !this.sessionId || !d) return
@@ -826,7 +830,7 @@ export class Reader {
     const doc = contents[0]?.doc
     const vertical = !!doc?.defaultView?.getComputedStyle(doc.documentElement).writingMode?.startsWith('vertical')
     const t = swipeToTurn(d.dx, d.dy, d.dt, effectiveDir(this.settings.swipeDirection, this.book?.dir), vertical)
-    if (t) this.turn(t)
+    if (t) this.turn(t, view.renderer.getAttribute?.('flow') === 'scrolled')
   }
 
   /**
@@ -961,7 +965,7 @@ const MAX_TURNS = 3
  */
 const SEARCH_COLOR = '#ff9800'
 
-type Cmd = { kind: 'turn'; dir: 'next' | 'prev' } | { kind: 'goTo'; target: string; id?: number } | { kind: 'fraction'; fraction: number; id?: number }
+type Cmd = { kind: 'turn'; dir: 'next' | 'prev'; chapter?: boolean } | { kind: 'goTo'; target: string; id?: number } | { kind: 'fraction'; fraction: number; id?: number }
   | { kind: 'offset'; index: number; offset: number }
   | { kind: 'text'; index: number; offset: number; length: number; needle: string } | { kind: 'clearSearch' }
 
