@@ -114,7 +114,9 @@ class HugeChapterChunkTest {
 
     private suspend fun ActivityScenario<MainActivity>.drawnText(id: String): String = withTimeout(15_000) {
         while (true) {
-            ((jsValue("window.__readerTest.annotation(${JSONObject.quote(id)})") as? JSONObject)?.takeIf { !it.isNull("text") })?.let { return@withTimeout it.getString("text") }
+            // (the page can be busy with the 10 MB chapter for longer than one read's 5 s: the 15 s above are the limit)
+            val drawn = try { jsValue("window.__readerTest.annotation(${JSONObject.quote(id)})") as? JSONObject } catch (e: TimeoutCancellationException) { null }
+            drawn?.takeIf { !it.isNull("text") }?.let { return@withTimeout it.getString("text") }
             delay(100)
         }
         @Suppress("UNREACHABLE_CODE") error("unreachable")
