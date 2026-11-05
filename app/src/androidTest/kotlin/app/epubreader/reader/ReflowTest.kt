@@ -40,6 +40,7 @@ class ReflowTest {
                 assertEquals(ReaderSettings.MIN_FONT, scale, 1e-9)
             } finally {
                 h.change { ReaderSettings() }
+                h.a.settingsStored()
                 h.stop()
             }
         }
@@ -66,6 +67,7 @@ class ReflowTest {
                 assertEquals("1.3", h.str("window.__readerTest.htmlVar($next, '--er-font-scale')"))
             } finally {
                 h.change { ReaderSettings() }
+                h.a.settingsStored()
                 h.stop()
             }
         }

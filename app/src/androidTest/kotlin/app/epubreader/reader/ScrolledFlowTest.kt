@@ -58,7 +58,7 @@ class ScrolledFlowTest {
                 assertTrue("next chapter not on screen: $st", next.getDouble("top") < st.getDouble("scrollTop") + st.getDouble("viewport"))
                 dragUp()
                 assertEquals(i + 1, h.relocate(4_000) { it.sectionIndex != i }.sectionIndex)
-            } finally { h.change { ReaderSettings() }; h.stop() }
+            } finally { h.change { ReaderSettings() }; h.a.settingsStored(); h.stop() }
         }
     }
 
@@ -83,7 +83,7 @@ class ScrolledFlowTest {
                 dev.swipe(dev.displayWidth / 2, dev.displayHeight / 3, dev.displayWidth / 2, dev.displayHeight * 2 / 3, 40)
                 val r = h.relocate(4_000) { it.sectionIndex == k - 1 }
                 assertEquals(k - 1, r.sectionIndex)
-            } finally { h.change { ReaderSettings() }; h.stop() }
+            } finally { h.change { ReaderSettings() }; h.a.settingsStored(); h.stop() }
         }
     }
 }
