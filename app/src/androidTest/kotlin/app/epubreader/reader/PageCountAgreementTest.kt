@@ -28,7 +28,7 @@ class PageCountAgreementTest {
                 val wrong = mutableListOf<String>()
                 for (scale in listOf(1.0, 1.4)) {
                     sc.onActivity { it.controller.updateSettings { s -> s.copy(fontScale = scale) } }
-                    delay(400)
+                    delay(400) // the web side's count timer: until it fires `exact` still reads as the old layout's
                     withTimeout(20_000) { h.a.controller.page.first { it.exact } }
                     for (i in linear.filterIndexed { k, _ -> k % 8 == 3 }) {
                         h.drain()
@@ -38,10 +38,10 @@ class PageCountAgreementTest {
                         var visible = -1
                         var tries = 0
                         while (tries++ < 20) { // two equal readings 150 ms apart
-                            delay(150)
                             val p = org.json.JSONObject(org.json.JSONTokener(sc.js("JSON.stringify(window.__readerTest.page())")).nextValue() as String).getInt("textPages")
                             if (p == visible) break
                             visible = p
+                            delay(150)
                         }
                         val counted = h.a.controller.countedPages(i)
                         if (counted != visible) wrong += "font $scale section $i: counted $counted, visible $visible"
@@ -49,7 +49,7 @@ class PageCountAgreementTest {
                 }
                 Log.i("EPR", "agreement mismatches: $wrong")
                 assertEquals(emptyList<String>(), wrong)
-            } finally { sc.onActivity { it.controller.updateSettings { ReaderSettings() } }; h.stop() }
+            } finally { sc.onActivity { it.controller.updateSettings { ReaderSettings() } }; h.a.settingsStored(); h.stop() }
         }
     }
 
@@ -72,10 +72,10 @@ class PageCountAgreementTest {
                     var visible = -1
                     var tries = 0
                     while (tries++ < 20) {
-                        delay(150)
                         val p = org.json.JSONObject(org.json.JSONTokener(sc.js("JSON.stringify(window.__readerTest.page())")).nextValue() as String).getInt("textPages")
                         if (p == visible) break
                         visible = p
+                        delay(150)
                     }
                     val counted = h.a.controller.countedPages(i)
                     if (counted != visible) wrong += "section $i: counted $counted, visible $visible"
