@@ -8,6 +8,8 @@ import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.UiObject2
 import androidx.test.uiautomator.Until
 import app.epubreader.MainActivity
+import app.epubreader.settled
+import app.epubreader.waitFresh
 import app.epubreader.core.data.Flow
 import app.epubreader.core.data.ReaderSettings
 import app.epubreader.ui.Copy
@@ -32,7 +34,8 @@ import org.junit.runner.RunWith
 class ReadingModeSyncTest {
     private val dev = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
 
-    private fun obj(text: String): UiObject2 = checkNotNull(dev.wait(Until.findObject(By.text(text)), 5_000)) { "no '$text' on screen" }
+    /** Standing still: a click on a list that still moves can miss. */
+    private fun obj(text: String): UiObject2 = checkNotNull(dev.settled(By.text(text), 5_000)) { "no '$text' on screen" }
 
     /** The segmented button whose label is [text]: the label is a child TextView of the checkable button node. */
     private fun button(text: String): UiObject2 {
@@ -93,7 +96,7 @@ class ReadingModeSyncTest {
                 assertTrue(dev.findObject(By.text(Copy.flowScrolled)) == null)
                 assertTrue(enabled(Copy.animSlide))
                 sc.onActivity { it.controller.hideSettings() }
-                delay(500)
+                assertTrue("settings sheet closed", waitFresh(5_000) { !dev.hasObject(By.text(Copy.pageAnimation)) })
 
                 // 2. Display panel: the one place; choose Scroll.
                 sc.onActivity { it.controller.showDisplay() }
@@ -103,7 +106,7 @@ class ReadingModeSyncTest {
                 obj(Copy.flowScrolled).click()
                 withTimeout(5_000) { h.a.controller.settings.first { it.flow == Flow.SCROLLED } }
                 sc.onActivity { it.controller.hideDisplay() }
-                delay(500)
+                assertTrue("display panel closed", waitFresh(5_000) { !dev.hasObject(By.text(Copy.textSize)) })
 
                 // 3. The sheet greys the animation out in Scroll mode.
                 sc.onActivity { it.controller.showSettings() }
@@ -111,7 +114,7 @@ class ReadingModeSyncTest {
                 assertFalse("animation must be disabled in Scroll mode", enabled(Copy.animSlide))
                 assertTrue(dev.findObject(By.text(Copy.layout)) == null)
                 sc.onActivity { it.controller.hideSettings() }
-                delay(500)
+                assertTrue("settings sheet closed", waitFresh(5_000) { !dev.hasObject(By.text(Copy.pageAnimation)) })
 
                 // 4. Settings → Reading: no Reading mode row; the animation row says why it is off.
                 sc.onActivity { it.nav.push(Route.Settings) }
@@ -119,7 +122,7 @@ class ReadingModeSyncTest {
                 assertNotNull(settingsFind(Copy.appliesToPageMode))
                 assertTrue("no Reading mode in Settings", settingsFind(Copy.layout) == null)
                 sc.onActivity { it.goBack() }
-                delay(800)
+                assertTrue("back from Settings", waitFresh(5_000) { !dev.hasObject(By.text(Copy.pageNumbers)) })
 
                 // 5. Back to Pages from the panel: the animation is on again.
                 sc.onActivity { it.controller.showDisplay() }
@@ -127,7 +130,7 @@ class ReadingModeSyncTest {
                 obj(Copy.flowPaged).click()
                 withTimeout(5_000) { h.a.controller.settings.first { it.flow == Flow.PAGED } }
                 sc.onActivity { it.controller.hideDisplay() }
-                delay(500)
+                assertTrue("display panel closed", waitFresh(5_000) { !dev.hasObject(By.text(Copy.textSize)) })
                 sc.onActivity { it.controller.showSettings() }
                 assertTrue(enabled(Copy.animSlide))
                 assertTrue(dev.findObject(By.text(Copy.appliesToPageMode)) == null)
@@ -135,6 +138,7 @@ class ReadingModeSyncTest {
                 assertEquals(Flow.PAGED, h.a.controller.settings.value.flow)
             } finally {
                 sc.onActivity { it.controller.updateSettings { ReaderSettings() } }
+                h.a.settingsStored()
                 h.stop()
             }
         }
