@@ -126,7 +126,7 @@ class NavigationInBothFlowsTest(private val flow: Flow, private val chapters: Sc
 
         val moves = mutableListOf<FromWeb.Relocate>()
         val watch = launch(start = CoroutineStart.UNDISPATCHED) { a.reader.events.filterIsInstance<FromWeb.Relocate>().collect { moves += it } }
-        delay(3_000)
+        delay(3_000) // the check that it stays there: fixed
         watch.cancel()
         val later = check()
         val second = spot()
@@ -156,7 +156,7 @@ class NavigationInBothFlowsTest(private val flow: Flow, private val chapters: Sc
                 for (id in madeAnnotations) runCatching { graph.annotations.remove(id) }
                 for (id in madeBookmarks) runCatching { graph.bookmarks.remove(id) }
                 sc.onActivity { it.controller.updateSettings { ReaderSettings() } }
-                delay(800)
+                h.a.settingsStored()
                 h.stop()
             }
         }
@@ -166,8 +166,7 @@ class NavigationInBothFlowsTest(private val flow: Flow, private val chapters: Sc
     private suspend fun ReaderHarness.openBook(f: File, title: String) {
         open(f)
         withTimeout(15_000) { a.controller.state.first { it.title.contains(title, ignoreCase = true) && it.toc.isNotEmpty() } }
-        delay(1_000) // the flow change and the first layout
-        drain(); settle()
+        quiet() // the flow change and the first layout
     }
 
     /** War and Peace's BOOK entries (far apart), or every usable entry if the labels differ. */
@@ -194,8 +193,7 @@ class NavigationInBothFlowsTest(private val flow: Flow, private val chapters: Sc
     /** Goes to a known place (a Contents jump) and waits until it is quiet there. */
     private suspend fun ReaderHarness.startAt(item: TocItem): FromWeb.Relocate {
         contentsJump(item, "start")
-        delay(1_000); drain()
-        return settle()
+        return quiet()
     }
 
     private suspend fun bookId(f: File): String = withTimeout(10_000) {
@@ -260,7 +258,7 @@ class NavigationInBothFlowsTest(private val flow: Flow, private val chapters: Sc
         repeat(15) {
             if (onScreen) return@repeat
             onScreen = (h.sc.jsValue("window.__readerTest.linkRect(${JSONObject.quote(LINK)})") as? JSONObject)?.onScreen() == true
-            if (!onScreen) { h.send(ToWeb.Next()); delay(1_000); h.drain(); h.settle() }
+            if (!onScreen) { h.send(ToWeb.Next()); h.quiet() }
         }
         assertTrue("link '$LINK' never came fully on screen ($flow)", onScreen)
         val origin = h.spot()
@@ -387,21 +385,21 @@ class NavigationInBothFlowsTest(private val flow: Flow, private val chapters: Sc
         val from = h.startAt(p[p.size / 2])
         h.send(ToWeb.Next()) // a place inside the section, not a Contents target
         h.relocate { it.cfi != from.cfi }
-        delay(1_000)
+        h.still()
         val stopped = h.spot()
         val block = stopped.block
         assertNotNull("block where the reader stopped", block)
 
         h.sc.onActivity { it.goBack() }
         withTimeout(10_000) { h.a.controller.state.first { !it.open } }
-        delay(800) // the close-out stores the last position
 
-        // Reopen without any jump of the test's own (open() would settle with a goTo to wherever it landed).
+        // Reopen without any jump of the test's own (open() would settle with a goTo to wherever it landed). The open
+        // waits for the close-out, which stores the last position (ReaderController.open).
         h.drain()
         h.sc.onActivity { it.openBook(SourceRef.File(wp.path)) }
         h.landing("resume", 20_000) { true }
         withTimeout(15_000) { h.a.controller.state.first { !it.loading && it.title.contains(WAR_AND_PEACE, ignoreCase = true) && it.toc.isNotEmpty() } }
-        delay(500)
+        h.still()
         h.assertLandsAndHolds("resume", stopped.relocated) {
             if (h.sc.blockVisible(block!!)) null else "block '$block' not visible (first block ${h.sc.firstVisibleBlock()})"
         }

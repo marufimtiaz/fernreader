@@ -15,6 +15,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -50,7 +51,7 @@ class ChaptersOneAtATimeChunkedTest {
                 sc.onActivity { it.openBook(SourceRef.File(f.path)) }
                 h.relocate(120_000); h.painted(60_000)
                 withTimeout(30_000) { h.a.controller.state.first { !it.loading } }
-                delay(3_000); h.drain()
+                h.still(timeoutMs = 60_000); h.drain()
                 android.util.Log.i("C085", "opened at ${h.at}")
 
                 // the split document: its parts are one chapter (span over several sections)
@@ -64,25 +65,25 @@ class ChaptersOneAtATimeChunkedTest {
                 val part = if (first in from until to) first else from
                 android.util.Log.i("C085", "span $from..$to, part $part: ${h.edges()}")
                 if (h.at!!.sectionIndex != part) { h.sc.js("window.__readerTest.goIndex($part)"); h.relocate(30_000) { it.sectionIndex == part } }
-                delay(1_500)
-                h.sc.js("window.__readerTest.lastPage()"); delay(3_000)
+                h.still(timeoutMs = 30_000)
+                h.sc.js("window.__readerTest.lastPage()"); h.still(timeoutMs = 30_000)
                 android.util.Log.i("C085", "at part end: ${h.edges()}")
                 e = h.edges()
                 assertEquals(part, e.getInt("current"))
                 assertNull("no Next control at a hidden part boundary: $e", e.optJSONObject("foot"))
                 assertTrue("not stopped: there is more to scroll below the part's end: $e",
                     e.getDouble("scrollTop") + e.getDouble("viewport") < e.getDouble("scrollHeight") - 50)
-                val slots = h.sc.hook("slots()").getJSONArray("slots")
-                assertTrue("the next part is laid out below: $slots",
-                    (0 until slots.length()).any { slots.getJSONObject(it).optInt("index", -1) == part + 1 && slots.getJSONObject(it).optBoolean("loaded") })
+                suspend fun nextPartLoaded() = h.sc.hook("slots()").getJSONArray("slots").let { s -> (0 until s.length()).any { s.getJSONObject(it).optInt("index", -1) == part + 1 && s.getJSONObject(it).optBoolean("loaded") } }
+                withTimeoutOrNull(10_000) { while (!nextPartLoaded()) delay(100) }
+                assertTrue("the next part is laid out below: ${h.sc.hook("slots()")}", nextPartLoaded())
 
                 // one ordinary drag goes on into the next part (no pull, no jump)
                 h.drain()
                 // (the part's last screen stays the current section until its top leaves the screen: two drags)
-                repeat(2) { dragUp(); delay(800) }
+                repeat(2) { dragUp(); h.still(timeoutMs = 30_000) }
                 val r = try { h.relocate(20_000) { it.sectionIndex != part } } catch (x: Exception) { throw AssertionError("no relocate out of part $part after the drags: ${h.edges()}", x) }
                 assertEquals("the drags continued into the next part", part + 1, r.sectionIndex)
-                delay(1_000)
+                h.still(timeoutMs = 30_000)
                 e = h.edges()
                 assertEquals(part + 1, e.getInt("current"))
                 assertTrue("scrolled on, not opened at the next part's top: $e", e.getDouble("start") > 0 && e.getDouble("start") < e.getDouble("viewport"))
@@ -90,8 +91,8 @@ class ChaptersOneAtATimeChunkedTest {
                 assertNull("no Next control in the middle of the chapter: $e", e.optJSONObject("foot")?.takeIf { it.getDouble("y") < e.getDouble("vh") })
 
                 // the chapter's own end: the control is after its last part only
-                h.sc.js("window.__readerTest.goIndex($to)"); h.relocate(30_000) { it.sectionIndex == to }; delay(1_500)
-                h.sc.js("window.__readerTest.lastPage()"); delay(3_000)
+                h.sc.js("window.__readerTest.goIndex($to)"); h.relocate(30_000) { it.sectionIndex == to }; h.still(timeoutMs = 30_000)
+                h.sc.js("window.__readerTest.lastPage()"); h.still(timeoutMs = 30_000)
                 e = h.edges()
                 val linear = org.json.JSONArray(org.json.JSONTokener(h.sc.js("JSON.stringify(window.__readerTest.linear())")).nextValue() as String)
                 val hasNext = (0 until linear.length()).any { linear.getInt(it) > to }
@@ -99,7 +100,7 @@ class ChaptersOneAtATimeChunkedTest {
                 else assertNull("the book ends with this chapter: no Next: $e", e.optJSONObject("foot"))
             } finally {
                 sc.onActivity { it.controller.updateSettings { ReaderSettings() } }
-                delay(800)
+                h.a.settingsStored()
                 h.stop()
             }
         }
