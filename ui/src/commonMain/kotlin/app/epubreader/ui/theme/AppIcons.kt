@@ -76,7 +76,6 @@ object AppIcons {
     val Bookmark: ImageVector get() = Icons.Filled.BookmarkBorder
     val Bookmarked: ImageVector get() = Icons.Filled.Bookmark
     val Contents: ImageVector get() = Icons.AutoMirrored.Filled.Toc
-    val Display: ImageVector get() = Icons.Filled.FormatSize
     val Settings: ImageVector get() = Icons.Filled.Settings
 
     // Drawer, folders, collections

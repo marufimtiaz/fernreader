@@ -17,6 +17,7 @@ import app.epubreader.core.data.SwipeDirection
 import app.epubreader.core.data.ScrollChapters
 import app.epubreader.core.data.ReaderSettings
 import app.epubreader.core.data.SearchHistoryPort
+import app.epubreader.core.data.ReaderSheetTab
 import app.epubreader.core.data.SettingsPort
 import app.epubreader.core.data.SourceRef
 import app.epubreader.core.epub.PositionMap
@@ -79,8 +80,8 @@ data class ReaderUiState(
     /** F-041: the visible page holds a bookmark: the marker is drawn and the bookmark button is filled. */
     val bookmarked: Boolean = false,
     val searchVisible: Boolean = false,
-    val displayVisible: Boolean = false,
-    val settingsVisible: Boolean = false,
+    /** C-095: the reader's settings sheet (its tab is [ReaderSettings.sheetTab]). */
+    val sheetVisible: Boolean = false,
     /** F-043: the footnote popup is shown (in the web page); Back closes it. */
     val footnoteOpen: Boolean = false,
     /** F-044: an external link waiting for the reader's confirmation (a dialog); Back cancels it. */
@@ -535,7 +536,7 @@ class ReaderController(
      */
     fun onVolumeKey(volumeDown: Boolean, press: Boolean): Boolean {
         val st = _state.value
-        if (session == null || st.error != null || st.tocVisible || st.searchVisible || st.displayVisible || st.settingsVisible ||
+        if (session == null || st.error != null || st.tocVisible || st.searchVisible || st.sheetVisible ||
             st.footnoteOpen || st.externalLink != null || st.annotationSheet != null) return false
         val t = volumeTurn(volumeDown, _settings.value.volumeKeys) ?: return false
         if (press) { probe.ev("volume_turn", t.name); turn(t) }
@@ -567,8 +568,7 @@ class ReaderController(
             st.annotationSheet != null -> { closeAnnotationSheet(); true }
             st.footnoteOpen -> { _state.update { it.copy(footnoteOpen = false) }; reader.send(ToWeb.CloseFootnote()); true }
             st.searchVisible -> { hideSearch(); true }
-            st.settingsVisible -> { hideSettings(); true }
-            st.displayVisible -> { hideDisplay(); true }
+            st.sheetVisible -> { hideSheet(); true }
             st.tocVisible -> { hideToc(); true }
             s != null && s.linkDepth > 0 -> { s.linkDepth--; s.pendingBacks++; probe.ev("link_back", "${s.linkDepth}"); reader.send(ToWeb.Back()); true }
             else -> false
@@ -603,10 +603,15 @@ class ReaderController(
         showSearch()
         searcher.submit(text)
     }
-    fun showDisplay() { probe.ev("display_cmd", ""); _state.update { it.copy(displayVisible = true, chromeVisible = false) } }
-    fun hideDisplay() = _state.update { it.copy(displayVisible = false) }
-    fun showSettings() { probe.ev("settings_cmd", ""); _state.update { it.copy(settingsVisible = true, chromeVisible = false) } }
-    fun hideSettings() = _state.update { it.copy(settingsVisible = false) }
+    /** C-095: the settings sheet, on the last tab unless a [tab] is asked for (the bench's `display`). */
+    fun showSheet(tab: ReaderSheetTab = _settings.value.sheetTab) {
+        probe.ev("display_cmd", "")
+        selectSheetTab(tab)
+        _state.update { it.copy(sheetVisible = true, chromeVisible = false) }
+    }
+    fun hideSheet() = _state.update { it.copy(sheetVisible = false) }
+    /** C-095: a tab picked in the sheet, stored like the other settings so the sheet reopens there. */
+    fun selectSheetTab(tab: ReaderSheetTab) = updateSettings { it.copy(sheetTab = tab) }
 
     /** Opens the Contents panel on a tab (the Highlights tab is filled by the annotations list). */
     fun selectContentsTab(tab: ContentsTab) = _state.update { it.copy(contentsTab = tab) }
@@ -1098,8 +1103,7 @@ class ReaderController(
                 when {
                     _state.value.highlightPicker != null -> dismissHighlightPicker() // a tap on the page closes the colour row
                     _state.value.annotationSheet != null -> closeAnnotationSheet()
-                    _state.value.settingsVisible -> hideSettings() // a tap on the page closes the sheet or panel
-                    _state.value.displayVisible -> hideDisplay()
+                    _state.value.sheetVisible -> hideSheet() // a tap on the page closes the sheet
                     action == TapAction.Controls -> toggleChrome()
                     // F-032 tap zones; while the controls are shown an edge tap hides them instead of turning
                     action == TapAction.Next || action == TapAction.Prev ->

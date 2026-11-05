@@ -34,6 +34,8 @@ enum class PageAnimation { SLIDE, NONE }
 enum class OrientationLock { SYSTEM, PORTRAIT, LANDSCAPE }
 /** C-085: in scroll mode, CONTINUOUS = the next chapter follows below (C-079); ONE_AT_A_TIME = scrolling stops at its end. */
 enum class ScrollChapters { CONTINUOUS, ONE_AT_A_TIME }
+/** C-095: the tabs of the reader's settings sheet. */
+enum class ReaderSheetTab { DISPLAY, GENERAL }
 
 /**
  * Reading display settings (F-070..F-075, F-031, F-034 scope), one value for all books, stored as JSON in the
@@ -68,6 +70,8 @@ data class ReaderSettings(
     val highlightColor: String = HighlightColors.YELLOW,
     /** C-085: Scroll mode's "Chapters" (display panel); stored values without it decode to CONTINUOUS. */
     val scrollChapters: ScrollChapters = ScrollChapters.CONTINUOUS,
+    /** C-095: the sheet's last tab, where it opens next; stored values without it decode to DISPLAY. */
+    val sheetTab: ReaderSheetTab = ReaderSheetTab.DISPLAY,
 ) {
     fun clamped(): ReaderSettings = copy(
         fontScale = tenth(fontScale.coerceIn(MIN_FONT, MAX_FONT)),
@@ -127,6 +131,7 @@ data class ReaderSettings(
                 confirmExternalLinks = bool("confirmExternalLinks", d.confirmExternalLinks),
                 highlightColor = str("highlightColor") ?: d.highlightColor,
                 scrollChapters = enum("scrollChapters", ScrollChapters.entries.toTypedArray(), d.scrollChapters),
+                sheetTab = enum("sheetTab", ReaderSheetTab.entries.toTypedArray(), d.sheetTab),
             ).clamped()
         }
     }

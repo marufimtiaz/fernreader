@@ -278,8 +278,8 @@ class MainActivity : ComponentActivity() {
             BenchCommands.register("resetSettings") { controller.updateSettings { app.epubreader.core.data.ReaderSettings() } }
             // C-079: reading mode for the scroll-mode fling checks (paged | scrolled | auto)
             BenchCommands.register("flow") { f -> runCatching { app.epubreader.core.data.Flow.valueOf(f.trim().uppercase()) }.getOrNull()?.let { v -> controller.updateSettings { it.copy(flow = v) } } }
-            BenchCommands.register("display") { controller.showDisplay() }
-            BenchCommands.register("hideDisplay") { controller.hideDisplay() }
+            BenchCommands.register("display") { controller.showSheet(app.epubreader.core.data.ReaderSheetTab.DISPLAY) }
+            BenchCommands.register("hideDisplay") { controller.hideSheet() }
             BenchCommands.register("lastPage") { reader.webView.evaluateJavascript("window.__readerTest.lastPage()", null) }
             BenchCommands.register("orient") { o ->
                 requestedOrientation = when (o.trim()) {

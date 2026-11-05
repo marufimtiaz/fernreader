@@ -44,7 +44,7 @@ class ControlActions(
     val search: () -> Unit,
     val bookmark: () -> Unit,
     val contents: () -> Unit,
-    val display: () -> Unit,
+    /** C-095: the one settings icon; the sheet holds Display and General. */
     val settings: () -> Unit,
     val seek: (Double) -> Unit,
     /** C-073: the slider is dragged to a fraction (not yet released). */
@@ -120,7 +120,7 @@ private fun GoToPageButton(pageLabel: String, spoken: String, onClick: () -> Uni
 }
 
 /**
- * Bottom half: the chapter (start) and page label (end) on one row, the seek slider, display and reader settings.
+ * Bottom half: the chapter (start) and page label (end) on one row, the seek slider, the settings sheet's icon (C-095).
  * While the slider is dragged, [chapter] and [pageLabel] are the target's (C-073: the caller passes the preview).
  */
 @Composable
@@ -156,7 +156,6 @@ fun ReaderBottomBar(
                     onValueChangeFinished = { drag?.let { a.seek(it.toDouble()) }; drag = null },
                     modifier = Modifier.weight(1f).semantics { contentDescription = Copy.seek },
                 )
-                BarIcon(AppIcons.Display, Copy.display, onClick = a.display)
                 BarIcon(AppIcons.Settings, Copy.readerSettings, onClick = a.settings)
             }
         }

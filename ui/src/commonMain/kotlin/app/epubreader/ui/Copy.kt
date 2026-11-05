@@ -297,6 +297,8 @@ object Copy {
     /** Describes the list's colour mark: e.g. "Yellow highlight", "Blue underline". */
     fun annotationMark(color: String, underline: Boolean) = "${highlightColorName(color)} ${if (underline) "underline" else "highlight"}"
     const val readerSettings = "Reader settings"
+    /** C-095: the sheet's second tab (the first is [display]). */
+    const val general = "General"
     const val settingsPageTurning = "Page turning"
     const val settingsScreen = "Screen"
     const val settingsLinks = "Links"

@@ -30,7 +30,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.epubreader.core.data.SourceRef
-import app.epubreader.reader.display.DisplayPanel
 import app.epubreader.reader.display.ReadingTheme
 import app.epubreader.reader.search.SearchPanel
 import app.epubreader.reader.contents.ContentsPanel
@@ -50,7 +49,7 @@ import app.epubreader.reader.controls.BookInfoDialog
 import app.epubreader.reader.controls.ControlActions
 import app.epubreader.reader.controls.ReaderBottomBar
 import app.epubreader.reader.controls.ReaderTopBar
-import app.epubreader.reader.settings.ReaderSettingsSheet
+import app.epubreader.reader.settings.ReaderSheet
 import app.epubreader.reader.selection.HighlightColorRow
 import app.epubreader.reader.annotations.AnnotationSheetPanel
 import app.epubreader.reader.contents.HighlightsList
@@ -96,7 +95,7 @@ fun ReaderScreen(
         }
         val actions = ControlActions(
             back = onBack, search = c::showSearch, bookmark = c::toggleBookmark, contents = c::showToc,
-            display = c::showDisplay, settings = c::showSettings, seek = c::seek,
+            settings = { c.showSheet() }, seek = c::seek,
             previewSeek = c::previewSeek, cancelSeek = c::cancelSeek, bookInfo = { bookInfo = true },
         )
         if (s.chromeVisible && s.error == null) {
@@ -132,11 +131,10 @@ fun ReaderScreen(
                 onPageLabel = if (bookPages && page.page != null && p == null) c::showGoToPage else null,
             )
         }
-        if (s.displayVisible && s.error == null) {
+        if (s.sheetVisible && s.error == null) {
             LaunchedEffect(Unit) { withFrameNanos { }; probe.ev("display_shown", "") }
-            DisplayPanel(settings, fonts, onChange = c::updateSettings, modifier = Modifier.align(Alignment.BottomCenter), landscape = landscape)
+            ReaderSheet(settings, fonts, onChange = c::updateSettings, onTab = c::selectSheetTab, modifier = Modifier.align(Alignment.BottomCenter), landscape = landscape)
         }
-        if (s.settingsVisible && s.error == null) ReaderSettingsSheet(settings, onChange = c::updateSettings, modifier = Modifier.align(Alignment.BottomCenter))
         if (s.tocVisible) ContentsPanel(
             s.title, s.contentsTab, c::selectContentsTab, s.toc, s.currentTocHref, c::onTocSelected,
             s.bookmarks, page, formatDate, c::onBookmarkSelected, c::removeBookmark, c::hideToc, probe,
@@ -149,7 +147,7 @@ fun ReaderScreen(
             LaunchedEffect(p) { kotlinx.coroutines.delay(8_000); c.dismissHighlightPicker() } // it goes away on its own too
             if (s.error == null) HighlightColorRow(p.color, c::recolorHighlight, Modifier.align(Alignment.BottomCenter))
         }
-        // F-061: the sheet of a tapped highlight (over the page, like the display panel).
+        // F-061: the sheet of a tapped highlight (over the page, like the settings sheet).
         s.annotationSheet?.let { sh ->
             if (s.error == null) AnnotationSheetPanel(
                 sh, onColor = c::setAnnotationColor, onStyle = c::setAnnotationStyle, onNote = c::editNote,
