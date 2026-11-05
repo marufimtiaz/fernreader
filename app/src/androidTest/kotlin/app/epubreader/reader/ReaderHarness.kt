@@ -47,7 +47,7 @@ class ReaderHarness(val sc: ActivityScenario<MainActivity>, scope: CoroutineScop
 
     init {
         sc.onActivity { a = it }
-        job = scope.launch(start = CoroutineStart.UNDISPATCHED) { a.reader.events.collect { lastEvent = SystemClock.uptimeMillis(); ch.send(it) } }
+        job = scope.launch(start = CoroutineStart.UNDISPATCHED) { a.reader.events.collect { if (it !is FromWeb.PageCounts) lastEvent = SystemClock.uptimeMillis(); ch.send(it) } }
     }
 
     suspend fun ready() { withTimeout(15_000) { a.reader.isReady.first { it } }; a.settingsStored() }
@@ -70,10 +70,10 @@ class ReaderHarness(val sc: ActivityScenario<MainActivity>, scope: CoroutineScop
         return at!!
     }
     /**
-     * Waits until the reader stands still: for [windowMs] no event came and the layout (scroll position, page, each
-     * slot's place and load state) did not change. Fails after [timeoutMs]. 400 ms is more than the 250 ms after which
-     * a scroll reports its `relocate` and the 200 ms a jump holds its flags. The reads run on the page's main thread, so
-     * a busy page delays them instead of passing for still.
+     * Waits until the reader stands still: for [windowMs] no event came (the background page count's aside) and the
+     * layout (scroll position, page, each slot's place and load state) did not change. Fails after [timeoutMs]. 400 ms
+     * is more than the 250 ms after which a scroll reports its `relocate` and the 200 ms a jump holds its flags. The reads
+     * run on the page's main thread, so a busy page delays them instead of passing for still.
      */
     suspend fun still(windowMs: Long = 400, timeoutMs: Long = 15_000) = withTimeout(timeoutMs) {
         var seen: String? = null
