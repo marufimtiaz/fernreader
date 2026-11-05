@@ -38,7 +38,7 @@ function fromWeb(m: FromWeb) {
       })
       break
     case 'history': $<HTMLButtonElement>('back').disabled = m.depth === 0; break
-    case 'error': $('status').textContent = `${m.kind}: ${m.message}`; break
+    case 'error': $('status').textContent = `${m.kind}: ${m.message}`; $('where').textContent = ''; break
   }
   window.focus() // a tap in the book takes the focus into its frame, where the arrow keys would not reach this page
 }
