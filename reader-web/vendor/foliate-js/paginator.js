@@ -1807,9 +1807,9 @@ export class Paginator extends HTMLElement {
         const dx = touch.screenX - state.x0, dy = touch.screenY - state.y0
         this.#dragMove(state, this.#vertical ? dy : dx, this.#vertical ? dx : dy, e.timeStamp)
         const toward = slideSign(d.dir, this.#dragRtl) // the way the finger goes for this turn
-        void this.#dragSettle(d, !!this.dragHost?.finishes({
-            main: (state.main ?? 0) * toward, cross: state.cross ?? 0, speed: fingerSpeed(state.trail) * toward, size: d.size,
-        }))
+        const release = { main: (state.main ?? 0) * toward, cross: state.cross ?? 0, speed: fingerSpeed(state.trail) * toward, size: d.size }
+        this.#lastDrag.release = release
+        void this.#dragSettle(d, !!this.dragHost?.finishes(release))
     }
     /** The drag is over or dropped: the page goes on to the end of the turn, or back; then the host's turns may run. */
     async #dragSettle(d, finish) {
