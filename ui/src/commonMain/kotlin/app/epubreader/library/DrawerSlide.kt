@@ -114,7 +114,7 @@ fun DrawerSlide(open: Boolean, edgeGesture: Boolean, onOpen: (Boolean) -> Unit, 
                     fun inward(c: PointerInputChange) = (if (rtl) size.width - c.position.x else c.position.x) / density
                     if (!edgeNow || !inDrawerStrip(inward(down))) return@awaitEachGesture
                     val watch = SidewaysWatch(inward(down), down.position.y / density)
-                    val tracker = VelocityTracker()
+                    val tracker = VelocityTracker().apply { addPosition(down.uptimeMillis, down.position) } // a flick has few events: all of them count
                     var following = false
                     while (true) {
                         val event = awaitPointerEvent(PointerEventPass.Initial)
@@ -127,6 +127,7 @@ fun DrawerSlide(open: Boolean, edgeGesture: Boolean, onOpen: (Boolean) -> Unit, 
                         if (!c.pressed) {
                             if (following) {
                                 // a cancel comes in consumed, a lift doesn't: the system's Back must not read as a flick
+                                tracker.addPosition(c.uptimeMillis, c.position)
                                 val speed = tracker.calculateVelocity().x * (if (rtl) -1f else 1f) / density / 1000f
                                 settle(!c.isConsumed && drawerSwipeFinishes(inward(c).coerceIn(0f, widthDp), widthDp, speed))
                                 c.consume()
