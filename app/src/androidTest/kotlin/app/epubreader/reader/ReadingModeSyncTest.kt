@@ -12,6 +12,7 @@ import app.epubreader.settled
 import app.epubreader.waitFresh
 import app.epubreader.core.data.Flow
 import app.epubreader.core.data.ReaderSettings
+import app.epubreader.core.data.ReaderSheetTab
 import app.epubreader.ui.Copy
 import app.epubreader.ui.Route
 import kotlinx.coroutines.delay
@@ -26,9 +27,9 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * C-084: "Reading mode" is only in the reader's display panel (Aa): not in the Reader settings sheet, not in
- * Settings → Reading. Choosing Scroll in the panel still greys out the page animation ("Applies to page mode") in the
- * sheet and in Settings (F-031/F-032).
+ * C-084, C-095: "Reading mode" is only in the Display tab of the reader's settings sheet: not in its General tab, not
+ * in Settings → Reading. Choosing Scroll there still greys out the page animation ("Applies to page mode") in General
+ * and in Settings (F-031/F-032).
  */
 @RunWith(AndroidJUnit4::class)
 class ReadingModeSyncTest {
@@ -89,31 +90,31 @@ class ReadingModeSyncTest {
                 sc.onActivity { it.controller.updateSettings { ReaderSettings() } }
                 h.open(wp)
 
-                // 1. Reader settings sheet: page turning starts with the animation, no Reading mode row.
-                sc.onActivity { it.controller.showSettings() }
+                // 1. General tab: page turning starts with the animation, no Reading mode row.
+                sc.onActivity { it.controller.showSheet(ReaderSheetTab.GENERAL) }
                 obj(Copy.pageAnimation)
                 assertTrue("no Reading mode in the sheet", dev.findObject(By.text(Copy.layout)) == null)
                 assertTrue(dev.findObject(By.text(Copy.flowScrolled)) == null)
                 assertTrue(enabled(Copy.animSlide))
-                sc.onActivity { it.controller.hideSettings() }
+                sc.onActivity { it.controller.hideSheet() }
                 assertTrue("settings sheet closed", waitFresh(5_000) { !dev.hasObject(By.text(Copy.pageAnimation)) })
 
-                // 2. Display panel: the one place; choose Scroll.
-                sc.onActivity { it.controller.showDisplay() }
+                // 2. Display tab: the one place; choose Scroll.
+                sc.onActivity { it.controller.showSheet(ReaderSheetTab.DISPLAY) }
                 panelShow(Copy.flowScrolled)
                 assertNotNull(obj(Copy.layout))
                 assertTrue("panel shows Pages", selected(Copy.flowPaged))
                 obj(Copy.flowScrolled).click()
                 withTimeout(5_000) { h.a.controller.settings.first { it.flow == Flow.SCROLLED } }
-                sc.onActivity { it.controller.hideDisplay() }
+                sc.onActivity { it.controller.hideSheet() }
                 assertTrue("display panel closed", waitFresh(5_000) { !dev.hasObject(By.text(Copy.textSize)) })
 
-                // 3. The sheet greys the animation out in Scroll mode.
-                sc.onActivity { it.controller.showSettings() }
+                // 3. General greys the animation out in Scroll mode.
+                sc.onActivity { it.controller.showSheet(ReaderSheetTab.GENERAL) }
                 assertNotNull(dev.wait(Until.findObject(By.text(Copy.appliesToPageMode)), 5_000))
                 assertFalse("animation must be disabled in Scroll mode", enabled(Copy.animSlide))
                 assertTrue(dev.findObject(By.text(Copy.layout)) == null)
-                sc.onActivity { it.controller.hideSettings() }
+                sc.onActivity { it.controller.hideSheet() }
                 assertTrue("settings sheet closed", waitFresh(5_000) { !dev.hasObject(By.text(Copy.pageAnimation)) })
 
                 // 4. Settings → Reading: no Reading mode row; the animation row says why it is off.
@@ -125,16 +126,16 @@ class ReadingModeSyncTest {
                 assertTrue("back from Settings", waitFresh(5_000) { !dev.hasObject(By.text(Copy.pageNumbers)) })
 
                 // 5. Back to Pages from the panel: the animation is on again.
-                sc.onActivity { it.controller.showDisplay() }
+                sc.onActivity { it.controller.showSheet(ReaderSheetTab.DISPLAY) }
                 panelShow(Copy.flowPaged)
                 obj(Copy.flowPaged).click()
                 withTimeout(5_000) { h.a.controller.settings.first { it.flow == Flow.PAGED } }
-                sc.onActivity { it.controller.hideDisplay() }
+                sc.onActivity { it.controller.hideSheet() }
                 assertTrue("display panel closed", waitFresh(5_000) { !dev.hasObject(By.text(Copy.textSize)) })
-                sc.onActivity { it.controller.showSettings() }
+                sc.onActivity { it.controller.showSheet(ReaderSheetTab.GENERAL) }
                 assertTrue(enabled(Copy.animSlide))
                 assertTrue(dev.findObject(By.text(Copy.appliesToPageMode)) == null)
-                sc.onActivity { it.controller.hideSettings() }
+                sc.onActivity { it.controller.hideSheet() }
                 assertEquals(Flow.PAGED, h.a.controller.settings.value.flow)
             } finally {
                 sc.onActivity { it.controller.updateSettings { ReaderSettings() } }
