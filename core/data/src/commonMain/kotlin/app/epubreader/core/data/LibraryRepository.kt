@@ -18,8 +18,14 @@ data class OpenRecord(val bookId: String, val position: ReadingPositionEntity?)
 data class BookDetails(
     val id: String, val identityKey: String, val title: String, val authors: List<String>, val language: String?, val coverThumb: String?,
     val addedAt: Long, val lastOpenedAt: Long?, val files: List<BookFileDetail>, val collections: List<String>,
+    /** C-096: this entry is a separate copy; [canMerge] if there is a live entry to merge it with. */
+    val separate: Boolean = false, val canMerge: Boolean = false,
+    /** What a merge would lose. */
+    val readingData: ReadingDataSummary = ReadingDataSummary(),
 )
-data class BookFileDetail(val path: String, val size: Long, val scanned: Boolean)
+/** [canSeparate]: C-096 "keep as a separate copy" is offered for this location. */
+data class BookFileDetail(val path: String, val size: Long, val scanned: Boolean, val canSeparate: Boolean = false)
+data class ReadingDataSummary(val position: Boolean = false, val bookmarks: Int = 0, val highlights: Int = 0, val notes: Int = 0)
 
 /** F-025 result: local files deleted, and files that could not be deleted (their books stay hidden instead). */
 data class DeleteResult(val deleted: Int, val failed: Int)
@@ -159,12 +165,27 @@ class LibraryRepository(
         val b = db.libraryDao().byId(bookId) ?: return null
         val cd = db.collectionDao()
         val names = cd.memberships().filter { it.bookId == bookId && !it.deleted }.mapNotNull { m -> cd.byId(m.collectionId)?.takeIf { !it.deleted }?.name }.sorted()
+        val dao = db.libraryDao()
         return BookDetails(
             b.id, b.identityKey, b.title, b.authors.split('\n').filter(String::isNotBlank), b.language, b.coverThumb?.ifEmpty { null },
             b.addedAt, b.lastOpenedAt,
-            db.libraryDao().filesOf(bookId).sortedWith(compareBy({ it.source != "scan" }, { it.path })).map { BookFileDetail(it.path, it.size, it.source == "scan") },
-            names,
+            dao.filesOf(bookId).sortedWith(SeparateCopies.fileOrder).mapIndexed { i, f -> BookFileDetail(f.path, f.size, f.source == "scan", canSeparate = i > 0 && f.source != "session") },
+            names, separate = b.separateOf != null, canMerge = dao.mergeTarget(b) != null,
+            readingData = ReadingDataSummary(db.positionDao().get(bookId) != null, dao.bookmarkCount(bookId), dao.highlightCount(bookId), dao.noteCount(bookId)),
         )
+    }
+
+    /** C-096: the file at [path] becomes its own library entry, starting fresh. Returns its book id, or null if it can't. */
+    suspend fun keepSeparate(path: String): String? = db.libraryDao().keepSeparate(path, clock.now())
+
+    /**
+     * C-096: the separate copy [bookId] ends and its file joins the other entry; its reading data is lost. False, with
+     * nothing changed, if there is no live entry to merge with.
+     */
+    suspend fun mergeCopy(bookId: String): Boolean {
+        val dao = db.libraryDao()
+        val thumb = dao.byId(bookId)?.coverThumb?.takeIf { it.isNotEmpty() }
+        return dao.mergeCopy(bookId, clock.now()).also { if (it) onBookFilesDeleted(bookId, thumb) }
     }
 
     fun failures(): Flow<List<ScanFailureEntity>> = db.libraryDao().failures()
