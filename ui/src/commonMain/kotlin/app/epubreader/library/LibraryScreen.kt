@@ -497,6 +497,7 @@ private fun Grid(books: List<LibraryBook>, query: String, selected: Set<String>,
                 }
                 Text(emphasized(b.title, query), Modifier.fillMaxWidth().padding(top = 6.dp), style = titleStyle(b, MaterialTheme.typography.bodyMedium),
                     maxLines = 2, overflow = TextOverflow.Ellipsis)
+                SplitFolder(b)
                 Text(emphasized(authorLine(b), query), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
@@ -519,6 +520,7 @@ private fun ListLayout(books: List<LibraryBook>, query: String, selected: Set<St
                 Column(Modifier.padding(start = 12.dp).weight(1f)) {
                     Text(emphasized(b.title, query), Modifier.fillMaxWidth(), style = titleStyle(b, MaterialTheme.typography.titleMedium),
                         maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    SplitFolder(b)
                     Text(emphasized(authorLine(b), query), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
@@ -526,6 +528,12 @@ private fun ListLayout(books: List<LibraryBook>, query: String, selected: Set<St
             HorizontalDivider()
         }
     }
+}
+
+/** C-096: under the title of a separate copy and the entry it was split from, which look the same otherwise (F-015). */
+@Composable
+private fun SplitFolder(b: LibraryBook) {
+    b.splitFolder?.let { Text(Copy.folderLine(it), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis) }
 }
 
 /** C-092: what the lists leave free at their end: the button (56 dp), its 16 dp margin and a small gap. */

@@ -85,6 +85,26 @@ class SeparateCopyTest {
         assertEquals(ReadingDataSummary(position = true, bookmarks = 1, highlights = 1), repo.details(original)!!.readingData)
     }
 
+    /** Only the two split entries say where they are (C-096, F-015). */
+    @Test fun a_copy_and_its_original_show_their_folder() = runBlocking {
+        val (original, copy) = separated()
+        val all = entries()
+        assertEquals(f("A").path, all.single { it.id == original }.splitFolder)
+        assertEquals(f("B").path, all.single { it.id == copy }.splitFolder)
+    }
+
+    @Test fun a_book_with_two_files_and_no_split_shows_no_folder() = runBlocking {
+        put("A/first.epub"); put("B/second.epub")
+        scan()
+        assertEquals(null, entries().single().splitFolder)
+    }
+
+    @Test fun merging_takes_the_folder_line_away() = runBlocking {
+        val (original, copy) = separated()
+        repo.mergeCopy(copy)
+        assertEquals(null, entries().single { it.id == original }.splitFolder)
+    }
+
     @Test fun the_first_location_and_an_only_location_stay() = runBlocking {
         put("A/first.epub"); put("B/second.epub")
         scan()

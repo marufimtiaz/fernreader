@@ -50,6 +50,9 @@ object Copy {
         name.startsWith("/storage/") -> "Storage " + name.removePrefix("/storage/")
         else -> name
     }
+    /** C-096: the last part of a folder's path, the storage's own name at its root. */
+    fun folderLine(path: String) =
+        if (Regex("^/storage/(emulated/\\d+|[^/]+)$").matches(path)) folderName(path) else path.substringAfterLast('/').ifEmpty { path }
     fun deleteTitle(n: Int) = if (n == 1) "Remove this book?" else "Remove $n books?"
     const val deleteLibraryOnlyBody = "The book leaves the library and stays hidden on later scans. Its file stays on the device. You can show it again in Settings → Hidden books."
     fun deleteFilesBody(files: Int) = if (files == 1) "The book's file is deleted from the device." else "The books' $files files are deleted from the device."
