@@ -90,7 +90,7 @@ accessibility on huge chapters then becomes a release blocker.
 **Scroll mode (F-031, C-079, C-080; from Track B).**
 
 Use a technical book with front matter and images (e.g. a programming book with cover, title page, copyright,
-contents, preface) and War and Peace. In the reader: Display panel → Layout → Scroll.
+contents, preface) and War and Peace. In the reader: settings icon → Display → Reading mode → Scroll.
 
 1. Right after switching to Scroll, the text that was on screen is still on screen (no blank screen).
 2. Scroll down slowly through the first five sections, then fling several times quickly. The text moves only with

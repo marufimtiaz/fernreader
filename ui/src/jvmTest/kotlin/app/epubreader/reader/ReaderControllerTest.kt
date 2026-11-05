@@ -11,6 +11,7 @@ import app.epubreader.core.data.LibraryRepository
 import app.epubreader.core.data.PositionWriter
 import app.epubreader.core.data.Flow
 import app.epubreader.core.data.ReaderSettings
+import app.epubreader.core.data.ReaderSheetTab
 import app.epubreader.core.data.ReadingThemeId
 import app.epubreader.core.data.SwipeDirection
 import app.epubreader.core.data.VolumeKeys
@@ -455,8 +456,8 @@ class ReaderControllerTest {
 
     @Test fun tap_zone_tap_with_a_sheet_or_the_controls_open_closes_them_instead() = runTest(dispatcher) {
         val c = openWith { it.copy(tapZones = true) }
-        c.showSettings(); tap(0.9)
-        assertFalse(c.state.value.settingsVisible)
+        c.showSheet(); tap(0.9)
+        assertFalse(c.state.value.sheetVisible)
         c.toggleChrome(); tap(0.9)
         assertFalse(c.state.value.chromeVisible)
         assertEquals(emptyList(), turns())
@@ -486,7 +487,7 @@ class ReaderControllerTest {
 
     @Test fun volume_keys_with_a_panel_open_or_no_book_are_not_handled() = runTest(dispatcher) {
         val c = openWith { it.copy(volumeKeys = VolumeKeys.ON) }
-        for (show in listOf(c::showToc, c::showSearch, c::showDisplay, c::showSettings)) {
+        for (show in listOf(c::showToc, c::showSearch, { c.showSheet() })) {
             show()
             assertFalse(c.onVolumeKey(volumeDown = true, press = true))
             c.backInside()
@@ -708,21 +709,61 @@ class ReaderControllerTest {
         c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
         reader.events.emit(FromWeb.Tap(sessionId = "s-1", x = 0.5, y = 0.5)); advanceUntilIdle()
         assertTrue(c.state.value.chromeVisible)
-        c.showSettings()
-        assertTrue(c.state.value.settingsVisible)
+        c.showSheet()
+        assertTrue(c.state.value.sheetVisible)
         assertFalse(c.state.value.chromeVisible)
         assertTrue(c.backInside())
-        assertFalse(c.state.value.settingsVisible)
+        assertFalse(c.state.value.sheetVisible)
         assertFalse(c.backInside())
     }
 
     @Test fun a_tap_on_the_page_closes_the_settings_sheet() = runTest(dispatcher) {
         val c = controller()
         c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
-        c.showSettings()
+        c.showSheet()
         reader.events.emit(FromWeb.Tap(sessionId = "s-1", x = 0.5, y = 0.5)); advanceUntilIdle()
-        assertFalse(c.state.value.settingsVisible)
+        assertFalse(c.state.value.sheetVisible)
         assertFalse(c.state.value.chromeVisible) // the tap only closed the sheet
+    }
+
+    // C-095: one sheet, two tabs; it opens on the last tab, also after a restart, and a tab change never touches the page.
+    @Test fun the_sheet_opens_on_the_last_tab() = runTest(dispatcher) {
+        val c = controller()
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
+        c.showSheet()
+        assertEquals(ReaderSheetTab.DISPLAY, c.settings.value.sheetTab) // the first time
+        c.selectSheetTab(ReaderSheetTab.GENERAL)
+        c.hideSheet()
+        c.showSheet()
+        assertTrue(c.state.value.sheetVisible)
+        assertEquals(ReaderSheetTab.GENERAL, c.settings.value.sheetTab)
+    }
+
+    @Test fun the_display_entry_lands_on_the_display_tab_whatever_the_last_tab_was() = runTest(dispatcher) {
+        val c = controller()
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
+        c.showSheet(); c.selectSheetTab(ReaderSheetTab.GENERAL); c.hideSheet()
+        c.showSheet(ReaderSheetTab.DISPLAY) // the bench's `display` (P-020)
+        assertTrue(c.state.value.sheetVisible)
+        assertEquals(ReaderSheetTab.DISPLAY, c.settings.value.sheetTab)
+    }
+
+    @Test fun the_last_tab_is_stored_and_read_back_by_a_new_controller() = runTest(dispatcher) {
+        val c = controller()
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
+        c.selectSheetTab(ReaderSheetTab.GENERAL); advanceUntilIdle()
+        assertEquals(ReaderSheetTab.GENERAL, ReaderSettings.decode(settings.map[ReaderSettings.KEY]).sheetTab)
+        val again = controller()
+        advanceUntilIdle()
+        assertEquals(ReaderSheetTab.GENERAL, again.settings.value.sheetTab)
+    }
+
+    @Test fun a_tab_change_sends_nothing_to_the_page() = runTest(dispatcher) {
+        val c = controller()
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
+        c.showSheet(); reader.sent.clear()
+        c.selectSheetTab(ReaderSheetTab.GENERAL); advanceUntilIdle()
+        assertEquals(emptyList(), reader.sent.filterIsInstance<ToWeb.SetSettings>())
     }
 
     @Test fun settings_sheet_edits_the_new_fields_live_and_persist() = runTest(dispatcher) {

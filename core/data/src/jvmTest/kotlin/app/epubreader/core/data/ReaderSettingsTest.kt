@@ -33,6 +33,12 @@ class ReaderSettingsTest {
         assertEquals(s, ReaderSettings.decode(s.encode()))
     }
 
+    @Test fun c095_the_sheet_tab_is_stored_and_a_value_without_it_opens_display() {
+        assertEquals(ReaderSheetTab.GENERAL, ReaderSettings.decode(ReaderSettings(sheetTab = ReaderSheetTab.GENERAL).encode()).sheetTab)
+        assertEquals(ReaderSheetTab.DISPLAY, ReaderSettings.decode("""{"fontScale":1.2}""").sheetTab)
+        assertEquals(ReaderSheetTab.DISPLAY, ReaderSettings.decode("""{"sheetTab":"OTHER"}""").sheetTab)
+    }
+
     @Test fun decodes_garbage_to_defaults() {
         assertEquals(ReaderSettings(), ReaderSettings.decode(null))
         assertEquals(ReaderSettings(), ReaderSettings.decode("{"))

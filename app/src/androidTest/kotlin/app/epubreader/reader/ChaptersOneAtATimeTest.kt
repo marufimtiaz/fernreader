@@ -12,6 +12,7 @@ import app.epubreader.MainActivity
 import app.epubreader.settled
 import app.epubreader.core.data.Flow
 import app.epubreader.core.data.ReaderSettings
+import app.epubreader.core.data.ReaderSheetTab
 import app.epubreader.core.data.ScrollChapters
 import app.epubreader.reader.bridge.FromWeb
 import app.epubreader.ui.Copy
@@ -297,15 +298,15 @@ class ChaptersOneAtATimeTest {
                 h.ready()
                 sc.onActivity { it.controller.updateSettings { ReaderSettings() } }
                 h.open(wp)
-                sc.onActivity { it.controller.showDisplay() }
+                sc.onActivity { it.controller.showSheet(ReaderSheetTab.DISPLAY) }
                 assertTrue(panelShow(Copy.flowScrolled))
                 assertNull("no Chapters row in Pages", dev.findObject(By.text(Copy.scrollChapters)))
                 obj(Copy.flowScrolled).click()
                 withTimeout(5_000) { h.a.controller.settings.first { it.flow == Flow.SCROLLED } }
                 // shown again from its top (panelShow finds the panel by its first rows)
-                sc.onActivity { it.controller.hideDisplay() }
+                sc.onActivity { it.controller.hideSheet() }
                 assertTrue("display panel closed", app.epubreader.waitFresh(5_000) { dev.findObject(By.text(Copy.textSize)) == null })
-                sc.onActivity { it.controller.showDisplay() }
+                sc.onActivity { it.controller.showSheet(ReaderSheetTab.DISPLAY) }
                 assertTrue(panelShow(Copy.chaptersOneAtATime))
                 val mode = obj(Copy.layout); val chapters = obj(Copy.scrollChapters)
                 assertTrue("Chapters is under Reading mode", chapters.visibleBounds.top > mode.visibleBounds.top)
@@ -319,7 +320,7 @@ class ChaptersOneAtATimeTest {
                 obj(Copy.flowPaged).click()
                 withTimeout(5_000) { h.a.controller.settings.first { it.flow == Flow.PAGED } }
                 assertTrue("Chapters hidden again in Pages", app.epubreader.waitFresh(5_000) { dev.findObject(By.text(Copy.scrollChapters)) == null })
-                sc.onActivity { it.controller.hideDisplay() }
+                sc.onActivity { it.controller.hideSheet() }
                 assertEquals("the choice is kept while hidden", ScrollChapters.ONE_AT_A_TIME, h.a.controller.settings.value.scrollChapters)
             } finally {
                 h.stop()

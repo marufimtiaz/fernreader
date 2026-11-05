@@ -2,6 +2,7 @@ package app.epubreader.devtools
 
 import androidx.compose.ui.ImageComposeScene
 import androidx.compose.ui.unit.Density
+import app.epubreader.core.data.ReaderSheetTab
 import app.epubreader.core.data.SourceRef
 import app.epubreader.library.LibraryLayout
 import app.epubreader.library.LibraryView
@@ -64,6 +65,10 @@ suspend fun renderScreens(g: DevGraph, dir: File) {
     shot("reader-placeholder")
     g.tapPage()
     shot("reader-controls")
+    g.reader.showSheet(ReaderSheetTab.DISPLAY)
+    shot("reader-sheet-display")
+    g.reader.selectSheetTab(ReaderSheetTab.GENERAL)
+    shot("reader-sheet-general")
     scene.close()
 }
 
