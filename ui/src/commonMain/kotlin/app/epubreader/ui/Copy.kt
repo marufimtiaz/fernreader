@@ -22,6 +22,8 @@ object Copy {
     const val settings = "Settings"
     const val about = "About"
     const val openMenu = "Open navigation"
+    const val navigationMenu = "Navigation menu"
+    const val closeNavigationMenu = "Close navigation menu"
     const val resume = "Resume"
     fun resumeBook(title: String) = "Resume $title"
     const val endSelection = "End selection"
