@@ -40,7 +40,7 @@ describe('protocol v1', () => {
     const h = vi.fn(); const b = new Bridge(vi.fn()); b.onMessage(h)
     b.receive(json); expect(h).not.toHaveBeenCalled()
   })
-  it.each(['opened', 'relocate', 'painted', 'seeked', 'tap', 'error', 'pageCounts', 'history', 'footnote', 'externalLink', 'pageBookmarks', 'selection', 'annotationTapped'])('%s fixture is well-formed JSON with v and type', name => {
+  it.each(['opened', 'relocate', 'painted', 'seeked', 'tap', 'error', 'pageCounts', 'history', 'footnote', 'externalLink', 'pageBookmarks', 'selection', 'annotationTapped', 'edgeSwipe'])('%s fixture is well-formed JSON with v and type', name => {
     const m = JSON.parse(fixture(name)); expect(m.v).toBe(1); expect(m.type).toBe(name)
   })
   it('the textOffsets answer fixture is well-formed', () => {

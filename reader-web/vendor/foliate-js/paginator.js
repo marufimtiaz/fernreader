@@ -5,6 +5,8 @@
 // LOCAL PATCH (M9 C-085, see PATCHES.md): `chapter-stop` attribute ("Chapters: One at a time" in scroll mode): stack mode
 // holds only the current section, so scrolling stops at its end; a control below its last line (above its first line)
 // or a deliberate overscroll pull opens the next (previous) section (#edges, pullStep).
+// LOCAL PATCH (v1.1 C-097, see PATCHES.md): `edgeHost`: a touch from the host's edge strip is the host's from its start: no
+// page drag, chapter swipe, pull or `swipe`. The scrolled flow's native scroll stops when its sideways part starts.
 // LOCAL PATCH (v1.1 C-094, see PATCHES.md): the page follows the finger. A turn is a surface ({ set(t), finish(), reset() },
 // t = progress 0..1): #scrollSurface inside a section, #sectionSurface at a boundary, #chapterSurface in One at a time. A
 // bridge turn plays a surface from 0 to 1 (#slide); a drag sets it from the finger (#dragApply) and plays it to either
@@ -1614,10 +1616,13 @@ export class Paginator extends HTMLElement {
             x0: touch?.screenX, y0: touch?.screenY, t0: e.timeStamp, multi: e.touches.length > 1,
             lock: e.touches.length > 1 ? 'off' : null, // local patch (C-093): sideLock
         }
+        this.#edgeFree() // local patch (C-097)
+        if (this.edgeHost?.down(e)) this.#pull = null
     }
     #onTouchMove(e) {
         const state = this.#touchState
         if (!state) return // local patch: a move without a start (began outside) is ignored
+        if (this.#edgeMove(e)) return // local patch (C-097)
         if (state.pinched) return
         state.pinched = globalThis.visualViewport.scale > 1
         if (state.pinched) this.#dragAbort()
@@ -1652,6 +1657,7 @@ export class Paginator extends HTMLElement {
     }
     #onTouchEnd(e) {
         this.#touchScrolled = false
+        if (this.edgeHost?.up(e)) { this.#edgeFree(); return } // local patch (C-097)
         if (this.#touchState?.drag) { // local patch (C-094): the page followed it, so it ends here
             if (!e.touches?.length) this.#dragRelease(e, this.#touchState)
             return
@@ -1726,7 +1732,32 @@ export class Paginator extends HTMLElement {
     /** Local patch (C-094): the touch ended elsewhere (the system took it): the page goes back. */
     #onTouchCancel() {
         this.#dragAbort()
+        this.edgeHost?.drop()
+        this.#edgeFree()
         this.#touchState = null
+    }
+    /**
+     * Local patch (C-097): the host's gesture from the edge strip: `down(e)`, true when a touch starts one; `move(e)`, null
+     * when the move isn't one's, else 'watching' or 'following' (its sideways part has started); `up(e)`, true when it was
+     * one; `drop()`. A gesture that was a scroll until now has a native scroll its moves can't cancel any more: a scroller
+     * the user can't scroll ends it, as in #navigate, and it stays so past the release, for the fling that comes with it.
+     */
+    edgeHost = null
+    #edgeHeld = false
+    #edgeMove(e) {
+        const m = this.edgeHost?.move(e)
+        if (!m) return false
+        if (e.cancelable && (m === 'following' || !this.scrolled)) e.preventDefault()
+        if (m === 'following' && this.scrolled && !this.#edgeHeld) {
+            this.#edgeHeld = true
+            this.#container.style.overflow = 'hidden'
+        }
+        return true
+    }
+    #edgeFree() {
+        if (!this.#edgeHeld) return
+        this.#edgeHeld = false
+        void nextFrames().then(() => { if (!this.#edgeHeld && !this.#jumps) this.#container.style.overflow = '' })
     }
     /**
      * Local patch (C-094): what the host decides about a drag: `ready(rtl, vertical)`, whether the page may follow now
