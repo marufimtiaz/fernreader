@@ -47,7 +47,8 @@ class ReaderHarness(val sc: ActivityScenario<MainActivity>, scope: CoroutineScop
 
     init {
         sc.onActivity { a = it }
-        job = scope.launch(start = CoroutineStart.UNDISPATCHED) { a.reader.events.collect { if (it !is FromWeb.PageCounts) lastEvent = SystemClock.uptimeMillis(); ch.send(it) } }
+        // Its own Job: a child of the test's runBlocking would hang the whole suite if a failure skips stop().
+        job = scope.launch(Job(), start = CoroutineStart.UNDISPATCHED) { a.reader.events.collect { if (it !is FromWeb.PageCounts) lastEvent = SystemClock.uptimeMillis(); ch.send(it) } }
     }
 
     suspend fun ready() { withTimeout(15_000) { a.reader.isReady.first { it } }; a.settingsStored() }

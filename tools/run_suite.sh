@@ -25,6 +25,7 @@ WARMUP=app.epubreader.SuiteWarmUp
 CORPUS=app.epubreader.release.CorpusPageCountTest
 LOCK=/tmp/epub-reader-device.lock
 DEV=/data/local/tmp/fern-suite
+TEST_TIMEOUT_MS=900000 # a test stuck for 15 minutes fails instead of holding up the rest of the run
 APP_APK=$ROOT/app/build/outputs/apk/play/debug/app-play-debug.apk
 TEST_APK=$ROOT/app/build/outputs/apk/androidTest/play/debug/app-play-debug-androidTest.apk
 
@@ -112,7 +113,7 @@ if [ -z "$CLASSES" ]; then
 fi
 $ADB shell "rm -rf $DEV; mkdir -p $DEV"
 $ADB shell "nohup logcat -v epoch -T 1 -s TestRunner:I AndroidRuntime:E EPR:I EPRJS:W ActivityManager:I > $DEV/logcat.txt 2>&1 & echo \$! > $DEV/logcat.pid" </dev/null
-$ADB shell "nohup sh -c 'echo \$\$ > $DEV/pid; exec am instrument -w -r --no-window-animation $ARGS $RUNNER' > $DEV/run.txt 2>&1 &" </dev/null
+$ADB shell "nohup sh -c 'echo \$\$ > $DEV/pid; exec am instrument -w -r --no-window-animation -e timeout_msec $TEST_TIMEOUT_MS $ARGS $RUNNER' > $DEV/run.txt 2>&1 &" </dev/null
 RUN_LIVE=1
 say "run started on the device: ${ARGS:-all}"
 
