@@ -30,13 +30,16 @@ data class RestoreResult(
 /**
  * F-090 / R-009 / C-011: the backup file. Library metadata, reading positions, bookmarks, annotations (highlights,
  * underlines and notes; C-041: added to version 1 by M6), collections and settings — never the books themselves or where
- * their files are (device-local). Every entry keeps its stable id, change timestamp and tombstone (F-115), so
+ * their files are (device-local), except the last location of a separate copy (C-096), the only way to tell its file
+ * from the identical ones. Every entry keeps its stable id, change timestamp and tombstone (F-115), so
  * tombstones are exported too. Search history is not (C-043).
  *
  * Restore merges: books are matched by identity key; for the same item the newer `updatedAt` wins, so neither an
  * older backup nor an older local state undoes a later change, and a newer tombstone deletes. A book that is not on
  * this device is kept as a pending identity (a book row with no file), which a later scan or open attaches to; its
  * position, bookmarks and annotations wait on that row. Rows whose book is not in the file at all are skipped.
+ * A separate copy (C-096) has a key of its own, so it arrives as such a row and then takes its file from the book of
+ * the same content, if this device has one to spare ([LibraryDao.adoptCopyFiles]); else it waits for a scan.
  * Older file versions are upgraded by [migrations] first, so every backup ever written stays restorable.
  */
 class Backup(
@@ -49,7 +52,7 @@ class Backup(
         val d = db.backupDao()
         val file = BackupFileV1(
             createdAt = clock.now(), app = appVersion,
-            books = d.books().map { BackupBook(it.id, it.identityKey, it.title, it.authors.split('\n').filter(String::isNotBlank), it.addedAt, it.lastOpenedAt, it.hidden, it.hiddenUpdatedAt, it.updatedAt, it.deleted) },
+            books = d.books().map { BackupBook(it.id, it.identityKey, it.title, it.authors.split('\n').filter(String::isNotBlank), it.addedAt, it.lastOpenedAt, it.hidden, it.hiddenUpdatedAt, it.updatedAt, it.deleted, it.separateOf, it.separatePath, it.separateMtimeMs) },
             positions = d.positions(),
             bookmarks = d.bookmarks(),
             annotations = d.annotations(),
@@ -125,9 +128,14 @@ class Backup(
                         authors = authors, sortAuthor = b.authors.firstOrNull()?.lowercase() ?: "", language = null, titleDirection = "auto",
                         coverThumb = null, addedAt = b.addedAt, lastOpenedAt = b.lastOpenedAt, hidden = b.hidden, updatedAt = b.updatedAt,
                         deleted = true, hiddenUpdatedAt = b.hiddenUpdatedAt,
+                        separateOf = b.separateOf, separatePath = b.separatePath, separateMtimeMs = b.separateMtimeMs,
                     ),
                 )
             }
+        }
+        for (key in f.books.mapNotNull { it.separateOf }.distinct()) {
+            val found = lib.adoptCopyFiles(key, clock.now())
+            matched += found; waiting -= found
         }
         // Positions: one per book; the newer one wins.
         var positions = 0
@@ -236,6 +244,8 @@ private fun String.format(vararg a: Any): String {
 data class BackupBook(
     val id: String, val identityKey: String, val title: String, val authors: List<String>, val addedAt: Long, val lastOpenedAt: Long?,
     val hidden: Boolean, val hiddenUpdatedAt: Long = 0, val updatedAt: Long, val deleted: Boolean,
+    /** C-096; absent in older files, which have no separate copies. */
+    val separateOf: String? = null, val separatePath: String? = null, val separateMtimeMs: Long? = null,
 )
 
 /**

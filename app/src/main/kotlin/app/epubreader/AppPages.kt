@@ -4,8 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
-import app.epubreader.core.data.BookDetails
-import app.epubreader.library.BookDetailsScreen
+import app.epubreader.library.BookDetailsPage
 import app.epubreader.reader.ReaderController
 import app.epubreader.settings.AboutScreen
 import app.epubreader.settings.HiddenBooksScreen
@@ -63,10 +62,7 @@ fun AppPages(route: Route, nav: Navigator, graph: AppGraph, settings: SettingsSt
             }
             LicencesScreen(blocks, onBack = back)
         }
-        is Route.BookDetails -> {
-            val d by produceState<BookDetails?>(null, route.bookId) { value = graph.library.details(route.bookId) }
-            BookDetailsScreen(d, actions.date, onBack = back)
-        }
+        is Route.BookDetails -> BookDetailsPage(route.bookId, graph.library, actions.date, onBack = back)
         else -> Unit
     }
 }

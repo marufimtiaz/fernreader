@@ -69,6 +69,13 @@ suspend fun renderScreens(g: DevGraph, dir: File) {
     shot("reader-sheet-display")
     g.reader.selectSheetTab(ReaderSheetTab.GENERAL)
     shot("reader-sheet-general")
+    g.reader.hideSheet()
+    val (book, path) = g.addIdenticalFile(moby.title)
+    g.nav.push(Route.BookDetails(book))
+    shot("book-details-two-files")
+    g.nav.pop()
+    g.nav.push(Route.BookDetails(g.library.keepSeparate(path)!!))
+    shot("book-details-separate-copy")
     scene.close()
 }
 

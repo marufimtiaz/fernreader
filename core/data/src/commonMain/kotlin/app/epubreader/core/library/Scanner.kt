@@ -30,7 +30,8 @@ import kotlin.time.TimeSource
  * Library scan (F-010..F-012, F-015, F-016, R-004, R-010). The walker streams candidate files into a channel and
  * [workers] coroutines load them while the walk continues (M0 S3). Unchanged files (same path, size and mtime) cost
  * no zip I/O. Rows of files that were not seen are pruned only after a walk that completed: a cancelled or killed
- * scan never removes anything (Review Focus 3). Reading data is keyed by book id and never touched here.
+ * scan never removes anything (Review Focus 3). Reading data is keyed by book id and never touched here. A new file
+ * whose content has separate copies (C-096) is recorded after the walk, when it is known what went missing.
  */
 @OptIn(ExperimentalAtomicApi::class)
 class Scanner(
@@ -55,6 +56,7 @@ class Scanner(
             val unchanged = ArrayList<String>()
             val unchangedFailures = ArrayList<String>()
             val seenLock = Mutex()
+            val copies = ArrayList<ScannedBook>() // C-096: new files whose content has separate copies, for after the walk
             val files = AtomicInt(0); val added = AtomicInt(0); val failed = AtomicInt(0)
 
             suspend fun process(f: FoundFile) {
@@ -66,7 +68,7 @@ class Scanner(
                     failed.incrementAndFetch(); seenLock.withLock { unchangedFailures += f.path }; return
                 }
                 when (val r = load(f)) {
-                    is Loaded.Book -> {
+                    is Loaded.Book -> if (dao.needsCopyMatch(r.book)) seenLock.withLock { copies += r.book } else {
                         val id = dao.recordScanned(r.book, scanId, clock.now())
                         added.incrementAndFetch()
                         onEvent(ScanEvent.BookAdded(id, f.path))
@@ -89,6 +91,13 @@ class Scanner(
             // The walk completed (a cancellation throws out of coroutineScope above): now prune what was not seen.
             dao.markSeen(unchanged, unchangedFailures, scanId)
             val prefix = when (scope) { ScanScope.Everywhere -> walker.root; is ScanScope.Folder -> scope.path }.trimEnd('/') + "/"
+            // Before pruning: the files that went missing are what tells a moved separate copy from a new identical file.
+            for ((key, group) in copies.groupBy { it.identityKey }) {
+                for ((book, id) in dao.recordScannedCopies(key, group, scanId, prefix, clock.now())) {
+                    added.incrementAndFetch()
+                    onEvent(ScanEvent.BookAdded(id, book.path))
+                }
+            }
             val removed = dao.pruneScan(scanId, prefix)
             dao.pruneFailures(scanId, prefix)
             dao.tombstoneOrphans(clock.now())

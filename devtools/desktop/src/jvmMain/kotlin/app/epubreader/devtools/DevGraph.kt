@@ -87,6 +87,18 @@ class DevGraph(val licencesFile: java.io.File?) {
     /** A tap on the page's centre: the reader's bars come and go. */
     fun tapPage() = fakeReader.tap()
 
+    /** C-096: a second location for [title]'s file; the book's id and the new file's path. */
+    suspend fun addIdenticalFile(title: String): Pair<String, String> {
+        val book = library.library().first().first { it.title == title }
+        val row = db.libraryDao().byId(book.id)!!
+        val path = "$ROOT/Documents/Copies/${book.path.substringAfterLast('/')}"
+        db.libraryDao().recordScanned(
+            ScannedBook(row.identityKey, row.title, row.sortTitle, row.authors, row.sortAuthor, row.language, row.titleDirection, path, path.substringBeforeLast('/'),
+                size = 500_000L, mtimeMs = 1), scanId = 1, now = System.currentTimeMillis(),
+        )
+        return book.id to path
+    }
+
     /** Fills the library; returns when the books are there. */
     suspend fun seed() {
         val day = 86_400_000L
