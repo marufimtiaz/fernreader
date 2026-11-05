@@ -1,5 +1,6 @@
 package app.epubreader.library
 
+import app.epubreader.core.data.LibraryBook
 import app.epubreader.ui.Copy
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -37,6 +38,24 @@ class FolderTreeTest {
         assertEquals(2, row.getValue("Books").total) // emma and alice, not 3
         assertEquals("1 · 1 here", row.getValue("X").let { Copy.folderCount(it.direct, it.total, it.hasChildren) })
         assertEquals("1", row.getValue("Y").let { Copy.folderCount(it.direct, it.total, it.hasChildren) })
+    }
+
+    /** C-096: the same file kept as a separate copy is a book of its own, in the rows and in All books. */
+    @Test fun a_separate_copy_counts_as_its_own_book() {
+        fun entry(id: String, path: String) = LibraryBook(id, "Alice", listOf("A"), "auto", null, 1, null, "alice", "a", path, listOf(path))
+        val books = listOf(entry("alice", "$r/Books/X/alice.epub"), entry("alice-copy", "$r/Books/X/Y/alice.epub"))
+        val row = FolderTree.build(LibraryState.folderBooks(books), emptySet()).associateBy { it.name }
+        assertEquals("2 · 1 here", row.getValue("X").let { Copy.folderCount(it.direct, it.total, it.hasChildren) })
+        assertEquals("1", row.getValue("Y").let { Copy.folderCount(it.direct, it.total, it.hasChildren) })
+    }
+
+    @Test fun merge_warning_names_what_is_lost() {
+        assertEquals("This copy's reading position, 2 bookmarks, 1 highlight and 3 notes will be deleted. The file stays in the library and uses the other copy's reading data.",
+            Copy.mergeCopyWarning(position = true, bookmarks = 2, highlights = 1, notes = 3))
+        assertEquals("This copy's reading position will be deleted. The file stays in the library and uses the other copy's reading data.",
+            Copy.mergeCopyWarning(position = true, bookmarks = 0, highlights = 0, notes = 0))
+        assertEquals("This copy has no reading data to lose. The file stays in the library and uses the other copy's reading data.",
+            Copy.mergeCopyWarning(position = false, bookmarks = 0, highlights = 0, notes = 0))
     }
 
     @Test fun folder_count_label() {

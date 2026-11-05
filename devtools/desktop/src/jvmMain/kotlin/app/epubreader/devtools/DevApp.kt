@@ -12,9 +12,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import app.epubreader.core.data.BookDetails
 import app.epubreader.core.data.SourceRef
-import app.epubreader.library.BookDetailsScreen
+import app.epubreader.library.BookDetailsPage
 import app.epubreader.library.ConfirmDialog
 import app.epubreader.reader.EventProbe
 import app.epubreader.reader.display.ReadingTheme
@@ -113,10 +112,7 @@ private fun DevPages(route: Route, g: DevGraph) {
             }
             LicencesScreen(blocks, onBack = back)
         }
-        is Route.BookDetails -> {
-            val d by produceState<BookDetails?>(null, route.bookId) { value = g.library.details(route.bookId) }
-            BookDetailsScreen(d, ::formatDate, onBack = back)
-        }
+        is Route.BookDetails -> BookDetailsPage(route.bookId, g.library, ::formatDate, onBack = back)
         else -> Unit
     }
 }

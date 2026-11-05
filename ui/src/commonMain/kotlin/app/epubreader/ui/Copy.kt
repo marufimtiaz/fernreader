@@ -139,6 +139,27 @@ object Copy {
     const val never = "Not yet"
     fun fileLocations(n: Int) = if (n == 1) "File" else "Files ($n copies, one entry)"
     const val identity = "Identity"
+    // --- C-096 separate copies ---
+    const val keepSeparate = "Keep as a separate copy"
+    const val separateCopyNote = "This file is a separate copy, with its own reading position, bookmarks, highlights and notes."
+    const val mergeCopy = "Merge with the other copy"
+    const val mergeCopyTitle = "Merge with the other copy?"
+    const val mergeCopyConfirm = "Merge"
+    const val noOtherCopy = "There's no other copy in the library to merge with."
+    /** Names what a merge loses: this entry's reading data, as counted. */
+    fun mergeCopyWarning(position: Boolean, bookmarks: Int, highlights: Int, notes: Int): String {
+        fun count(n: Int, one: String) = if (n == 1) "1 $one" else "$n ${one}s"
+        val lost = listOfNotNull(
+            "reading position".takeIf { position }, count(bookmarks, "bookmark").takeIf { bookmarks > 0 },
+            count(highlights, "highlight").takeIf { highlights > 0 }, count(notes, "note").takeIf { notes > 0 },
+        )
+        val first = when (lost.size) {
+            0 -> "This copy has no reading data to lose."
+            1 -> "This copy's ${lost[0]} will be deleted."
+            else -> "This copy's ${lost.dropLast(1).joinToString(", ")} and ${lost.last()} will be deleted."
+        }
+        return "$first The file stays in the library and uses the other copy's reading data."
+    }
     /** "1.4 MB", "820 KB" (decimal units, one decimal for MB). */
     fun fileSize(bytes: Long): String = when {
         bytes >= 1_000_000 -> "${(bytes / 100_000) / 10.0} MB"
