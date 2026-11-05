@@ -114,13 +114,15 @@ $ADB shell "rm -rf $DEV; mkdir -p $DEV"
 $ADB shell "nohup logcat -v epoch -T 1 -s TestRunner:I AndroidRuntime:E EPR:I EPRJS:W ActivityManager:I > $DEV/logcat.txt 2>&1 & echo \$! > $DEV/logcat.pid" </dev/null
 $ADB shell "nohup sh -c 'echo \$\$ > $DEV/pid; exec am instrument -w -r --no-window-animation $ARGS $RUNNER' > $DEV/run.txt 2>&1 &" </dev/null
 RUN_LIVE=1
-START=$SECONDS
 say "run started on the device: ${ARGS:-all}"
 
 : > "$OUT/run.txt"
-off=0 lost=0 seen=0 STATE=
+off=0 lost=0 seen=0 STATE= last=$SECONDS active=0 slept=0
 while :; do
   sleep 10
+  # A closed lid suspends host and emulator together; the run goes on after it. Only time awake counts for the timeout.
+  gap=$((SECONDS - last)); last=$SECONDS
+  if [ $gap -gt 120 ]; then slept=$((slept + gap)); say "no poll for $gap s (host asleep?): not counted"; else active=$((active + gap)); fi
   if chunk=$($ADB shell "tail -c +$((off + 1)) $DEV/run.txt; [ -d /proc/\$(cat $DEV/pid) ] && echo @@alive || echo @@gone" 2>/dev/null); then
     lost=0
     live=${chunk##*@@}; chunk=${chunk%@@*}
@@ -130,7 +132,7 @@ while :; do
       /^INSTRUMENTATION_STATUS: test=/ { sub(/.*test=/, ""); t = $0 }
       /^INSTRUMENTATION_STATUS_CODE: -[12]$/ { print "  FAILED " c "#" t }'
     done=$(grep -c '^INSTRUMENTATION_STATUS_CODE: \(0\|-[1-4]\)$' "$OUT/run.txt")
-    if [ "$done" -ne "$seen" ] && [ $((done / 10)) -ne $((seen / 10)) ]; then say "$done tests finished, $((SECONDS - START)) s"; fi
+    if [ "$done" -ne "$seen" ] && [ $((done / 10)) -ne $((seen / 10)) ]; then say "$done tests finished, $active s"; fi
     seen=$done
     grep -q '^INSTRUMENTATION_CODE:' "$OUT/run.txt" && { STATE=ended; break; }
     case "$live" in gone*) STATE=died; break ;; esac
@@ -139,9 +141,10 @@ while :; do
     [ $lost = 1 ] && say "device unreachable, still polling"
     [ $lost -ge 60 ] && { STATE=unreachable; break; }
   fi
-  [ $((SECONDS - START)) -ge "$TIMEOUT" ] && { STATE=timeout; break; }
+  [ "$active" -ge "$TIMEOUT" ] && { STATE=timeout; break; }
 done
-say "run $STATE after $((SECONDS - START)) s"
+say "run $STATE after $active s"
+[ $slept = 0 ] || echo "WARNING: $slept s of no polling (host asleep?) during the run: a test across that gap has a void time and may have failed by it."
 
 if [ "$STATE" = unreachable ]; then
   RUN_LIVE=0
