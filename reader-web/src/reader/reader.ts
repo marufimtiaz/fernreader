@@ -12,7 +12,7 @@ import { decoded, pageImages } from './paint'
 import { polyfillMfenced } from './mathml'
 import { shareSections } from './sections'
 import { rangeAtOffset, resolveTextRange, textOffsetOf, textSpanOf } from './textpos'
-import { effectiveDir, reportSwipes, swipeToTurn } from './swipe'
+import { dragFinishes, effectiveDir, followsFinger, reportSwipes, swipeToTurn } from './swipe'
 import { externalHref, isNoteTarget, noteElement, noteLinkResolver, noteRef, sanitizeNote } from './links'
 import { FootnotePopup } from './footnote'
 import { visibleBookmarks } from './bookmarks'
@@ -106,6 +106,8 @@ export class Reader {
     // Read-only probes for the app's instrumented tests (evaluateJavascript); nothing in the app calls them.
     const identities = new Map<string, { identifier?: string | null; error?: string }>()
     ;(window as any).__readerTest = {
+      /** C-094: the last drag (what it moved, how far, how it ended) and the page's offset now; null before any. */
+      drag: () => { const r = this.view?.renderer; return r?.debugDrag ? { ...r.debugDrag, start: r.start, sliding: !!r.debugSlideGeometry } : null },
       page: () => { const r = this.view?.renderer; return r ? { page: r.page, textPages: r.pages - 2, index: this.view.lastLocation?.section?.current } : null },
       /** Sections with a loaded document: the current one first, then preloaded neighbours. */
       loaded: () => this.view?.renderer?.getContents?.().map((c: any) => c.index) ?? [],
@@ -466,6 +468,12 @@ export class Reader {
       // Swipes come to the host as `swipe` events and turn pages through the queue (F-032, C-026), not foliate's drag.
       r.setAttribute('host-swipe', '')
       r.addEventListener('swipe', (e: CustomEvent) => this.onSwipe(view, e.detail))
+      // C-094: the page follows a drag only with nothing else on its way; a gesture it can't follow comes as a `swipe`.
+      r.dragHost = {
+        ready: (rtl: boolean, vertical: boolean) => !this.pumping && !this.queue.length && !this.seeking
+          && followsFinger(effectiveDir(this.settings.swipeDirection, this.book?.dir), rtl, vertical),
+        finishes: dragFinishes,
+      }
       if (isFixedLayout(r)) reportSwipes(r, r) // foliate-fxl has no touch handling: the host recognises its swipes
       // F-081: vertical-rl sections are paged right-to-left (horizontal pages), where the engine supports it.
       r.setAttribute('vertical-pages', '')
@@ -491,9 +499,12 @@ export class Reader {
     }
   }
 
-  /** At most [MAX_TURNS] pending; more are dropped (a burst of taps still moves that many pages, in order). */
-  private turn(dir: 'next' | 'prev', chapter = false) {
-    if (this.queue.filter(c => c.kind === 'turn').length >= MAX_TURNS) return
+  /**
+   * At most [MAX_TURNS] pending; more are dropped (a burst of taps still moves that many pages, in order). A swipe is
+   * never dropped (C-094): each is a whole gesture, so there are never many, and a section still loading can hold them up.
+   */
+  private turn(dir: 'next' | 'prev', chapter = false, swipe = false) {
+    if (!swipe && this.queue.filter(c => c.kind === 'turn').length >= MAX_TURNS) return
     this.enqueue({ kind: 'turn', dir, chapter })
   }
 
@@ -513,6 +524,9 @@ export class Reader {
       while (this.queue.length && this.token === token && this.view) {
         const view = this.view
         const sessionId = this.sessionId!
+        // C-094: a finger holds the page, or its turn is settling: foliate would ignore a turn or a jump meanwhile
+        const held = view.renderer?.dragging
+        if (held) { await held; continue }
         const c = this.queue.shift()!
         if (c.kind === 'turn') {
           // Resolves after the turn (and foliate's lock) is over, so the next one is not ignored.
@@ -849,7 +863,7 @@ export class Reader {
     const doc = contents[0]?.doc
     const vertical = !!doc?.defaultView?.getComputedStyle(doc.documentElement).writingMode?.startsWith('vertical')
     const t = swipeToTurn(d.dx, d.dy, d.dt, effectiveDir(this.settings.swipeDirection, this.book?.dir), vertical)
-    if (t) this.turn(t, view.renderer.getAttribute?.('flow') === 'scrolled')
+    if (t) this.turn(t, view.renderer.getAttribute?.('flow') === 'scrolled', true)
   }
 
   /**

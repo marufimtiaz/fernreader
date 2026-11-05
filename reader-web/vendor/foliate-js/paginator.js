@@ -5,11 +5,15 @@
 // LOCAL PATCH (M9 C-085, see PATCHES.md): `chapter-stop` attribute ("Chapters: One at a time" in scroll mode): stack mode
 // holds only the current section, so scrolling stops at its end; a control below its last line (above its first line)
 // or a deliberate overscroll pull opens the next (previous) section (#edges, pullStep).
+// LOCAL PATCH (v1.1 C-094, see PATCHES.md): the page follows the finger. A turn is a surface ({ set(t), finish(), reset() },
+// t = progress 0..1): #scrollSurface inside a section, #sectionSurface at a boundary, #chapterSurface in One at a time. A
+// bridge turn plays a surface from 0 to 1 (#slide); a drag sets it from the finger (#dragApply) and plays it to either
+// end on release (#dragSettle). The next section is only staged: the swap is the last step, so a cancel costs nothing.
 // LOCAL PATCH (M9 C-093, see PATCHES.md): in One at a time a clearly horizontal gesture (sideLock, decided on the first
 // move past the touch slop) is reported as a `swipe`; the host answers with turnChapter(), which slides the adjacent
 // chapter in. Those chapters wait laid out in hidden slots outside the stack (`side` entries).
 // LOCAL PATCH (M9 C-071, see PATCHES.md): a turn into a preloaded neighbour section slides (`animated`) instead of
-// swapping instantly: #slideIn moves the old and the new slot side by side over 300 ms.
+// swapping instantly: #sectionSurface moves the old and the new slot side by side over 300 ms.
 // LOCAL PATCH (M6 Task 9, see PATCHES.md): `vertical-pages` attribute: vertical-rl sections paged right-to-left as
 // horizontal pages (multicol rows with `column-wrap`) where supported.
 // LOCAL PATCH (epub-reader M4, see PATCHES.md): `View` exported; `layout`, `styles`, `busy` getters; neighbour-section
@@ -61,6 +65,29 @@ export const heldShift = (screen, now, scrollTop) => (now - screen.top) + (scrol
 
 export const slideSign = (dir, rtl) => (dir > 0 ? -1 : 1) * (rtl ? -1 : 1)
 export const slideFrame = (t, sign, width) => ({ old: sign * width * t + 0, next: -sign * width * (1 - t) + 0 })
+// local patch (C-094): a turn that follows the finger. [dragProgress]: the finger's movement [delta] (CSS px, positive =
+// right or down) as progress toward the next page, -1..1, for pages of [size]; [rtl]: pages run right to left.
+export const dragProgress = (delta, size, rtl) => size > 0 ? Math.max(-1, Math.min(1, (rtl ? delta : -delta) / size)) + 0 : 0
+/** How far (of a page) the page can be pulled where nothing can come in yet. */
+export const RESIST_MAX = 0.15
+/** Where the page is for a pull of [t] (0..1) against an edge: half the finger's speed at first, then less and less. */
+export const resisted = t => RESIST_MAX * (1 - Math.exp(-t / (2 * RESIST_MAX)))
+/** The time over which a finger's speed is taken as it lifts (ms). */
+const SPEED_WINDOW = 100
+/**
+ * The finger's speed as it lifted (px/ms), from [trail] ({ d: position, t: time }, oldest first, the lift last): over the
+ * last [SPEED_WINDOW] ms, from the latest sample at least that old, so a finger held still before it lifts has none
+ * and moves far apart (a slow frame) still give one.
+ */
+export const fingerSpeed = trail => {
+    const last = trail.at(-1)
+    const from = trail.findLast(s => s.t <= last.t - SPEED_WINDOW) ?? trail[0]
+    return last.t > from.t ? (last.d - from.d) / (last.t - from.t) : 0
+}
+/** The samples [fingerSpeed] can still need once [t] is the newest time. */
+const trimTrail = (trail, t) => { while (trail.length > 2 && trail[1].t <= t - SPEED_WINDOW) trail.shift() }
+/** How long the rest of a turn takes, [share] being the part of a page left to go. */
+export const settleMs = share => Math.min(SLIDE_MS, Math.max(60, SLIDE_MS * share))
 // local patch (C-085): a deliberate overscroll pull in "one chapter at a time" scrolling. [p] holds the finger's y
 // (screen CSS px) where the scroller was first seen at its top ([startFrom]) or end ([endFrom]) during this gesture;
 // leaving that edge resets it. [next]/[prev]: how far the finger has pulled past the end (up) or the top (down).
@@ -98,9 +125,18 @@ export const scrollsSideways = el => {
     }
     return false
 }
-const animate = (a, b, duration, ease, render) => new Promise(resolve => {
+// local patch (C-094): [control].finish() ends the animation now, at its last step
+const animate = (a, b, duration, ease, render, control) => new Promise(resolve => {
     let start
+    let ended = false
+    if (control) control.finish = () => {
+        if (ended) return
+        ended = true
+        render(lerp(a, b, 1))
+        resolve()
+    }
     const step = now => {
+        if (ended) return
         if (document.hidden) {
             render(lerp(a, b, 1))
             return resolve()
@@ -109,7 +145,10 @@ const animate = (a, b, duration, ease, render) => new Promise(resolve => {
         const fraction = Math.min(1, (now - start) / duration)
         render(lerp(a, b, ease(fraction)))
         if (fraction < 1) requestAnimationFrame(step)
-        else resolve()
+        else {
+            ended = true
+            resolve()
+        }
     }
     if (document.hidden) {
         render(lerp(a, b, 1))
@@ -1009,7 +1048,7 @@ export class Paginator extends HTMLElement {
         this.#preloadIndex(this.#adjacentIndex(1))
         this.#preloadIndex(this.#adjacentIndex(-1))
     }
-    async #swapTo(index, anchor, select, deferAfterSwap = false) {
+    async #swapTo(index, anchor, select) {
         const entry = this.#cache.get(index)
         if (!entry.loaded) await entry.ready
         if (!entry.loaded || this.#cache.get(index) !== entry) return false
@@ -1023,8 +1062,7 @@ export class Paginator extends HTMLElement {
         // synchronous for fraction anchors: the target page is scrolled into place before the next frame
         await this.scrollToAnchor((typeof anchor === 'function'
             ? anchor(entry.view.document) : anchor) ?? 0, select)
-        // local patch (C-071): a boundary slide preloads/evicts after it ends (no layout work during it, `from` kept)
-        if (!deferAfterSwap) this.#afterSwap()
+        this.#afterSwap()
         return true
     }
     get layout() { return this.#lastLayout }
@@ -1229,6 +1267,7 @@ export class Paginator extends HTMLElement {
         this.addEventListener('touchstart', this.#onTouchStart.bind(this), opts)
         this.addEventListener('touchmove', this.#onTouchMove.bind(this), opts)
         this.addEventListener('touchend', this.#onTouchEnd.bind(this))
+        this.addEventListener('touchcancel', this.#onTouchCancel.bind(this)) // local patch (C-094)
         this.addEventListener('load', ({ detail: { doc } }) => {
             // C-079: wheel and keys inside the book are the user's own scrolling too
             doc.addEventListener('wheel', () => this.#userScroll(), { passive: true })
@@ -1236,6 +1275,7 @@ export class Paginator extends HTMLElement {
             doc.addEventListener('touchstart', this.#onTouchStart.bind(this), opts)
             doc.addEventListener('touchmove', this.#onTouchMove.bind(this), opts)
             doc.addEventListener('touchend', this.#onTouchEnd.bind(this))
+            doc.addEventListener('touchcancel', this.#onTouchCancel.bind(this))
         })
 
         this.addEventListener('relocate', ({ detail }) => {
@@ -1454,6 +1494,7 @@ export class Paginator extends HTMLElement {
     }
     render() {
         if (!this.#view) return
+        this.#dragAbort(true) // local patch (C-094): the surface's geometry goes with the layout
         const layout = this.#beforeRender({
             vertical: this.#docVertical,
             rtl: this.#docRtl,
@@ -1560,6 +1601,8 @@ export class Paginator extends HTMLElement {
         })
     }
     #onTouchStart(e) {
+        this.#motion?.finish() // local patch (C-094): a touch finishes a settling turn at once
+        this.#dragAbort() // a second finger, or a gesture whose end never came
         this.#userScroll()
         this.#pull = this.#single && e.touches.length === 1 ? { startFrom: null, endFrom: null } : null // C-085
         const touch = e.changedTouches[0]
@@ -1577,6 +1620,7 @@ export class Paginator extends HTMLElement {
         if (!state) return // local patch: a move without a start (began outside) is ignored
         if (state.pinched) return
         state.pinched = globalThis.visualViewport.scale > 1
+        if (state.pinched) this.#dragAbort()
         if (this.#single && !state.pinched) { // local patch (C-085, C-093)
             this.#sideMove(e, state)
             this.#pullMove(e)
@@ -1584,12 +1628,16 @@ export class Paginator extends HTMLElement {
         if (this.scrolled || state.pinched) return
         if (e.touches.length > 1) {
             state.multi = true
+            this.#dragAbort()
             if (this.#touchScrolled) e.preventDefault()
             return
         }
         e.preventDefault()
-        // local patch (host-swipe): the page does not follow the finger; the host turns it when the finger lifts
-        if (this.hasAttribute('host-swipe')) return
+        // local patch (host-swipe, C-094): the host's turns; the page follows a gesture locked along its axis
+        if (this.hasAttribute('host-swipe')) {
+            this.#sideMove(e, state)
+            return
+        }
         const touch = e.changedTouches[0]
         const x = touch.screenX, y = touch.screenY
         const dx = state.x - x, dy = state.y - y
@@ -1604,6 +1652,10 @@ export class Paginator extends HTMLElement {
     }
     #onTouchEnd(e) {
         this.#touchScrolled = false
+        if (this.#touchState?.drag) { // local patch (C-094): the page followed it, so it ends here
+            if (!e.touches?.length) this.#dragRelease(e, this.#touchState)
+            return
+        }
         if (this.scrolled) { // local patch (C-085, C-093): a gesture is either a swipe or a pull, never both
             this.#sideEnd(e)
             this.#pullEnd(e)
@@ -1636,26 +1688,171 @@ export class Paginator extends HTMLElement {
         } }))
     }
     /**
-     * Local patch (C-093), a move in One at a time. Only a gesture that has locked sideways is touched: it stops being a
-     * pull, and the native scroll stays out of it (cancelling the first move is what does that). Text being selected and
-     * content that scrolls sideways by itself keep their gesture. A vertical one is never cancelled, so it isn't delayed.
+     * Local patch (C-093, C-094), a move in One at a time or in paged flow. Only a gesture that has locked along the page
+     * axis is touched: it stops being a pull, the native scroll stays out of it (cancelling the first move is what does
+     * that), and the page follows it. Text being selected and, in One at a time, content that scrolls sideways by itself
+     * keep their gesture. A vertical one is never cancelled there, so it isn't delayed. A gesture the page can't follow
+     * yet (a turn is ending) tries again on its next move; if it never can, it is reported when it ends.
      */
     #sideMove(e, state) {
         const touch = e.changedTouches?.[0]
-        if (!touch || e.touches?.length > 1) { state.lock = 'off'; return }
+        if (!touch || e.touches?.length > 1) {
+            state.lock = 'off'
+            this.#dragAbort()
+            return
+        }
+        const dx = touch.screenX - state.x0, dy = touch.screenY - state.y0
+        const main = this.#vertical ? dy : dx, cross = this.#vertical ? dx : dy
+        if (state.drag) {
+            if (e.cancelable) e.preventDefault()
+            this.#dragMove(state, main, cross, e.timeStamp)
+            return
+        }
         const first = state.lock == null
-        state.lock = sideLock(state.lock, touch.screenX - state.x0, touch.screenY - state.y0)
+        state.lock = sideLock(state.lock, main, cross)
         if (state.lock !== 'side') return
         const sel = first ? e.target.ownerDocument?.getSelection?.() : null
-        if (first && ((sel && !sel.isCollapsed) || scrollsSideways(e.target))) { state.lock = 'off'; return }
+        if (first && ((sel && !sel.isCollapsed) || (this.#single && scrollsSideways(e.target)))) { state.lock = 'off'; return }
         this.#pull = null
         this.#armEdges(0)
         if (e.cancelable) e.preventDefault()
+        if (this.#dragStart(state)) this.#dragMove(state, main, cross, e.timeStamp)
     }
     #sideEnd(e) {
         const state = this.#touchState, touch = e?.changedTouches?.[0]
         if (!this.#single || !state?.lock || !touch) return
         if (sideLock(state.lock, touch.screenX - state.x0, touch.screenY - state.y0) === 'side') this.#reportSwipe(e)
+    }
+    /** Local patch (C-094): the touch ended elsewhere (the system took it): the page goes back. */
+    #onTouchCancel() {
+        this.#dragAbort()
+        this.#touchState = null
+    }
+    /**
+     * Local patch (C-094): what the host decides about a drag: `ready(rtl, vertical)`, whether the page may follow now
+     * (no turn queued, the swipe direction agrees with the pages), and `finishes({ main, cross, speed, size })`, the
+     * outcome of a release. Without it no gesture is followed.
+     */
+    dragHost = null
+    #drag = null // { p, t, dir, size, surface, released, done, resolve } from the first followed move until the turn has settled
+    #lastDrag = null
+    #motion = null // the running turn animation: { finish() }
+    #going = 0 // jumps in progress in either flow
+    /** A promise while a drag holds the page (the host's queue waits for it, or the page would be turned under the finger). */
+    get dragging() { return this.#drag?.done ?? null }
+    /** Diagnostics for tests (C-094): the last drag: what it moved, how far, and how it ended (`finished`: null while it runs). */
+    get debugDrag() { return this.#lastDrag }
+    get #dragRtl() { return !this.#vertical && this.#rtl }
+    #dragStart(state) {
+        if (this.#drag || this.#locked || this.#going || this.#jumping || !this.#view) return false
+        if (!this.hasAttribute('animated') || document.hidden) return false // no animation: instant on release
+        if (!this.dragHost?.ready(this.#rtl, this.#vertical)) return false
+        const size = this.#single ? this.#container.getBoundingClientRect().width : this.size
+        const d = { p: 0, t: 0, dir: 0, size, surface: null, released: false }
+        d.done = new Promise(resolve => d.resolve = resolve)
+        this.#drag = d
+        this.#locked = true // the host's turns wait (dragging), the page counter too (busy)
+        state.drag = d
+        state.trail = [{ d: 0, t: state.t0 }]
+        this.#lastDrag = { kinds: [], maxT: 0, active: true, finished: null }
+        return true
+    }
+    #dragMove(state, main, cross, time) {
+        const d = state.drag
+        if (d.released) return
+        state.main = main
+        state.cross = cross
+        state.trail.push({ d: main, t: time })
+        trimTrail(state.trail, time)
+        d.p = dragProgress(main, d.size, this.#dragRtl)
+        this.#dragApply(d)
+    }
+    /** Puts the page where the finger is; a change of direction, or a section that has come in, changes the surface. */
+    #dragApply(d) {
+        const dir = Math.sign(d.p) || d.dir
+        if (!dir) return
+        if (!d.surface || d.surface.dir !== dir || d.surface.entry?.loaded) {
+            d.surface?.reset()
+            d.dir = dir
+            d.surface = this.#dragSurface(dir)
+            if (!d.surface) return
+            this.#lastDrag.kinds.push(d.surface.kind + (d.surface.resists ? '-edge' : ''))
+            d.surface.set(0)
+            const s = d.surface
+            s.entry?.ready?.then(() => { if (this.#drag === d && !d.released && d.surface === s) this.#dragApply(d) })
+        }
+        const t = Math.abs(d.p)
+        d.t = d.surface.resists ? resisted(t) : t
+        d.surface.set(d.t)
+        this.#lastDrag.t = d.t
+        this.#lastDrag.maxT = Math.max(this.#lastDrag.maxT, d.t)
+        this.#lastDrag.dir = dir
+    }
+    /** What a drag moves toward [dir]. Where nothing can come in (yet), the page resists: `entry` is what it waits for. */
+    #dragSurface(dir) {
+        const index = this.#single ? this.#chapterTarget(dir) : this.#adjacentIndex(dir)
+        if (!this.#single && !(dir < 0 ? this.page <= 1 : this.page >= this.pages - 2)) return this.#scrollSurface(dir)
+        if (index != null) this.#preloadIndex(index, this.#single)
+        const entry = index == null ? undefined : this.#cache.get(index)
+        const stage = entry?.loaded ? this.#stage(entry, dir) : null
+        if (stage) return stage
+        const edge = this.#single ? this.#chapterSurface(null, dir) : this.#scrollSurface(dir)
+        return edge && Object.assign(edge, { resists: true, target: index ?? null, entry })
+    }
+    #stage(entry, dir) { return this.#single ? this.#chapterSurface(entry, dir) : this.#sectionSurface(entry, dir) }
+    #dragRelease(e, state) {
+        const d = state.drag, touch = e?.changedTouches?.[0]
+        if (d.released) return
+        if (!touch) { this.#dragAbort(); return }
+        const dx = touch.screenX - state.x0, dy = touch.screenY - state.y0
+        this.#dragMove(state, this.#vertical ? dy : dx, this.#vertical ? dx : dy, e.timeStamp)
+        const toward = slideSign(d.dir, this.#dragRtl) // the way the finger goes for this turn
+        const release = { main: (state.main ?? 0) * toward, cross: state.cross ?? 0, speed: fingerSpeed(state.trail) * toward, size: d.size }
+        this.#lastDrag.release = release
+        void this.#dragSettle(d, !!this.dragHost?.finishes(release))
+    }
+    /** The drag is over or dropped: the page goes on to the end of the turn, or back; then the host's turns may run. */
+    async #dragSettle(d, finish) {
+        d.released = true
+        try {
+            let s = d.surface
+            if (finish && s?.resists) { // the drag waits at the edge; it finishes when the section is there
+                if (s.target == null) finish = false
+                else {
+                    await s.entry?.ready
+                    const entry = this.#cache.get(s.target), { target } = s
+                    s.reset()
+                    s = d.surface = entry?.loaded ? this.#stage(entry, d.dir) : null
+                    if (!s) { await this.#goTo({ index: target, anchor: d.dir < 0 ? () => 1 : () => 0 }); return }
+                    s.set(d.t)
+                }
+            }
+            if (!s) return
+            const end = finish ? 1 : 0
+            await this.#play(d.t, end, settleMs(Math.abs(end - d.t)), s.set)
+            if (!finish) s.reset()
+            else if (!(await s.finish())) await this.#goTo({ index: s.index, anchor: d.dir < 0 ? () => 1 : () => 0 })
+        } catch (e) {
+            console.warn('turn failed', e)
+        } finally {
+            this.#dragEnd(d, finish)
+        }
+    }
+    #dragEnd(d, finished) {
+        if (this.#drag !== d) return
+        this.#drag = null
+        this.#locked = false
+        Object.assign(this.#lastDrag, { active: false, finished })
+        d.resolve()
+    }
+    /** Drops a drag the finger still holds: the page goes back, at once if [now]. */
+    #dragAbort(now = false) {
+        const d = this.#drag
+        if (!d || d.released) return
+        if (!now) { void this.#dragSettle(d, false); return }
+        d.released = true
+        d.surface?.reset()
+        this.#dragEnd(d, false)
     }
     // allows one to process rects as if they were LTR and horizontal
     #getRectMapper() {
@@ -1697,8 +1894,8 @@ export class Paginator extends HTMLElement {
         }
         // FIXME: vertical-rl only, not -lr
         if (this.scrolled && this.#vertical) offset = -offset
-        if ((reason === 'snap' || smooth) && this.hasAttribute('animated')) return animate(
-            element[scrollProp], offset, 300, easeOutQuad,
+        if ((reason === 'snap' || smooth) && this.hasAttribute('animated')) return this.#play(
+            element[scrollProp], offset, 300,
             x => element[scrollProp] = x,
         ).then(() => {
             this.#scrollBounds = [offset, this.atStart ? 0 : size, this.atEnd ? 0 : size]
@@ -1819,7 +2016,11 @@ export class Paginator extends HTMLElement {
             return this.#goToTarget(target)
         })
     }
-    async #goToTarget({ index, anchor, select}) {
+    async #goToTarget(target) {
+        this.#going++ // local patch (C-094): no drag starts on a page that is being replaced
+        try { await this.#goToTargetNow(target) } finally { this.#going-- }
+    }
+    async #goToTargetNow({ index, anchor, select}) {
         if (index === this.#index) await this.#display({ index, anchor, select })
         else if (this.#preload && this.#cache.has(index) && await this.#swapTo(index, anchor, select)) return
         else {
@@ -1900,18 +2101,11 @@ export class Paginator extends HTMLElement {
             const atEdge = prev ? this.page <= 1 : this.page >= this.pages - 2
             if (atEdge && target != null && this.#cache.has(target)) {
                 // local patch (C-071): with `animated`, the neighbour slides in like any other page turn
-                const from = this.#cache.get(this.#index)
-                const slide = this.hasAttribute('animated') && !document.hidden && !this.#vertical && from
-                    && this.#cache.get(target).loaded // a neighbour still loading swaps in as before (its rect would be stale)
-                const before = slide ? from.view.element.getBoundingClientRect() : null
-                if (await this.#swapTo(target, prev ? () => 1 : () => 0, undefined, !!before)) {
-                    try {
-                        if (before) await this.#slideIn(from, this.#cache.get(target), before, dir)
-                    } finally {
-                        if (before) this.#afterSwap()
-                    }
-                    return
-                }
+                const to = this.#cache.get(target)
+                const slide = this.hasAttribute('animated') && !document.hidden && !this.#vertical
+                    && to.loaded // a neighbour still loading swaps in as before (its size would be stale)
+                    ? this.#sectionSurface(to, dir) : null
+                if (slide ? await this.#slide(slide) : await this.#swapTo(target, prev ? () => 1 : () => 0)) return
             }
         }
         const shouldGo = await (prev ? this.#scrollPrev(distance) : this.#scrollNext(distance))
@@ -1936,37 +2130,78 @@ export class Paginator extends HTMLElement {
         return { container: rect(this.#container), old: rect(s.from.view.element.querySelector('iframe')),
             next: rect(s.to.view.element.querySelector('iframe')), oldConnected: s.from.slot.isConnected }
     }
-    /**
-     * Local patch (C-071): [to] has just been swapped in (in flow, scrolled to its page); [from] is the slot that was on
-     * screen, its view element at [before] (viewport rect) before the swap. The old slot is pinned where it was (absolute,
-     * shifted back to its old screen position), then both move one container width in the turn's direction, eased like
-     * an in-section turn. Both documents are laid out already (preloaded), so every frame shows real pages.
-     */
-    async #slideIn(from, to, before, dir) {
-        const width = this.#container.getBoundingClientRect().width
-        if (!to || !(width > 0)) return
-        const old = from.slot
-        // the container's box (inset 0: full height, so the view's height: 100% holds), its view visible past it
-        old.style.cssText = 'position: absolute; inset: 0; overflow: visible; pointer-events: none; z-index: 1'
-        const base = before.left - from.view.element.getBoundingClientRect().left
-        const sign = slideSign(dir, this.#rtl)
-        const frames = []
-        this.#lastSlide = frames
+    /** Local patch (C-094): plays a turn animation; a touch can finish it (#motion). */
+    async #play(a, b, ms, render) {
+        const motion = {}
+        this.#motion = motion
+        try { await animate(a, b, ms, easeOutQuad, render, motion) } finally { if (this.#motion === motion) this.#motion = null }
+    }
+    /** Local patch (C-071, C-094): a whole turn on surface [s], for an input that has no finger to follow. */
+    async #slide(s) {
+        s.set(0)
+        await this.#play(0, 1, SLIDE_MS, s.set)
+        return s.finish()
+    }
+    #track(from, to) {
         this.#sliding = { from, to }
-        const set = t => {
-            const f = slideFrame(t, sign, width)
-            old.style.transform = `translateX(${base + f.old}px)`
-            to.slot.style.transform = `translateX(${f.next}px)`
-            frames.push({ t, old: f.old, next: f.next, at: performance.now() }) // at: frame time (C-071 test hook)
+        return this.#lastSlide = []
+    }
+    /** Local patch (C-094): a turn inside the section: the next page is already beside this one in the same scroller. */
+    #scrollSurface(dir) {
+        const el = this.#container, { scrollProp, size } = this
+        const page = this.page
+        const unit = this.#rtl ? -size : size
+        const base = page * unit
+        return {
+            kind: 'page', dir,
+            set: t => { el[scrollProp] = base + dir * t * unit },
+            finish: async () => { await this.#scrollToPage(page + dir, 'page'); return true },
+            reset: () => { el[scrollProp] = base },
         }
-        try {
-            set(0)
-            await animate(0, 1, SLIDE_MS, easeOutQuad, set)
-        } finally {
+    }
+    /**
+     * Local patch (C-071, C-094): a turn into the preloaded section [to]. It is only staged: it shows the page it opens at
+     * beside the current page, and both move one page in the turn's direction, the current section staying current. The
+     * swap is the last step, in the frame of the last move (#swapTo is synchronous up to the scroll for a loaded section),
+     * so a cancel just takes the stage down. Neither slot takes touches: one landing meanwhile goes to the paginator.
+     */
+    #sectionSurface(to, dir) {
+        const from = this.#cache.get(this.#index)
+        const el = this.#container, { scrollProp, size } = this
+        if (!from || !(size > 0)) return null
+        const pages = Math.round(to.view.element.getBoundingClientRect()[this.sideProp] / size)
+        const page = dir > 0 ? 1 : Math.max(1, pages - 2)
+        const move = this.#vertical ? 'translateY' : 'translateX'
+        const scrolled = el[scrollProp] // a slot at inset 0 scrolls with the container
+        const sign = slideSign(dir, this.#dragRtl)
+        const frames = this.#track(from, to)
+        to.slot.style.cssText = 'position: absolute; inset: 0; overflow: hidden; pointer-events: none'
+        to.slot[scrollProp] = this.#rtl ? -page * size : page * size
+        from.slot.style.pointerEvents = 'none'
+        const takeDown = () => {
             this.#sliding = null
-            to.slot.style.transform = ''
-            old.style.transform = ''
-            if (this.#cache.get(this.#index)?.slot !== old) this.#slotStyle(old, false)
+            to.slot[scrollProp] = 0
+            from.slot.style.transform = ''
+            from.slot.style.pointerEvents = ''
+        }
+        return {
+            kind: 'section', dir, index: to.index,
+            set: t => {
+                const f = slideFrame(t, sign, size)
+                from.slot.style.transform = `${move}(${f.old}px)`
+                to.slot.style.transform = `${move}(${scrolled + f.next}px)`
+                frames.push({ t, old: f.old, next: f.next, at: performance.now() }) // at: frame time (C-071 test hook)
+            },
+            finish: async () => {
+                takeDown()
+                if (this.#cache.get(to.index) === to && await this.#swapTo(to.index, dir < 0 ? () => 1 : () => 0)) return true
+                this.#slotStyle(to.slot, false)
+                return false
+            },
+            reset: () => {
+                takeDown()
+                this.#slotStyle(to.slot, false)
+            },
         }
     }
     /**
@@ -1980,53 +2215,70 @@ export class Paginator extends HTMLElement {
         try {
             const index = this.#chapterTarget(dir)
             if (index == null || !this.#single) return
-            const anchor = dir > 0 ? 0 : 1
             if (this.hasAttribute('animated') && !document.hidden) {
                 this.#preloadIndex(index, true) // only if the swipe came before its slot did
                 const entry = this.#cache.get(index)
                 await entry?.ready
                 if (this.#chapterTarget(dir) !== index) return // a jump got in first
-                if (entry?.loaded && this.#cache.get(index) === entry) await this.#slideChapter(entry, dir, anchor)
+                const slide = entry?.loaded && this.#cache.get(index) === entry ? this.#chapterSurface(entry, dir) : null
+                if (slide && await this.#slide(slide)) return
             }
-            await this.#goTo({ index, anchor })
+            await this.#goTo({ index, anchor: dir > 0 ? 0 : 1 })
         } finally { this.#locked = false }
     }
     /**
-     * Local patch (C-093): the boundary slide of scrolled flow. The stack stays as it is, scrolled where it was, and moves
-     * out with its edge controls; [to] (a side slot) is staged over the viewport showing the screen it opens at
-     * ([anchor]: 0 its top, 1 its end). The swap follows in the same frame as the last step (#goTo is synchronous up to
-     * the scroll for a loaded section), so the stage's picture and the stack's are one.
+     * Local patch (C-093, C-094): the boundary slide of scrolled flow. The stack stays as it is, scrolled where it was, and
+     * moves with its edge controls; [to] (a side slot) is staged over the viewport showing the screen it opens at (the next
+     * chapter its top, the previous one its end). Without [to] (nothing to bring in) only the stack moves. The swap is the
+     * last step, in the frame of the last move (#goTo is synchronous up to the scroll for a loaded section), so the
+     * stage's picture and the stack's are one; a jump that has to wait for a fling first keeps the stage on screen.
      */
-    async #slideChapter(to, dir, anchor) {
+    #chapterSurface(to, dir) {
         const el = this.#container
         const from = this.#cache.get(this.#index)
         const width = el.getBoundingClientRect().width
-        if (!from || !(width > 0)) return
+        if (!from || !(width > 0)) return null
         const moving = [...this.#stacked.map(e => e.slot), this.#edgeHead, this.#edgeFoot]
-        const height = el.clientHeight
-        to.slot.style.cssText = `position: absolute; top: ${el.scrollTop}px; left: 0; width: 100%; height: ${height}px; overflow: hidden; pointer-events: none`
-        to.slot.scrollTop = anchor ? Math.max(0, to.view.element.getBoundingClientRect().height - height) : 0
+        const anchor = dir > 0 ? 0 : 1
+        if (to) {
+            const height = el.clientHeight
+            to.slot.style.cssText = `position: absolute; top: ${el.scrollTop}px; left: 0; width: 100%; height: ${height}px; overflow: hidden; pointer-events: none`
+            to.slot.scrollTop = anchor ? Math.max(0, to.view.element.getBoundingClientRect().height - height) : 0
+        }
         el.style.overflow = 'hidden' // nothing scrolls under the slide, and the moving slots add no scroll range
         const sign = slideSign(dir, this.#rtl)
-        const frames = []
-        this.#lastSlide = frames
-        this.#sliding = { from, to }
+        const frames = to ? this.#track(from, to) : null
         // a touch during the slide lands on the paginator, not on a frame the swap destroys: its swipe must not be lost
         for (const m of moving) m.style.pointerEvents = 'none'
-        const set = t => {
-            const f = slideFrame(t, sign, width)
-            for (const m of moving) m.style.transform = `translateX(${f.old}px)`
-            to.slot.style.transform = `translateX(${f.next}px)`
-            frames.push({ t, old: f.old, next: f.next, at: performance.now() })
-        }
-        try {
-            set(0)
-            await animate(0, 1, SLIDE_MS, easeOutQuad, set)
-        } finally {
+        const clear = () => {
             this.#sliding = null
             for (const m of moving) { m.style.transform = ''; m.style.pointerEvents = '' }
-            to.slot.style.transform = ''
-            el.style.overflow = ''
+            if (to) to.slot.style.transform = ''
+        }
+        return {
+            kind: 'chapter', dir, index: to?.index,
+            set: t => {
+                const f = slideFrame(t, sign, width)
+                for (const m of moving) m.style.transform = `translateX(${f.old}px)`
+                if (!to) return
+                to.slot.style.transform = `translateX(${f.next}px)`
+                frames.push({ t, old: f.old, next: f.next, at: performance.now() })
+            },
+            finish: async () => {
+                const going = this.#goTo({ index: to.index, anchor })
+                if (this.#index === to.index) clear() // else it waits for a fling to end, the stage on screen
+                await going
+                clear()
+                return true
+            },
+            reset: () => {
+                clear()
+                if (to) {
+                    to.slot.scrollTop = 0
+                    this.#slotStyle(to.slot, false, true)
+                }
+                if (!this.#jumping) el.style.overflow = ''
+            },
         }
     }
     prev(distance) {
@@ -2087,6 +2339,8 @@ export class Paginator extends HTMLElement {
         this.#view.document.defaultView.focus()
     }
     destroy() {
+        this.#dragAbort(true)
+        this.#motion?.finish()
         this.#observer.unobserve(this)
         for (const i of [...this.#cache.keys()]) if (i !== this.#index) this.#evict(i)
         this.#view.destroy()
