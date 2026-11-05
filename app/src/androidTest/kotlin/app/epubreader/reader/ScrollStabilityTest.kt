@@ -10,6 +10,7 @@ import app.epubreader.core.data.ReaderSettings
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
 import org.json.JSONTokener
 import org.junit.Assert.assertEquals
@@ -127,6 +128,7 @@ class ScrollStabilityTest {
         sc.onActivity { it.controller.onTocSelected(item) }
         val landed = relocate(10_000) { it.sectionIndex == item.index } // not a late report of the scrolling before it
         still()
+        withTimeout(30_000) { a.controller.page.first { it.exact } } // the background count can still change the label by itself
         val first = where()
         assertEquals("$what: landed in the entry's section (relocate ${landed.sectionIndex})", landed.sectionIndex, first.first)
         val page = a.controller.page.value.page

@@ -72,7 +72,7 @@ class MalformedBooksTest {
         dir.deleteRecursively(); dir.mkdirs()
         // fake.epub first in name order is irrelevant: the walk order is the file system's; every file must be seen.
         for (n in expected.keys + readable) corpus(n).copyTo(File(dir, n))
-        val failed = mutableMapOf<String, FailReason>()
+        val failed = java.util.concurrent.ConcurrentHashMap<String, FailReason>() // scan events come from several threads
         val done = graph.scanner.scan(ScanScope.Folder(dir.path)) { e -> if (e is ScanEvent.Failed) failed[File(e.path).name] = e.reason }
         assertEquals(expected, failed)
         assertEquals(expected.size, done.failed)
