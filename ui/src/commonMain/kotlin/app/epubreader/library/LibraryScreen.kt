@@ -8,17 +8,13 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalDrawerSheet
-import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
-import androidx.compose.material3.rememberDrawerState
-import androidx.compose.runtime.snapshotFlow
 import app.epubreader.ui.theme.AppIcons
 import app.epubreader.ui.BarIcon
 import androidx.compose.foundation.text.KeyboardActions
@@ -148,7 +144,6 @@ fun LibraryScreen(state: LibraryState, actions: LibraryActions, probe: EventProb
     val listEnd = if (resume != null) ResumeRoom else 0.dp
     var failuresOpen by remember { mutableStateOf(false) }
     var dialog by remember { mutableStateOf<Dialog?>(null) }
-    val drawer = rememberDrawerState(DrawerValue.Closed)
     val snackbar = remember { SnackbarHostState() }
     if (ui.books.isNotEmpty()) LaunchedEffect(Unit) {
         state.shown.value = true
@@ -158,8 +153,6 @@ fun LibraryScreen(state: LibraryState, actions: LibraryActions, probe: EventProb
     // Bench (bench/device_pass.sh return): the book on top of the view changed (a new book sorts first, C-076)
     LaunchedEffect(topTitle) { if (topTitle != null) probe.ev("library_top", topTitle) }
     LaunchedEffect(ui.view) { actions.onShown(); state.checkResume() } // entering the library route, and every change of view (C-075, C-092)
-    LaunchedEffect(ui.drawerOpen) { if (ui.drawerOpen) drawer.open() else drawer.close() }
-    LaunchedEffect(drawer) { snapshotFlow { drawer.currentValue }.collect { state.setDrawer(it == DrawerValue.Open) } }
     LaunchedEffect(state) { for (m in state.messages) snackbar.showSnackbar(m) } // one at a time, each shown in full
     // C-077: pull-to-refresh runs the manual rescan; its indicator stays until that scan ends (or never starts, no access)
     var pulled by remember { mutableStateOf(false) }
@@ -169,9 +162,9 @@ fun LibraryScreen(state: LibraryState, actions: LibraryActions, probe: EventProb
         pulled = false
     }
 
-    ModalNavigationDrawer(
-        drawerState = drawer, gesturesEnabled = ui.drawerOpen,
-        drawerContent = {
+    DrawerSlide(
+        open = ui.drawerOpen, edgeGesture = ui.selected.isEmpty() && !ui.searchOpen, onOpen = state::setDrawer,
+        drawer = {
             Drawer(ui, onView = state::openView, onToggleFolder = state::toggleDrawerFolder, onNewCollection = { state.setDrawer(false); dialog = Dialog.NewCollection },
                 onSettings = { state.setDrawer(false); actions.onSettings() }, onAbout = { state.setDrawer(false); actions.onAbout() })
         },
