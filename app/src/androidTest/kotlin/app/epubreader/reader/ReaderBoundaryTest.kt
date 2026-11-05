@@ -123,7 +123,7 @@ class ReaderBoundaryTest {
             h.sampleGeometry()
             h.send(ToWeb.Next())
             h.relocate(5_000) { it.sectionIndex == at.sectionIndex + 1 }
-            delay(1_600) // the slide is 300 ms; the sampler runs 1.5 s
+            h.still() // the slide (300 ms) is over: nothing moves for longer than it lasts
             assertSlide(h.slideFrames(), -1) // left-to-right book: next moves the content left
             h.assertGeometry()
             h.settle()
@@ -131,7 +131,7 @@ class ReaderBoundaryTest {
             h.sampleGeometry()
             h.send(ToWeb.Prev())
             h.relocate(5_000) { it.sectionIndex == at.sectionIndex }
-            delay(1_600)
+            h.still()
             assertSlide(h.slideFrames(), 1)
             h.assertGeometry()
             h.stop()
@@ -152,10 +152,11 @@ class ReaderBoundaryTest {
                 h.awaitPreloaded(at.sectionIndex + 1)
                 h.send(ToWeb.Next())
                 h.relocate(5_000) { it.sectionIndex == at.sectionIndex + 1 }
-                delay(600)
+                delay(600) // the window in which no slide may run: fixed
                 assertEquals("no slide frames", 0, h.slideFrames().size)
             } finally {
                 sc.onActivity { it.controller.updateSettings { s -> s.copy(pageAnimation = app.epubreader.core.data.PageAnimation.SLIDE) } }
+                h.a.settingsStored()
                 h.stop()
             }
         }

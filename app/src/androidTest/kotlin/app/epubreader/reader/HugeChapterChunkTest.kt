@@ -123,7 +123,6 @@ class HugeChapterChunkTest {
     private suspend fun ReaderHarness.closeBook() {
         sc.onActivity { it.goBack() }
         withTimeout(10_000) { a.controller.state.first { !it.open } }
-        delay(800) // the close-out stores the last position
     }
 
     /** The CFI's package part (`epubcfi(/6/N[id]`): the spine step, the original itemref's in stored rows. */
@@ -188,6 +187,7 @@ class HugeChapterChunkTest {
                 }.bookmarks.single().also { marks += it.id }
                 val stoppedAt = h.settle()
                 h.closeBook()
+                withTimeout(5_000) { while (graph.library.position(id)?.cfi != stoppedAt.cfi) delay(20) } // the close-out stored it
                 val posC = graph.library.position(id)!!
                 assertEquals(stoppedAt.cfi, posC.cfi) // identity map: the stored position is the reader's own
 
@@ -268,6 +268,7 @@ class HugeChapterChunkTest {
                 assertEquals("true", sc.js("window.__readerTest.blockVisible(${JSONObject.quote(pageBlockC)})"))
                 val stoppedK = h.settle()
                 h.closeBook()
+                withTimeout(5_000) { while (graph.library.position(id)?.cfi != map.cfiToOriginal(stoppedK.cfi)) delay(20) }
 
                 // The position the chunked run stored on close: original coordinates, the control's section and itemref.
                 val posK = graph.library.position(id)!!

@@ -34,7 +34,7 @@ class ScrolledFlowTest {
 
     private suspend fun ReaderHarness.scrolledAt(label: String): Int {
         change { it.copy(flow = Flow.SCROLLED) }
-        delay(500)
+        still()
         return tocJump(label).sectionIndex
     }
 
@@ -48,9 +48,9 @@ class ScrolledFlowTest {
             try {
                 h.ready(); h.open(wp)
                 val i = h.scrolledAt("BOOK ONE: 1805")
-                h.lastPage(); delay(1_000) // the chapter's last screen; the next chapter is laid out below it
+                h.lastPage(); h.still() // the chapter's last screen; the next chapter is laid out below it
                 dragUp()
-                delay(600)
+                h.still()
                 // The same gesture went on into the next chapter: its start is on screen under the end of this one.
                 val st = JSONObject(sc.js("JSON.stringify(window.__readerTest.slots())").let { JSONTokener(it).nextValue() as String })
                 val slots = st.getJSONArray("slots")
@@ -70,10 +70,10 @@ class ScrolledFlowTest {
                 h.ready(); h.open(wp)
                 h.scrolledAt("BOOK ONE: 1805")
                 val k = h.tocJump("CHAPTER II").sectionIndex // at the start of a section
-                delay(500)
+                h.still()
                 val before = h.str("window.__readerTest.firstVisibleBlock()")
                 val inSection = h.offsetInCurrent()
-                delay(2_000) // the previous section is inserted above meanwhile: what is on screen must not move
+                delay(2_000) // the previous section is inserted above meanwhile: what is on screen must not move (fixed: that window is the check)
                 assertEquals(before, h.str("window.__readerTest.firstVisibleBlock()"))
                 assertEquals(inSection, h.offsetInCurrent(), 2.0)
                 // and it is really there: dragging down shows the end of the previous section. Relocates of section k

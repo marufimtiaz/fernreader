@@ -85,11 +85,11 @@ class SvgCoverTest {
                 h.open(file, withToc = false)
                 for (flow in listOf(Flow.PAGED, Flow.SCROLLED)) {
                     sc.onActivity { it.controller.updateSettings { s -> s.copy(flow = flow) } }
-                    delay(800)
+                    h.still()
                     for ((index, name) in listOf(0 to "href", 1 to "xlink:href")) {
                         h.drain(); sc.js("window.__readerTest.goIndex($index)")
                         val at = h.relocate(10_000) { it.sectionIndex == index }
-                        delay(600)
+                        h.still()
                         val p = h.probe(index)
                         Log.i("EPR", "C-081 $flow $name: $p pages=${at.pages}")
                         check(problems, "$flow $name", p, if (flow == Flow.PAGED) at.pages else null)
@@ -100,7 +100,7 @@ class SvgCoverTest {
                     while (found == null && index < 40) {
                         h.drain(); sc.js("window.__readerTest.goIndex($index)")
                         runCatching { h.relocate(10_000) { it.sectionIndex == index } }.getOrNull() ?: break
-                        delay(400)
+                        h.still()
                         found = h.probe(index)
                         if (found == null) index++
                     }
@@ -110,6 +110,7 @@ class SvgCoverTest {
                 }
             } finally {
                 sc.onActivity { it.controller.updateSettings { ReaderSettings() } }
+                h.a.settingsStored()
                 h.stop()
             }
         }

@@ -29,17 +29,17 @@ class FlowTypographyTest {
     private suspend fun ReaderHarness.typography(index: Int): JSONObject {
         var last: JSONObject? = null
         repeat(20) { // two equal readings 150 ms apart (fonts settle after the relocate)
-            delay(150)
             val t = JSONObject(JSONTokener(sc.js("JSON.stringify(window.__readerTest.typography($index))")).nextValue() as String)
             if (last?.toString() == t.toString()) return t
             last = t
+            delay(150)
         }
         return checkNotNull(last)
     }
 
     private suspend fun ReaderHarness.measure(flow: Flow, index: Int): JSONObject {
         sc.onActivity { it.controller.updateSettings { s -> s.copy(flow = flow) } }
-        delay(800)
+        still()
         drain()
         sc.js("window.__readerTest.goIndex($index)")
         relocate(10_000) { it.sectionIndex == index }
@@ -80,6 +80,7 @@ class FlowTypographyTest {
                 assertEquals(emptyList<String>(), problems)
             } finally {
                 sc.onActivity { it.controller.updateSettings { ReaderSettings() } }
+                h.a.settingsStored()
                 h.stop()
             }
         }
@@ -105,14 +106,14 @@ class FlowTypographyTest {
                 val problems = mutableListOf<String>()
                 for (flow in listOf(Flow.PAGED, Flow.SCROLLED)) {
                     sc.onActivity { it.controller.updateSettings { s -> s.copy(flow = flow, marginPercent = 5) } }
-                    delay(800)
+                    h.still()
                     // C-088: title pages built as one narrow div, centred with auto margins (section 0) or with equal fixed
                     // margins on its own width (section 2, `width: 60%; margin: 0 20%`): equal gaps to the column's edges
                     for ((index, sel) in listOf(0 to "div.title", 2 to "div.title2")) {
                     h.drain(); sc.js("window.__readerTest.goIndex($index)"); h.relocate(10_000) { it.sectionIndex == index }
                     for (m in listOf(0, 5, 10)) {
                         sc.onActivity { it.controller.updateSettings { s -> s.copy(marginPercent = m) } }
-                        delay(900)
+                        h.still()
                         val box = JSONTokener(sc.js("JSON.stringify(window.__readerTest.blockBox($index, '$sel'))")).nextValue().let { JSONObject(it as String) }
                         val vw = (JSONTokener(sc.js("JSON.stringify(window.innerWidth)")).nextValue() as String).toDouble()
                         val colLeft = vw * m / 100; val colRight = vw - colLeft
@@ -127,7 +128,7 @@ class FlowTypographyTest {
                     for (m in listOf(0, 5, 10)) {
                         // a slider change while reading (scrolled flow: no re-open, no flow switch)
                         sc.onActivity { it.controller.updateSettings { s -> s.copy(marginPercent = m) } }
-                        delay(900)
+                        h.still()
                         val t = h.typography(1)
                         val vw = t.getDouble("viewportWidth")
                         val left = t.getDouble("columnLeft"); val width = t.getDouble("columnWidth")
@@ -142,6 +143,7 @@ class FlowTypographyTest {
                 assertEquals(emptyList<String>(), problems)
             } finally {
                 sc.onActivity { it.controller.updateSettings { ReaderSettings() } }
+                h.a.settingsStored()
                 h.stop()
             }
         }

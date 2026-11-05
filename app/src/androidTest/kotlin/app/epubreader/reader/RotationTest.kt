@@ -10,6 +10,7 @@ import app.epubreader.core.data.ReaderSettings
 import app.epubreader.reader.bridge.ToWeb
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -23,9 +24,11 @@ class RotationTest {
     @After fun upright() { dev.setOrientationNatural(); dev.unfreezeRotation() }
 
     private suspend fun ReaderHarness.rotateAndSettle(left: Boolean): app.epubreader.reader.bridge.FromWeb.Relocate {
+        fun width(): Int { var w = 0; sc.onActivity { w = it.reader.webView.width }; return w }
+        val before = width()
         if (left) dev.setOrientationLeft() else dev.setOrientationNatural()
-        delay(2_500) // the window resizes, the page is laid out again and re-anchored
-        drain(); return settle()
+        withTimeout(10_000) { while (width() == before) delay(20) } // the window resized
+        return quiet() // the page is laid out again and re-anchored
     }
 
     private fun rotateTwiceKeepsCfi(flow: Flow) = runBlocking {
@@ -35,7 +38,7 @@ class RotationTest {
             try {
                 h.ready(); h.open(wp)
                 sc.onActivity { it.controller.updateSettings { s -> s.copy(flow = flow) } }
-                delay(500)
+                h.still()
                 h.tocJump("BOOK ONE: 1805")
                 repeat(4) { h.send(ToWeb.Next()); h.settle() }
                 val start = h.settle()
@@ -45,7 +48,7 @@ class RotationTest {
                 val back = h.settle()
                 assertEquals(start.sectionIndex, back.sectionIndex)
                 assertEquals(start.cfi, back.cfi)
-            } finally { sc.onActivity { it.controller.updateSettings { ReaderSettings() } }; h.stop() }
+            } finally { sc.onActivity { it.controller.updateSettings { ReaderSettings() } }; h.a.settingsStored(); h.stop() }
         }
     }
 
