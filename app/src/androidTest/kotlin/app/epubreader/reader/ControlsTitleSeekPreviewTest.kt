@@ -149,7 +149,7 @@ class ControlsTitleSeekPreviewTest {
                     dev.pressBack()
                     wait("controls closed") { c.state.first { !it.chromeVisible } }
                 } finally { held.lift() }
-                delay(800)
+                delay(800) // the window in which a cancelled seek must not move the page: fixed
                 assertEquals(null, c.seekPreview.value)
                 h.drain(); assertEquals("cancelled: the page did not move", before!!.sectionIndex, h.at!!.sectionIndex)
                 assertEquals(at, c.state.value.fraction, 0.005)

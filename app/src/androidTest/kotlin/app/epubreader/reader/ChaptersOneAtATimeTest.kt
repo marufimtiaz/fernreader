@@ -9,6 +9,7 @@ import androidx.test.uiautomator.UiObject2
 import androidx.test.uiautomator.Until
 import app.epubreader.EpubReaderApp
 import app.epubreader.MainActivity
+import app.epubreader.settled
 import app.epubreader.core.data.Flow
 import app.epubreader.core.data.ReaderSettings
 import app.epubreader.core.data.ScrollChapters
@@ -68,9 +69,9 @@ class ChaptersOneAtATimeTest {
     /** Scroll mode, One at a time, at the Contents entry [label]; returns its section. */
     private suspend fun ReaderHarness.oneAtATimeAt(label: String): Int {
         change { it.copy(flow = Flow.SCROLLED, scrollChapters = ScrollChapters.ONE_AT_A_TIME) }
-        delay(800)
+        still()
         val i = tocJump(label).sectionIndex
-        delay(800); drain()
+        still(); drain()
         return i
     }
 
@@ -87,7 +88,7 @@ class ChaptersOneAtATimeTest {
             val e = edges()
             if (if (end) e.atEnd() else e.atTop()) return e
             if (end) flickUp() else flickDown()
-            delay(600)
+            delay(600) // a finger's pace: the next flick comes during the run-out of this one, as a user's does
         }
         fail("never reached the chapter's ${if (end) "end" else "top"}: ${edges()}"); error("unreachable")
     }
@@ -129,7 +130,7 @@ class ChaptersOneAtATimeTest {
                 block(h)
             } finally {
                 h.change { ReaderSettings() }
-                delay(800)
+                h.a.settingsStored()
                 h.stop()
             }
         }
@@ -142,7 +143,7 @@ class ChaptersOneAtATimeTest {
         lateinit var end: JSONObject
         val moves = h.relocatesDuring(this) {
             end = h.flickTo(end = true)
-            flickUp(); delay(1_500) // a flick at the end is not a pull: it stays
+            flickUp(); delay(1_500) // a flick at the end is not a pull: it stays (the window in which nothing may happen: fixed)
         }
         assertEquals("relocates left the chapter while flicking", emptyList<Int>(), moves.map { it.sectionIndex }.filter { it != i })
         val e = h.edges()
@@ -158,10 +159,10 @@ class ChaptersOneAtATimeTest {
 
     @Test fun next_button_opens_the_next_chapter_at_its_top_and_it_holds() = run { h ->
         val i = h.oneAtATimeAt("CHAPTER II")
-        h.flickTo(end = true); delay(500); h.drain()
+        h.flickTo(end = true); h.still(); h.drain()
         h.tapEdge("foot")
         assertEquals(i + 1, h.relocate(10_000) { it.sectionIndex != i }.sectionIndex)
-        delay(1_000)
+        h.still()
         val e = h.edges()
         assertEquals(i + 1, e.getInt("current"))
         assertTrue("next chapter opens at its top: $e", e.sectionTop())
@@ -172,10 +173,10 @@ class ChaptersOneAtATimeTest {
 
     @Test fun pull_past_the_end_opens_the_next_chapter_at_its_top() = run { h ->
         val i = h.oneAtATimeAt("CHAPTER II")
-        h.flickTo(end = true); delay(500); h.drain()
+        h.flickTo(end = true); h.still(); h.drain()
         pullUp()
         assertEquals(i + 1, h.relocate(10_000) { it.sectionIndex != i }.sectionIndex)
-        delay(1_000)
+        h.still()
         val e = h.edges()
         assertEquals(i + 1, e.getInt("current"))
         assertTrue("next chapter opens at its top: $e", e.sectionTop())
@@ -187,11 +188,11 @@ class ChaptersOneAtATimeTest {
     @Test fun pull_above_the_top_opens_the_previous_chapter_at_its_end() = run { h ->
         val k = h.oneAtATimeAt("CHAPTER III")
         h.sc.js("window.__readerTest.goIndex($k)") // the section's very top (the Contents target is its heading)
-        delay(1_500)
+        h.relocate(10_000) { it.sectionIndex == k }; h.still()
         assertTrue("starts at the chapter's top: ${h.edges()}", h.edges().sectionTop())
         pullDown() // the Previous control comes into view, then the pull past it
         assertEquals(k - 1, h.relocate(10_000) { it.sectionIndex != k }.sectionIndex)
-        delay(1_000)
+        h.still()
         val e = h.edges()
         assertEquals(k - 1, e.getInt("current"))
         assertTrue("previous chapter opens at its end: $e", e.sectionEnd())
@@ -208,7 +209,7 @@ class ChaptersOneAtATimeTest {
         h.drain()
         h.tapEdge("head")
         assertEquals(k - 1, h.relocate(10_000) { it.sectionIndex != k }.sectionIndex)
-        delay(1_000)
+        h.still()
         val e = h.edges()
         assertEquals(k - 1, e.getInt("current"))
         assertTrue("previous chapter opens at its end: $e", e.sectionEnd())
@@ -221,25 +222,25 @@ class ChaptersOneAtATimeTest {
         h.oneAtATimeAt("CHAPTER II")
         val linear = h.sc.js("JSON.stringify(window.__readerTest.linear())").let { org.json.JSONArray(org.json.JSONTokener(it).nextValue() as String) }
         val first = linear.getInt(0); val last = linear.getInt(linear.length() - 1)
-        h.sc.js("window.__readerTest.goIndex($first)"); h.relocate(10_000) { it.sectionIndex == first }; delay(1_000)
+        h.sc.js("window.__readerTest.goIndex($first)"); h.relocate(10_000) { it.sectionIndex == first }; h.still()
         var e = h.edges()
         assertNull("no Previous before the first chapter: $e", e.edge("head"))
-        h.sc.js("window.__readerTest.goIndex($last)"); h.relocate(10_000) { it.sectionIndex == last }; delay(1_000)
-        h.lastPage(); delay(1_000)
+        h.sc.js("window.__readerTest.goIndex($last)"); h.relocate(10_000) { it.sectionIndex == last }; h.still()
+        h.lastPage(); h.still()
         e = h.edges()
         assertTrue("at the book's end: $e", e.atEnd())
         assertNull("no Next after the last chapter: $e", e.edge("foot"))
         assertNotNull("but a Previous: $e", e.edge("head"))
         h.drain()
-        val moves = h.relocatesDuring(this) { pullUp(); delay(2_000) }
+        val moves = h.relocatesDuring(this) { pullUp(); delay(2_000) } // the window in which nothing may happen: fixed
         assertEquals("a pull at the book's end goes nowhere", emptyList<Int>(), moves.map { it.sectionIndex }.filter { it != last })
     }
 
     @Test fun continuous_has_no_chapter_controls_and_switching_keeps_the_passage() = run { h ->
         h.change { it.copy(flow = Flow.SCROLLED, scrollChapters = ScrollChapters.CONTINUOUS) }
-        delay(800)
+        h.still()
         val i = h.tocJump("CHAPTER II").sectionIndex
-        flickUp(); delay(1_500)
+        flickUp(); h.still()
         var e = h.edges()
         assertFalse(e.getBoolean("single"))
         assertNull(e.edge("head")); assertNull(e.edge("foot"))
@@ -247,14 +248,14 @@ class ChaptersOneAtATimeTest {
         val before = h.sc.js("JSON.stringify(window.__readerTest.firstVisibleBlock())")
         val offset = e.getDouble("start")
         h.change { it.copy(scrollChapters = ScrollChapters.ONE_AT_A_TIME) }
-        delay(1_500)
+        h.still()
         e = h.edges()
         assertTrue(e.getBoolean("single"))
         assertEquals(i, e.getInt("current"))
         assertEquals("the text on screen did not move ($e)", offset, e.getDouble("start"), 2.0)
         assertEquals("switching to One at a time keeps the passage on screen", before, h.sc.js("JSON.stringify(window.__readerTest.firstVisibleBlock())"))
         h.change { it.copy(scrollChapters = ScrollChapters.CONTINUOUS) }
-        delay(1_500)
+        h.still()
         e = h.edges()
         assertFalse(e.getBoolean("single")); assertNull(e.edge("foot"))
         assertEquals("nor back ($e)", offset, e.getDouble("start"), 2.0)
@@ -263,7 +264,8 @@ class ChaptersOneAtATimeTest {
 
     // ---- the display panel ----
 
-    private fun obj(text: String): UiObject2 = checkNotNull(dev.wait(Until.findObject(By.text(text)), 5_000)) { "no '$text' on screen" }
+    /** Standing still: a click on a list that still moves can miss. */
+    private fun obj(text: String): UiObject2 = checkNotNull(dev.settled(By.text(text), 5_000)) { "no '$text' on screen" }
     private fun button(text: String): UiObject2 {
         var o: UiObject2? = obj(text)
         while (o != null && !o.isCheckable) o = o.parent
@@ -302,7 +304,7 @@ class ChaptersOneAtATimeTest {
                 withTimeout(5_000) { h.a.controller.settings.first { it.flow == Flow.SCROLLED } }
                 // shown again from its top (panelShow finds the panel by its first rows)
                 sc.onActivity { it.controller.hideDisplay() }
-                delay(500)
+                assertTrue("display panel closed", app.epubreader.waitFresh(5_000) { dev.findObject(By.text(Copy.textSize)) == null })
                 sc.onActivity { it.controller.showDisplay() }
                 assertTrue(panelShow(Copy.chaptersOneAtATime))
                 val mode = obj(Copy.layout); val chapters = obj(Copy.scrollChapters)
@@ -316,9 +318,7 @@ class ChaptersOneAtATimeTest {
                 assertTrue(button(Copy.chaptersOneAtATime).isChecked)
                 obj(Copy.flowPaged).click()
                 withTimeout(5_000) { h.a.controller.settings.first { it.flow == Flow.PAGED } }
-                delay(500)
-                if (android.os.Build.VERSION.SDK_INT >= 34) inst.uiAutomation.clearCache()
-                assertNull("Chapters hidden again in Pages", dev.findObject(By.text(Copy.scrollChapters)))
+                assertTrue("Chapters hidden again in Pages", app.epubreader.waitFresh(5_000) { dev.findObject(By.text(Copy.scrollChapters)) == null })
                 sc.onActivity { it.controller.hideDisplay() }
                 assertEquals("the choice is kept while hidden", ScrollChapters.ONE_AT_A_TIME, h.a.controller.settings.value.scrollChapters)
             } finally {
@@ -333,7 +333,7 @@ class ChaptersOneAtATimeTest {
                 withTimeout(10_000) { while (a.controller.settings.value.scrollChapters != ScrollChapters.ONE_AT_A_TIME) delay(100) }
             } finally {
                 sc.onActivity { it.controller.updateSettings { ReaderSettings() } }
-                delay(800)
+                a.settingsStored()
             }
         }
     }

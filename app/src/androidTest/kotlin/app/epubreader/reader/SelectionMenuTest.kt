@@ -73,7 +73,6 @@ class SelectionMenuTest {
 
     private suspend fun ActivityScenario<MainActivity>.selectionText(): String? = jsValue("window.__readerTest.selectionText()") as? String
 
-    private suspend fun ReaderHarness.quiet() { delay(800); drain(); settle() }
 
     private fun run(block: suspend CoroutineScope.(ReaderHarness, ActivityScenario<MainActivity>) -> Unit): Unit = runBlocking {
         val wp = warAndPeace()
@@ -86,9 +85,9 @@ class SelectionMenuTest {
                 hr.tocJump("CHAPTER I"); hr.quiet()
                 block(hr, sc)
             } finally {
-                dev.pressBack(); delay(300) // a menu or panel left open
+                dev.pressBack(); hr.still() // a menu or panel left open
                 sc.onActivity { it.controller.updateSettings { ReaderSettings() } }
-                delay(800)
+                hr.a.settingsStored()
                 hr.stop()
             }
         }
@@ -102,7 +101,7 @@ class SelectionMenuTest {
         assertEquals("the web side reports the page's own selection string", pageSelection, sel.text)
         assertEquals("Prince", pageSelection!!.trim())
         // Screenshot of the open menu for the milestone note (pulled by the runner from the app's external files).
-        delay(500)
+        assertNotNull(dev.settled(By.text(Copy.selHighlight), 5_000))
         dev.takeScreenshot(File(inst.targetContext.getExternalFilesDir(null), "M6-selection.png"))
         val visible = screenTexts()
         Log.i("EPRSEL", "toolbar texts: $visible")
@@ -122,7 +121,7 @@ class SelectionMenuTest {
             t!!
         }
         assertEquals(pageSelection, clip)
-        delay(500)
+        hr.next(3_000) { e -> (e as? FromWeb.Selection)?.takeIf { it.cfi == null } }
         assertNull("the selection is cleared after Copy", sc.selectionText())
         assertFalse(dev.hasObject(By.text(Copy.selHighlight)))
     }
@@ -166,7 +165,7 @@ class SelectionMenuTest {
         sc.onActivity { val v = it.reader.webView; v.getLocationOnScreen(loc); w = v.width; h = v.height }
         dev.click(loc[0] + w / 2, loc[1] + (h * 0.8).toInt())
         hr.next(3_000) { e -> (e as? FromWeb.Selection)?.takeIf { it.cfi == null } } // the app heard it is gone
-        delay(500)
+        delay(500) // the window in which the tap must not bring up the controls: fixed
         assertNull("selection gone", sc.selectionText())
         assertFalse("the controls stay hidden", hr.a.controller.state.value.chromeVisible)
         assertEquals("no page turn", from.cfi, hr.settle().cfi)
@@ -179,7 +178,6 @@ class SelectionMenuTest {
         assertNotNull(dev.wait(Until.findObject(By.text(Copy.selHighlight)), 5_000))
         dev.pressBack()
         hr.next(3_000) { e -> (e as? FromWeb.Selection)?.takeIf { it.cfi == null } }
-        delay(500)
         assertNull("selection gone", sc.selectionText())
         assertTrue("toolbar gone", dev.wait(Until.gone(By.text(Copy.selHighlight)), 3_000))
         var top: app.epubreader.ui.Route? = null

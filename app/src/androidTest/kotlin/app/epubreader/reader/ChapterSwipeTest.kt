@@ -1,5 +1,6 @@
 package app.epubreader.reader
 
+import android.graphics.Point
 import android.os.SystemClock
 import android.view.InputDevice
 import android.view.MotionEvent
@@ -80,9 +81,9 @@ class ChapterSwipeTest {
 
     private suspend fun ReaderHarness.oneAtATimeAt(label: String): Int {
         change { it.copy(flow = Flow.SCROLLED, scrollChapters = ScrollChapters.ONE_AT_A_TIME) }
-        delay(800)
+        still()
         val i = tocJump(label).sectionIndex
-        delay(1_500); drain()
+        still(); drain()
         return i
     }
 
@@ -105,7 +106,7 @@ class ChapterSwipeTest {
     /** Nothing that [block] does changes chapter, and no slide runs. */
     private suspend fun ReaderHarness.staysIn(scope: CoroutineScope, section: Int, what: String, block: suspend () -> Unit) {
         sc.js("window.__readerTest.slide()?.splice(0); true")
-        val moves = relocatesDuring(scope) { block(); delay(1_500) }
+        val moves = relocatesDuring(scope) { block(); delay(1_500) } // the window in which nothing may happen: stays fixed
         assertEquals("$what: relocates left the chapter", emptyList<Int>(), moves.map { it.sectionIndex }.filter { it != section })
         assertEquals("$what: still in the chapter", section, edges().current())
         assertEquals("$what: no slide", 0, frames().size)
@@ -120,7 +121,7 @@ class ChapterSwipeTest {
                 block(h)
             } finally {
                 h.change { ReaderSettings() }
-                delay(800)
+                h.a.settingsStored()
                 h.stop()
             }
         }
@@ -131,16 +132,16 @@ class ChapterSwipeTest {
     @Test fun forward_opens_the_next_chapter_at_its_top_with_the_slide() = run { h ->
         val i = h.oneAtATimeAt("CHAPTER II")
         h.sidesLoaded()
-        dragUp(); delay(800) // from the middle of the chapter, not only its end
+        dragUp(); h.still() // from the middle of the chapter, not only its end
         h.drain()
         swipeLeft()
         assertEquals(i + 1, h.relocate(10_000) { it.sectionIndex != i }.sectionIndex)
-        delay(1_000)
+        h.still(timeoutMs = 30_000)
         val e = h.edges()
         assertEquals(i + 1, e.current())
         assertTrue("the next chapter opens at its top: $e", e.sectionTop())
         assertSlide(h.frames(), -1)
-        delay(2_000)
+        delay(2_000) // the check that it stays there: fixed
         assertEquals("the landing holds", e.start(), h.edges().start(), 2.0)
     }
 
@@ -149,12 +150,12 @@ class ChapterSwipeTest {
         h.sidesLoaded()
         swipeRight()
         assertEquals(k - 1, h.relocate(10_000) { it.sectionIndex != k }.sectionIndex)
-        delay(1_000)
+        h.still(timeoutMs = 30_000)
         val e = h.edges()
         assertEquals(k - 1, e.current())
         assertTrue("the previous chapter opens at its end: $e", e.sectionEnd())
         assertSlide(h.frames(), 1)
-        delay(2_000)
+        delay(2_000) // the check that it stays there: fixed
         assertEquals("the landing holds", e.start(), h.edges().start(), 2.0)
     }
 
@@ -163,23 +164,23 @@ class ChapterSwipeTest {
         h.sidesLoaded()
         swipeLeft(); swipeLeft()
         try { h.relocate(15_000) { it.sectionIndex == i + 2 } } catch (x: Exception) { throw AssertionError("the second swipe never landed: ${h.edges()}", x) }
-        delay(1_000)
+        h.still(timeoutMs = 30_000)
         assertEquals(i + 2, h.edges().current())
         assertSlide(h.frames(), -1)
     }
 
     @Test fun in_a_right_to_left_book_a_finger_moving_right_is_forward() = run(File("/sdcard/Books/epub3-samples/regime-anticancer-arabic.epub")) { h ->
         h.change { it.copy(flow = Flow.SCROLLED, scrollChapters = ScrollChapters.ONE_AT_A_TIME) }
-        delay(800)
+        h.still()
         val linear = JSONArray(JSONTokener(h.sc.js("JSON.stringify(window.__readerTest.linear())")).nextValue() as String)
         val mid = linear.getInt(1)
-        h.sc.js("window.__readerTest.goIndex($mid)"); delay(2_000)
+        h.drain(); h.sc.js("window.__readerTest.goIndex($mid)"); h.relocate(10_000) { it.sectionIndex == mid }; h.still()
         assertEquals(mid, h.edges().current())
         h.sidesLoaded(); h.drain()
         swipeRight()
         val next = linear.getInt(2)
         assertEquals(next, h.relocate(15_000) { it.sectionIndex != mid }.sectionIndex)
-        delay(1_000)
+        h.still(timeoutMs = 30_000)
         assertTrue(h.edges().sectionTop())
         assertSlide(h.frames(), 1) // forward moves the content right here, as a page turn does
         h.drain()
@@ -193,10 +194,10 @@ class ChapterSwipeTest {
         h.oneAtATimeAt("CHAPTER II")
         val linear = JSONArray(JSONTokener(h.sc.js("JSON.stringify(window.__readerTest.linear())")).nextValue() as String)
         val first = linear.getInt(0); val last = linear.getInt(linear.length() - 1)
-        h.sc.js("window.__readerTest.goIndex($first)"); h.relocate(10_000) { it.sectionIndex == first }; delay(1_500)
+        h.sc.js("window.__readerTest.goIndex($first)"); h.relocate(10_000) { it.sectionIndex == first }; h.still()
         h.drain()
         h.staysIn(this, first, "back at the first chapter") { swipeRight() }
-        h.sc.js("window.__readerTest.goIndex($last)"); h.relocate(10_000) { it.sectionIndex == last }; delay(1_500)
+        h.sc.js("window.__readerTest.goIndex($last)"); h.relocate(10_000) { it.sectionIndex == last }; h.still()
         h.drain()
         val before = h.edges().start()
         h.staysIn(this, last, "forward at the last chapter") { swipeLeft() }
@@ -236,20 +237,20 @@ class ChapterSwipeTest {
 
     @Test fun the_pull_and_the_next_control_stay() = run { h ->
         val i = h.oneAtATimeAt("CHAPTER II")
-        h.sc.js("window.__readerTest.lastPage()"); delay(1_500); h.drain()
+        h.lastPage(); h.still(); h.drain()
         assertNotNull("Next under the last line", h.edges().optJSONObject("foot"))
         dev.swipe(w / 2, hgt * 4 / 5, w / 2, hgt / 4, 80)
         assertEquals(i + 1, h.relocate(10_000) { it.sectionIndex != i }.sectionIndex)
-        delay(1_000)
+        h.still(timeoutMs = 30_000)
         assertTrue(h.edges().sectionTop())
     }
 
     @Test fun at_the_chapter_end_the_next_control_leaves_with_the_text() = run { h ->
         val i = h.oneAtATimeAt("CHAPTER II")
-        h.sc.js("window.__readerTest.lastPage()"); delay(1_500); h.sidesLoaded(); h.drain()
+        h.lastPage(); h.still(); h.sidesLoaded(); h.drain()
         swipeLeft()
         assertEquals(i + 1, h.relocate(10_000) { it.sectionIndex != i }.sectionIndex)
-        delay(1_000)
+        h.still(timeoutMs = 30_000)
         val e = h.edges()
         assertTrue("next chapter at its top: $e", e.sectionTop())
         assertTrue("its Previous control above the screen: $e", e.getJSONObject("head").let { it.getDouble("y") + it.getDouble("h") <= 0 })
@@ -300,23 +301,26 @@ class ChapterSwipeTest {
     }
 
     private fun footnotes() = File("/sdcard/Books/generated/footnotes-links.epub").also { check(it.isFile) { "corpus not pushed: $it" } }
+    /** Where [text]'s link is on screen (px), or would be: its middle can lie outside the screen. */
     private suspend fun ReaderHarness.linkPoint(text: String): Pair<Int, Int>? {
         val raw = JSONTokener(sc.js("JSON.stringify(window.__readerTest.linkRect(${JSONObject.quote(text)}))")).nextValue() as? String ?: return null
         val r = JSONTokener(raw).nextValue() as? JSONObject ?: return null
         val loc = IntArray(2)
         sc.onActivity { it.reader.webView.getLocationOnScreen(loc) }
         val dpr = r.getDouble("dpr")
-        val cy = r.getDouble("y") + r.getDouble("h") / 2
-        if (cy < 0 || cy > r.getDouble("vh")) return null
-        return loc[0] + ((r.getDouble("x") + r.getDouble("w") / 2) * dpr).toInt() to loc[1] + (cy * dpr).toInt()
+        return loc[0] + ((r.getDouble("x") + r.getDouble("w") / 2) * dpr).toInt() to loc[1] + ((r.getDouble("y") + r.getDouble("h") / 2) * dpr).toInt()
     }
     private suspend fun ReaderHarness.scrollToLink(text: String): Pair<Int, Int> {
-        // short slow drags: a long one could overshoot the link and pull past the chapter's end
         val section = edges().current()
         repeat(40) {
             assertEquals("still in the link's chapter", section, edges().current())
-            linkPoint(text)?.takeIf { it.second in hgt / 8..hgt * 7 / 8 }?.let { return it }
-            dev.swipe(w / 2, hgt * 6 / 10, w / 2, hgt * 4 / 10, 100); delay(500)
+            val p = checkNotNull(linkPoint(text)) { "no link '$text'" }
+            if (p.second in hgt / 8..hgt * 7 / 8) return p
+            // straight towards the link, held still before the lift: no run-out, the text moves just the drag's length,
+            // so it can't overshoot the link and pull past the chapter's end
+            val by = (p.second - hgt / 2).coerceIn(-hgt * 7 / 10, hgt * 7 / 10)
+            val from = Point(w / 2, hgt / 2 + by / 2); val to = Point(w / 2, hgt / 2 - by / 2)
+            dev.swipe(arrayOf(from, to, to), 40); still()
         }
         error("link '$text' never on screen")
     }
@@ -331,8 +335,8 @@ class ChapterSwipeTest {
         assertEquals(i + 1, swiped.sectionIndex)
         assertEquals("the swipe followed no link", 0, h.sc.js("window.__readerTest.historyDepth()").toInt())
         assertFalse(h.a.controller.state.value.footnoteOpen)
-        delay(800)
-        h.sc.js("window.__readerTest.goIndex($i)"); h.relocate(10_000) { it.sectionIndex == i }; delay(1_500); h.drain()
+        h.still(); h.drain()
+        h.sc.js("window.__readerTest.goIndex($i)"); h.relocate(10_000) { it.sectionIndex == i }; h.still(); h.drain()
         p = h.scrollToLink("the target in chapter two")
         h.drain()
         assertTrue(dev.click(p.first, p.second))
@@ -362,10 +366,10 @@ class ChapterSwipeTest {
 
     @Test fun content_that_scrolls_sideways_keeps_its_swipe_and_the_text_beside_it_changes_chapter() = run { h ->
         val i = h.oneAtATimeAt("CHAPTER II")
-        h.sc.js("window.__readerTest.goIndex($i)"); delay(1_500)
+        h.drain(); h.sc.js("window.__readerTest.goIndex($i)"); h.relocate(10_000) { it.sectionIndex == i }; h.still()
         h.sidesLoaded()
         val (_, y) = h.wideBoxAtTop()
-        delay(800); h.drain()
+        h.still(); h.drain()
         assertTrue("the box is on screen: $y", y in 0..hgt)
         h.staysIn(this, i, "a swipe on the wide box") { swipeLeft(y) }
         val scrolled = h.wideScroll()
@@ -381,22 +385,22 @@ class ChapterSwipeTest {
     @Test fun with_no_animation_the_swipe_changes_chapter_without_a_slide() = run { h ->
         val i = h.oneAtATimeAt("CHAPTER II")
         h.change { it.copy(pageAnimation = PageAnimation.NONE) }
-        delay(800); h.sidesLoaded(); h.drain()
+        h.still(); h.sidesLoaded(); h.drain()
         h.sc.js("window.__readerTest.slide()?.splice(0); true")
         swipeLeft()
         assertEquals(i + 1, h.relocate(10_000) { it.sectionIndex != i }.sectionIndex)
-        delay(800)
+        h.still()
         assertTrue(h.edges().sectionTop())
         assertEquals("no slide", 0, h.frames().size)
     }
 
     @Test fun continuous_has_no_chapter_swipe() = run { h ->
         h.change { it.copy(flow = Flow.SCROLLED, scrollChapters = ScrollChapters.CONTINUOUS) }
-        delay(800)
+        h.still()
         val i = h.tocJump("CHAPTER II").sectionIndex
-        delay(1_500); h.drain()
+        h.still(); h.drain()
         val before = h.edges().start()
-        val moves = h.relocatesDuring(this) { swipeLeft(); delay(1_000); swipeRight(); delay(1_000) }
+        val moves = h.relocatesDuring(this) { swipeLeft(); delay(1_000); swipeRight(); delay(1_000) } // windows in which nothing may happen: fixed
         assertEquals("no chapter change", emptyList<Int>(), moves.map { it.sectionIndex }.filter { it != i })
         val e = h.edges()
         assertEquals(i, e.current())
@@ -418,12 +422,12 @@ class ChapterSwipeTest {
                 sc.onActivity { it.openBook(SourceRef.File(f.path)) }
                 h.relocate(120_000); h.painted(60_000)
                 withTimeout(30_000) { h.a.controller.state.first { !it.loading } }
-                delay(3_000); h.drain()
+                h.still(timeoutMs = 60_000); h.drain()
 
                 val linear = JSONArray(JSONTokener(h.sc.js("JSON.stringify(window.__readerTest.linear())")).nextValue() as String).let { a -> List(a.length()) { a.getInt(it) } }
                 var big: Pair<Int, Int>? = null
                 for (i in linear) {
-                    h.sc.js("window.__readerTest.goIndex($i)"); delay(1_500)
+                    h.drain(); h.sc.js("window.__readerTest.goIndex($i)"); h.relocate(30_000) { it.sectionIndex == i }; h.still(timeoutMs = 30_000)
                     val span = h.edges().getJSONArray("span")
                     if (span.getInt(1) > span.getInt(0)) { big = span.getInt(0) to span.getInt(1); break }
                 }
@@ -431,7 +435,7 @@ class ChapterSwipeTest {
                 val part = from + (to - from) / 2
                 assertTrue("a part inside the chapter: $from..$to", part in from..to)
                 suspend fun goPart() {
-                    h.sc.js("window.__readerTest.goIndex($part)"); h.relocate(30_000) { it.sectionIndex == part }; delay(2_000); h.drain()
+                    h.sc.js("window.__readerTest.goIndex($part)"); h.relocate(30_000) { it.sectionIndex == part }; h.still(timeoutMs = 30_000); h.drain()
                     assertEquals(part, h.edges().current())
                 }
                 val after = linear.firstOrNull { it > to }
@@ -442,7 +446,7 @@ class ChapterSwipeTest {
                 swipeLeft()
                 if (after != null) {
                     assertEquals("forward leaves the whole chapter", after, h.relocate(30_000) { it.sectionIndex != part }.sectionIndex)
-                    delay(1_000)
+                    h.still(timeoutMs = 30_000)
                     assertTrue(h.edges().sectionTop())
                 } else {
                     delay(2_500); assertEquals("the book's last chapter: the swipe goes nowhere", part, h.edges().current())
@@ -452,7 +456,7 @@ class ChapterSwipeTest {
                 swipeRight()
                 if (before != null) {
                     assertEquals("back leaves the whole chapter", before, h.relocate(30_000) { it.sectionIndex != part }.sectionIndex)
-                    delay(1_000)
+                    h.still(timeoutMs = 30_000)
                     assertTrue(h.edges().sectionEnd())
                 } else {
                     delay(2_500); assertEquals("the book's first chapter: the swipe goes nowhere", part, h.edges().current())
@@ -460,15 +464,15 @@ class ChapterSwipeTest {
 
                 // into the split chapter from behind: its last part, at its end
                 if (after != null) {
-                    h.sc.js("window.__readerTest.goIndex($after)"); h.relocate(30_000) { it.sectionIndex == after }; delay(2_000); h.drain()
+                    h.sc.js("window.__readerTest.goIndex($after)"); h.relocate(30_000) { it.sectionIndex == after }; h.still(timeoutMs = 30_000); h.drain()
                     swipeRight()
                     assertEquals("back opens the split chapter's last part", to, h.relocate(30_000) { it.sectionIndex != after }.sectionIndex)
-                    delay(1_500)
+                    h.still(timeoutMs = 30_000)
                     assertTrue("at its end: ${h.edges()}", h.edges().sectionEnd())
                 }
             } finally {
                 sc.onActivity { it.controller.updateSettings { ReaderSettings() } }
-                delay(800)
+                h.a.settingsStored()
                 h.stop()
             }
         }

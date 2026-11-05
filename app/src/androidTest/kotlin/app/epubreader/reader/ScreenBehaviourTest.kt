@@ -44,6 +44,7 @@ class ScreenBehaviourTest {
                 body(sc, h)
             } finally {
                 sc.onActivity { it.controller.updateSettings { ReaderSettings() } }
+                h.a.settingsStored()
                 h.stop()
             }
         }
@@ -57,7 +58,7 @@ class ScreenBehaviourTest {
     }
 
     @Test fun keep_screen_on_setting_off_never_sets_it() = withReader(ReaderSettings(keepScreenOn = false)) { sc, _ ->
-        Thread.sleep(500)
+        Thread.sleep(500) // the window in which it must not be set: fixed
         assertFalse(sc.keepOn())
     }
 
@@ -68,7 +69,7 @@ class ScreenBehaviourTest {
     }
 
     @Test fun fullscreen_off_keeps_the_bars() = withReader(ReaderSettings(fullscreen = false)) { sc, _ ->
-        Thread.sleep(500)
+        Thread.sleep(500) // the window in which the bars must stay: fixed
         assertTrue(sc.statusBar())
     }
 
@@ -82,12 +83,12 @@ class ScreenBehaviourTest {
     /** I2 (review): page turns do not touch the window (no flags, insets or attributes set, so no relayout per turn). */
     @Test fun page_turns_do_not_reapply_the_window() = withReader(null) { sc, h ->
         eventually("flag set in the reader", true) { sc.keepOn() }
-        Thread.sleep(500)
+        Thread.sleep(500) // the applies of the open are over: none signals its end
         val before = sc.read { it.windowApplies }
         var here = h.settle()
         repeat(4) { val from = here; h.send(app.epubreader.reader.bridge.ToWeb.Next()); here = h.relocate { it.cfi != from.cfi } }
         h.settle()
-        Thread.sleep(300)
+        Thread.sleep(300) // a late apply would still count: fixed
         assertEquals("window applies during 4 turns", before, sc.read { it.windowApplies })
         sc.onActivity { it.controller.toggleChrome() } // the controls do change it (bars shown)
         eventually("applied for the controls", before + 1) { sc.read { it.windowApplies } }

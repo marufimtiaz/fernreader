@@ -51,14 +51,14 @@ class ControlsOverlayTest {
             // F-035: fullscreen is on by default; the bars come with the controls and still nothing reflows
             assertTrue(h.a.controller.settings.value.fullscreen)
             assertTrue("bars shown with the controls", waitStatusBar(sc, true))
-            delay(600)
+            delay(600) // the window in which the insets must not reflow the page: fixed
             assertEquals(block, sc.js("window.__readerTest.firstVisibleBlock()"))
             assertEquals(pageBefore, sc.js("JSON.stringify(window.__readerTest.page())"))
             dev.click(cx, cy)
             withTimeout(3_000) { h.a.controller.state.first { !it.chromeVisible } }
             assertTrue(dev.wait(Until.gone(By.desc(Copy.contents)), 3_000))
             assertTrue("bars hidden with the controls", waitStatusBar(sc, false))
-            delay(600)
+            delay(600) // the same window as above
             watch.cancel()
 
             assertEquals("page moved while toggling: $moved", emptyList<String>(), moved.filter { it != here.cfi })

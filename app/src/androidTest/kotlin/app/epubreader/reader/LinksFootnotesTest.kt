@@ -48,7 +48,6 @@ class LinksFootnotesTest {
 
     private suspend fun ActivityScenario<MainActivity>.footnoteText(): String? = jsValue("window.__readerTest.footnote()") as? String
 
-    private suspend fun ReaderHarness.quiet() { delay(1_000); drain(); settle() }
 
     /** Opens the book at its first chapter (a stored position from an earlier test is not used) and returns the place. */
     private suspend fun ReaderHarness.openAtStart(): FromWeb.Relocate {
@@ -92,7 +91,7 @@ class LinksFootnotesTest {
                 block(hr, sc)
             } finally {
                 sc.onActivity { it.controller.updateSettings { ReaderSettings() } }
-                delay(800)
+                hr.a.settingsStored()
                 hr.stop()
             }
         }

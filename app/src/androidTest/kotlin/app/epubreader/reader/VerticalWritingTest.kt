@@ -136,10 +136,10 @@ class VerticalWritingTest {
                     var visible = -1
                     var tries = 0
                     while (tries++ < 20) { // two equal readings 150 ms apart
-                        delay(150)
                         val p = sc.hook("page()").getInt("textPages")
                         if (p == visible) break
                         visible = p
+                        delay(150)
                     }
                     val counted = h.a.controller.countedPages(i)
                     if (counted != visible) wrong += "section $i: counted $counted, visible $visible"

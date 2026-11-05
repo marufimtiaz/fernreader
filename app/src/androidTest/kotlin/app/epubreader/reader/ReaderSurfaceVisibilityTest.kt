@@ -96,7 +96,7 @@ class ReaderSurfaceVisibilityTest {
             withTimeout(10_000) { while (drawn.isEmpty()) delay(5) }
             assertEquals("the first reader frame is the loading screen, the page is not drawn under it", 0f to true, drawn.first())
             withTimeout(15_000) { a.controller.state.first { !it.loading && it.error == null } }
-            delay(300)
+            delay(300) // the frames after the load, each of which must draw the page: fixed
             sc.onActivity { it.reader.webView.viewTreeObserver.removeOnDrawListener(l) }
             assertTrue("the page is drawn in every frame once loaded: $drawn", drawn.all { (alpha, loading) -> loading || alpha == 1f })
             assertTrue("the page was drawn: $drawn", drawn.last().first == 1f)

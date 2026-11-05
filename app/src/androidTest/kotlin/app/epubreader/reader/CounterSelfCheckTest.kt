@@ -44,10 +44,10 @@ class CounterSelfCheckTest {
                     var visible = -1
                     var tries = 0
                     while (tries++ < 30) { // two equal readings 150 ms apart (fonts and images settle after the first relocate)
-                        delay(150)
                         val p = JSONObject(JSONTokener(sc.js("JSON.stringify(window.__readerTest.page())")).nextValue() as String).getInt("textPages")
                         if (p == visible) break
                         visible = p
+                        delay(150)
                     }
                     val counted = h.a.controller.countedPages(i)
                     if (counted != visible) wrong += "section $i: counted $counted, visible $visible"
