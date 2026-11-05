@@ -43,6 +43,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
 import kotlin.test.AfterTest
@@ -1348,6 +1349,77 @@ class ReaderControllerTest {
     }
 
     /** I1: the contents panel opens in a book without a table of contents (its bookmarks and highlights live there). */
+    private suspend fun TestScope.openBook(c: ReaderController) {
+        c.open(ref); advanceUntilIdle()
+        reader.events.emit(opened()); reader.events.emit(FromWeb.Painted(sessionId = "s-1")); advanceUntilIdle()
+    }
+    private suspend fun TestScope.edge(phase: String, fraction: Double, open: Boolean = false, sid: String = "s-1") {
+        reader.events.emit(FromWeb.EdgeSwipe(sessionId = sid, phase = phase, fraction = fraction, open = open)); advanceUntilIdle()
+    }
+
+    @Test fun the_panel_follows_a_gesture_from_the_right_edge_and_opens_on_release() = runTest(dispatcher) {
+        val c = controller(); openBook(c)
+        c.toggleChrome()
+        edge("start", 0.1); assertEquals(0.1f, c.contentsDrag.value)
+        edge("move", 0.4); assertEquals(0.4f, c.contentsDrag.value)
+        assertFalse(c.state.value.tocVisible)
+        assertTrue(c.state.value.chromeVisible, "the bars stay until it opens")
+        edge("end", 0.4, open = true)
+        assertTrue(c.state.value.tocVisible)
+        assertFalse(c.state.value.chromeVisible)
+        assertEquals(ContentsTab.Contents, c.state.value.contentsTab)
+        assertNull(c.contentsDrag.value)
+    }
+
+    @Test fun a_release_short_of_opening_lets_the_panel_go_back() = runTest(dispatcher) {
+        val c = controller(); openBook(c)
+        edge("start", 0.1); edge("end", 0.2, open = false)
+        assertFalse(c.state.value.tocVisible)
+        assertNull(c.contentsDrag.value)
+    }
+
+    @Test fun with_page_animation_off_the_gesture_only_opens_on_release() = runTest(dispatcher) {
+        val c = controller(); openBook(c)
+        c.updateSettings { it.copy(pageAnimation = PageAnimation.NONE) }; advanceUntilIdle()
+        edge("start", 0.1); edge("move", 0.5)
+        assertNull(c.contentsDrag.value)
+        edge("end", 0.5, open = true)
+        assertTrue(c.state.value.tocVisible)
+    }
+
+    @Test fun the_edge_gesture_does_nothing_with_something_over_the_page() = runTest(dispatcher) {
+        val c = controller(); openBook(c)
+        c.showSheet(); advanceUntilIdle()
+        edge("start", 0.1); edge("move", 0.5)
+        assertNull(c.contentsDrag.value)
+        edge("end", 0.5, open = true)
+        assertFalse(c.state.value.tocVisible)
+    }
+
+    @Test fun an_edge_gesture_of_another_session_is_ignored() = runTest(dispatcher) {
+        val c = controller(); openBook(c)
+        edge("start", 0.1, sid = "old"); edge("end", 0.5, open = true, sid = "old")
+        assertNull(c.contentsDrag.value)
+        assertFalse(c.state.value.tocVisible)
+    }
+
+    @Test fun closing_the_book_lets_go_of_the_panel() = runTest(dispatcher) {
+        val c = controller(); openBook(c)
+        edge("start", 0.3)
+        c.close(); advanceUntilIdle()
+        assertNull(c.contentsDrag.value)
+    }
+
+    @Test fun a_swipe_on_the_panel_holds_it_and_closes_or_not_on_release() = runTest(dispatcher) {
+        val c = controller(); openBook(c)
+        c.showToc()
+        c.dragContents(0.8f); assertEquals(0.8f, c.contentsDrag.value)
+        c.releaseContents(close = false)
+        assertTrue(c.state.value.tocVisible); assertNull(c.contentsDrag.value)
+        c.dragContents(0.4f); c.releaseContents(close = true)
+        assertFalse(c.state.value.tocVisible); assertNull(c.contentsDrag.value)
+    }
+
     @Test fun the_contents_panel_opens_in_a_book_without_a_toc() = runTest(dispatcher) {
         val c = controller()
         c.open(ref); advanceUntilIdle(); reader.events.emit(opened().copy(toc = emptyList())); advanceUntilIdle()

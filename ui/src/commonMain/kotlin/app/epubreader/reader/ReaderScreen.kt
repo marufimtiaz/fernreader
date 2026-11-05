@@ -29,10 +29,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import app.epubreader.core.data.PageAnimation
 import app.epubreader.core.data.SourceRef
 import app.epubreader.reader.display.ReadingTheme
 import app.epubreader.reader.search.SearchPanel
 import app.epubreader.reader.contents.ContentsPanel
+import app.epubreader.reader.contents.ContentsSlide
 import app.epubreader.ui.theme.AppIcons
 import androidx.compose.material3.Icon
 import androidx.compose.foundation.layout.size
@@ -135,12 +137,14 @@ fun ReaderScreen(
             LaunchedEffect(Unit) { withFrameNanos { }; probe.ev("display_shown", "") }
             ReaderSheet(settings, fonts, onChange = c::updateSettings, onTab = c::selectSheetTab, modifier = Modifier.align(Alignment.BottomCenter), landscape = landscape)
         }
-        if (s.tocVisible) ContentsPanel(
-            s.title, s.contentsTab, c::selectContentsTab, s.toc, s.currentTocHref, c::onTocSelected,
-            s.bookmarks, page, formatDate, c::onBookmarkSelected, c::removeBookmark, c::hideToc, probe,
-            highlights = { HighlightsList(s.annotations, c::onAnnotationSelected, { a -> c.removeAnnotation(a.id) }, bookPage = { a -> s.bookPageLabels[a.cfi].takeIf { bookPages } }) },
-            bookPage = { b -> s.bookPageLabels[b.cfi].takeIf { bookPages } },
-        )
+        ContentsSlide(s.tocVisible, c.contentsDrag, settings.pageAnimation != PageAnimation.NONE, c::dragContents, c::releaseContents) {
+            ContentsPanel(
+                s.title, s.contentsTab, c::selectContentsTab, s.toc, s.currentTocHref, c::onTocSelected,
+                s.bookmarks, page, formatDate, c::onBookmarkSelected, c::removeBookmark, c::hideToc, probe,
+                highlights = { HighlightsList(s.annotations, c::onAnnotationSelected, { a -> c.removeAnnotation(a.id) }, bookPage = { a -> s.bookPageLabels[a.cfi].takeIf { bookPages } }) },
+                bookPage = { b -> s.bookPageLabels[b.cfi].takeIf { bookPages } },
+            )
+        }
         if (s.searchVisible && s.error == null) SearchPanel(c.searcher, onDismiss = c::hideSearch, pageOf = c::searchHitPage)
         // F-060: after Highlight/Underline, one more tap gives the new annotation another of the six colours.
         s.highlightPicker?.let { p ->

@@ -187,6 +187,8 @@ class ReaderController(
         var bookmarkBusy = false
         /** F-060: the settled text selection as the web side last reported it (virtual CFI); null when there is none. */
         var selection: FromWeb.Selection? = null
+        /** C-097: the running gesture from the right edge may open the panel. */
+        var edgeSwipe = false
         /** F-060: the annotation the colour row recolours (the one just made from the selection menu). */
         var picked: Annotation? = null
         /** F-062: the book's annotations as last read (book order), watched from the first `painted` until the session ends. */
@@ -206,6 +208,9 @@ class ReaderController(
 
     private val _state = MutableStateFlow(ReaderUiState())
     val state: StateFlow<ReaderUiState> = _state
+    private val _contentsDrag = MutableStateFlow<Float?>(null)
+    /** C-097: where a finger holds the Contents panel (0 = off screen, 1 = open), null when none does. */
+    val contentsDrag: StateFlow<Float?> = _contentsDrag
     private val _seekPreview = MutableStateFlow<SeekPreview?>(null)
     /** C-073: where the dragged slider would land (chapter and page); null when it is not dragged. */
     val seekPreview: StateFlow<SeekPreview?> = _seekPreview
@@ -465,7 +470,7 @@ class ReaderController(
         s?.let(::saveNote) // a sheet open when the book closes keeps its note
         searcher.reset()
         bookNumbers.reset(); fixedLayoutBook.value = false
-        _state.value = ReaderUiState(); _seekPreview.value = null
+        _state.value = ReaderUiState(); _seekPreview.value = null; _contentsDrag.value = null
         if (s == null) return
         reader.send(ToWeb.Close())
         s.bookId?.let { id -> runCatching { search?.bookClosed(id) } } // an unfinished index is finished later (idle job)
@@ -536,11 +541,36 @@ class ReaderController(
      */
     fun onVolumeKey(volumeDown: Boolean, press: Boolean): Boolean {
         val st = _state.value
-        if (session == null || st.error != null || st.tocVisible || st.searchVisible || st.sheetVisible ||
-            st.footnoteOpen || st.externalLink != null || st.annotationSheet != null) return false
+        if (session == null || somethingOverThePage(st)) return false
         val t = volumeTurn(volumeDown, _settings.value.volumeKeys) ?: return false
         if (press) { probe.ev("volume_turn", t.name); turn(t) }
         return true
+    }
+
+    private fun somethingOverThePage(st: ReaderUiState) = st.error != null || st.tocVisible || st.searchVisible || st.sheetVisible ||
+        st.footnoteOpen || st.externalLink != null || st.annotationSheet != null
+
+    /**
+     * C-097: the page's gesture from the right edge. With nothing over the page the panel follows it; with page animation
+     * off it opens on release only. A release short of opening, or a gesture the system took, lets the panel slide back.
+     */
+    private fun onEdgeSwipe(s: Session, m: FromWeb.EdgeSwipe) {
+        if (m.phase == "start") s.edgeSwipe = !somethingOverThePage(_state.value) && !_state.value.loading
+        if (!s.edgeSwipe) return
+        if (m.phase == "end") {
+            s.edgeSwipe = false
+            if (m.open) showToc()
+            _contentsDrag.value = null
+        } else dragContents(m.fraction.toFloat())
+    }
+
+    /** C-097: a finger holds the panel at [fraction]. */
+    fun dragContents(fraction: Float) { if (_settings.value.pageAnimation != PageAnimation.NONE) _contentsDrag.value = fraction }
+
+    /** C-097: the finger left the panel, after a rightward swipe on it. */
+    fun releaseContents(close: Boolean) {
+        if (close) hideToc()
+        _contentsDrag.value = null
     }
 
     /** R-008: the book's file went away or was rewritten under the reader: close it safely and say so. */
@@ -1111,6 +1141,7 @@ class ReaderController(
                     else -> Unit
                 }
             }
+            is FromWeb.EdgeSwipe -> if (m.sessionId == s.id) onEdgeSwipe(s, m)
             is FromWeb.History -> if (m.sessionId == s.id) {
                 // The web side answers every `back` with one `history`; Backs not answered yet will still pop entries.
                 if (s.pendingBacks > 0) s.pendingBacks--

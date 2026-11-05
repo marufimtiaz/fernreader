@@ -6,6 +6,8 @@
  * decided by [dragFinishes] and is finished by the paginator; only one it could not follow comes here.
  */
 
+import type { EdgeGesture } from './edge'
+
 export type Dir = 'ltr' | 'rtl'
 export type SwipeSetting = 'auto' | 'ltr' | 'rtl'
 
@@ -64,24 +66,28 @@ export function effectiveDir(setting: SwipeSetting | undefined, bookDir: string 
 /**
  * For a renderer that reports no swipes itself (foliate's fixed-layout renderer has no touch handling): a finished
  * one-finger, unzoomed gesture on [source] (a page document or the renderer) is dispatched on [target] as the same
- * `swipe` event `{dx, dy, dt}` the paginator sends with `host-swipe`, so FXL pages turn through the same queue.
+ * `swipe` event `{dx, dy, dt}` the paginator sends with `host-swipe`, so FXL pages turn through the same queue. A gesture
+ * from the right edge goes to [edge] instead (C-097).
  */
-export function reportSwipes(source: EventTarget, target: EventTarget) {
+export function reportSwipes(source: EventTarget, target: EventTarget, edge?: EdgeGesture) {
   let s: { x: number; y: number; t: number; multi: boolean } | null = null
   source.addEventListener('touchstart', (ev: Event) => {
     const e = ev as TouchEvent
     const t = e.changedTouches?.[0]
-    s = t ? { x: t.screenX, y: t.screenY, t: e.timeStamp, multi: (e.touches?.length ?? 1) > 1 } : null
+    s = t && !edge?.down(e) ? { x: t.screenX, y: t.screenY, t: e.timeStamp, multi: (e.touches?.length ?? 1) > 1 } : null
   }, { passive: true })
   source.addEventListener('touchmove', (ev: Event) => {
+    edge?.move(ev as TouchEvent)
     if (s && ((ev as TouchEvent).touches?.length ?? 0) > 1) s.multi = true
   }, { passive: true })
   source.addEventListener('touchend', (ev: Event) => {
     const e = ev as TouchEvent
+    edge?.up(e)
     const t = e.changedTouches?.[0]
     const st = s
     s = null
     if (!st || !t || st.multi || e.touches?.length || (globalThis.visualViewport?.scale ?? 1) > 1) return
     target.dispatchEvent(new CustomEvent('swipe', { detail: { dx: t.screenX - st.x, dy: t.screenY - st.y, dt: e.timeStamp - st.t } }))
   })
+  if (edge) source.addEventListener('touchcancel', () => edge.drop())
 }

@@ -27,6 +27,7 @@ class ProtocolFixtureTest {
         for (n in listOf("opened", "relocate", "painted", "seeked", "tap", "error")) assertNotNull(decodeFromWeb(fixture(n)), n)
         assertEquals(FromWeb.Seeked(sessionId = "s-1", id = 1), decodeFromWeb(fixture("seeked")))
         assertEquals(FromWeb.History(sessionId = "s-1", depth = 1), decodeFromWeb(fixture("history")))
+        assertEquals(FromWeb.EdgeSwipe(sessionId = "s-1", phase = "end", fraction = 0.4, open = true), decodeFromWeb(fixture("edgeSwipe")))
         assertEquals(FromWeb.Footnote(sessionId = "s-1", open = true), decodeFromWeb(fixture("footnote")))
         assertEquals(FromWeb.ExternalLink(sessionId = "s-1", href = "https://www.gutenberg.org/"), decodeFromWeb(fixture("externalLink")))
         assertEquals(FromWeb.Relocate(sessionId = "s-1", cfi = "epubcfi(/6/4!/4,/2/1:0,/6/1:5)", fraction = 0.12, sectionIndex = 1, tocHref = "OEBPS/c1.xhtml", page = 3, pages = 12, sectionFraction = 0.18, bookmarks = listOf("epubcfi(/6/4!/4/2/1:10)"), textOffset = 1800, textEnd = 2950),

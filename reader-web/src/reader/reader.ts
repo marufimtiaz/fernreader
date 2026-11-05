@@ -13,6 +13,7 @@ import { polyfillMfenced } from './mathml'
 import { shareSections } from './sections'
 import { rangeAtOffset, resolveTextRange, textOffsetOf, textSpanOf } from './textpos'
 import { dragFinishes, effectiveDir, followsFinger, reportSwipes, swipeToTurn } from './swipe'
+import { EdgeGesture } from './edge'
 import { externalHref, isNoteTarget, noteElement, noteLinkResolver, noteRef, sanitizeNote } from './links'
 import { FootnotePopup } from './footnote'
 import { visibleBookmarks } from './bookmarks'
@@ -52,6 +53,9 @@ export class Reader {
    * Pending turns and jumps, issued one at a time after the open has settled: foliate ignores a turn or a goTo while
    * one is animating or while the first section is still loading (F-030, F-037).
    */
+  private edge = new EdgeGesture((phase, fraction, open) => {
+    if (this.sessionId) this.bridge.send({ v: 1, type: 'edgeSwipe', sessionId: this.sessionId, phase, fraction, open })
+  })
   private queue: Cmd[] = []
   private pumping = false
   /**
@@ -107,6 +111,8 @@ export class Reader {
     const identities = new Map<string, { identifier?: string | null; error?: string }>()
     ;(window as any).__readerTest = {
       /** C-094: the last drag (what it moved, how far, how it ended) and the page's offset now; null before any. */
+      /** C-097: what the right-edge gesture last reported. */
+      edge: () => this.edge.last,
       drag: () => { const r = this.view?.renderer; return r?.debugDrag ? { ...r.debugDrag, start: r.start, sliding: !!r.debugSlideGeometry } : null },
       page: () => { const r = this.view?.renderer; return r ? { page: r.page, textPages: r.pages - 2, index: this.view.lastLocation?.section?.current } : null },
       /** Sections with a loaded document: the current one first, then preloaded neighbours. */
@@ -439,7 +445,7 @@ export class Reader {
       view.addEventListener('relocate', (e: CustomEvent) => this.onRelocate(view, sessionId, e.detail))
       view.addEventListener('load', (e: CustomEvent) => {
         polyfillMfenced(e.detail.doc); applySettings(e.detail.doc, this.settings); this.onLoad(sessionId, e.detail.doc)
-        if (isFixedLayout(view.renderer)) reportSwipes(e.detail.doc, view.renderer) // F-032 on FXL pages
+        if (isFixedLayout(view.renderer)) reportSwipes(e.detail.doc, view.renderer, this.edge) // F-032 on FXL pages
       })
       view.addEventListener('draw-annotation', (e: CustomEvent) => {
         const value = e.detail.annotation?.value
@@ -477,7 +483,8 @@ export class Reader {
           && followsFinger(effectiveDir(this.settings.swipeDirection, this.book?.dir), rtl, vertical),
         finishes: dragFinishes,
       }
-      if (isFixedLayout(r)) reportSwipes(r, r) // foliate-fxl has no touch handling: the host recognises its swipes
+      r.edgeHost = this.edge // C-097: a gesture from the right edge opens Contents and turns nothing
+      if (isFixedLayout(r)) reportSwipes(r, r, this.edge) // foliate-fxl has no touch handling: the host recognises its swipes
       // F-081: vertical-rl sections are paged right-to-left (horizontal pages), where the engine supports it.
       r.setAttribute('vertical-pages', '')
       r.setAttribute('max-column-count', '1')
@@ -971,6 +978,7 @@ export class Reader {
    * (P-016). Its events are dropped while closed (sessionId is null). A view that never reached a location is released.
    */
   private close() {
+    this.edge.drop()
     this.bookmarks = []
     this.annotations.clear()
     this.selection.reset()
