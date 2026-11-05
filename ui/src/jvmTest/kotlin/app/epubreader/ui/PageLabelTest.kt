@@ -17,4 +17,12 @@ class PageLabelTest {
     @Test fun chapter_scope_says_so() = assertEquals("3/9 in chapter" to "Page 3 of 9 in chapter", both(PageIndicator(page = 3, total = 9, exact = true, chapterScope = true)))
     @Test fun thousands_keep_their_grouping() = assertEquals("1,212/12,718", Copy.pageLabelShort(PageIndicator(page = 1212, total = 12718, exact = true, chapterScope = false)))
     @Test fun no_page_no_label() = assertNull(Copy.pageLabelShort(PageIndicator(page = null, total = null, exact = false, chapterScope = false)))
+
+    /** C-096: the folder under a split entry's title. */
+    @Test fun folder_line() {
+        assertEquals("Fiction", Copy.folderLine("/storage/emulated/0/Books/Fiction"))
+        assertEquals("Device storage", Copy.folderLine("/storage/emulated/0"))
+        assertEquals("Storage 1A2B-3C4D", Copy.folderLine("/storage/1A2B-3C4D"))
+        assertEquals("Books", Copy.folderLine("/storage/1A2B-3C4D/Books"))
+    }
 }

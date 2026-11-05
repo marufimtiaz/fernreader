@@ -301,7 +301,8 @@ private const val LIBRARY_COLUMNS =
         "(SELECT f.path FROM book_file f WHERE f.bookId = b.id ORDER BY f.source = 'scan' DESC, f.path LIMIT 1) AS path, " +
         "(SELECT GROUP_CONCAT(f.path, char(10)) FROM book_file f WHERE f.bookId = b.id) AS paths, " +
         "(SELECT GROUP_CONCAT(m.collectionId, char(10)) FROM collection_book m JOIN collection c ON c.id = m.collectionId " +
-        "WHERE m.bookId = b.id AND m.deleted = 0 AND c.deleted = 0) AS collectionIds " +
+        "WHERE m.bookId = b.id AND m.deleted = 0 AND c.deleted = 0) AS collectionIds, " +
+        "(b.separateOf IS NOT NULL OR EXISTS (SELECT 1 FROM book s WHERE s.separateOf = b.identityKey AND s.deleted = 0)) AS split " +
         "FROM book b WHERE b.deleted = 0 AND EXISTS (SELECT 1 FROM book_file f WHERE f.bookId = b.id) "
 
 private const val LIBRARY_QUERY = LIBRARY_COLUMNS + "AND b.hidden = 0"
@@ -310,7 +311,7 @@ private const val HIDDEN_QUERY = LIBRARY_COLUMNS + "AND b.hidden = 1 ORDER BY b.
 data class LibraryRow(
     val id: String, val title: String, val authors: String, val titleDirection: String, val coverThumb: String?,
     val addedAt: Long, val lastOpenedAt: Long?, val sortTitle: String, val sortAuthor: String, val path: String, val paths: String,
-    val collectionIds: String?,
+    val collectionIds: String?, val split: Boolean,
 )
 
 data class CoverJob(val bookId: String, val path: String)

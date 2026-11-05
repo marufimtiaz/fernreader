@@ -110,7 +110,7 @@ class LibraryRepository(
     private fun toBook(it: LibraryRow) = LibraryBook(
         it.id, it.title, it.authors.split('\n').filter(String::isNotBlank), it.titleDirection, it.coverThumb, it.addedAt,
         it.lastOpenedAt, it.sortTitle, it.sortAuthor, it.path, it.paths.split('\n'),
-        it.collectionIds?.split('\n')?.filter(String::isNotEmpty) ?: emptyList(),
+        it.collectionIds?.split('\n')?.filter(String::isNotEmpty) ?: emptyList(), it.split,
     )
 
     // --- M7: collections (F-026, F-024) ------------------------------------------------------------------------

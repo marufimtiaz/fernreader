@@ -16,5 +16,8 @@ MIT licence (`LICENSE`, third-party licences in `docs/licenses.md` and in the ap
 - **Brief empty page on some first opens (C-089).** On a first open of a book whose first page is image-heavy, about one
   in three to one in six opens shows a page with no content for about 120 ms between the loading screen and the page.
   The previous build showed it every time. Reopens don't show it.
+- **Separate copies (C-096).** Three limits: if a book's two identical files move in the same scan with the same modification
+  time, nothing tells them apart, so the reading data can end up on the other file. Opening a separate copy through a file
+  manager's `content://` link opens the original. Backups carry the file path of separate copies, and only theirs.
 - **Real-device pass.** Smoothness and some checks are confirmed on a real phone before the store release
   (`docs/real-device-pass.md`).
