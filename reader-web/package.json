@@ -4,7 +4,9 @@
   "type": "module",
   "scripts": {
     "build": "tsc --noEmit && vite build",
-    "test": "vitest run"
+    "test": "vitest run",
+    "dev": "vite --config dev/vite.config.ts",
+    "typecheck:dev": "tsc --noEmit -p dev"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",

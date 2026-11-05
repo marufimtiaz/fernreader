@@ -20,6 +20,7 @@ Gradle with `npm ci`).
 
 ## Docs
 
+- `docs/DEVELOPMENT.md`: the reader in a browser, the UI on desktop, a phone over wireless adb.
 - `CLEANROOM.md`: how this clean-room implementation is developed (binding for contributors).
 - `bench/README.md`: the benchmark harness; `docs/release-checklist.md`, `docs/real-device-pass.md`: release.
 - `docs/milestones/`: milestone notes and results.
