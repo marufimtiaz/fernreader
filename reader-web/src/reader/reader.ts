@@ -126,6 +126,18 @@ export class Reader {
       },
       lastPage: () => { const v = this.view; const i = v?.lastLocation?.section?.current; if (v && i != null) void v.renderer.goTo({ index: i, anchor: () => 1 }) },
       /** Text of the block element where the visible range starts (F-070 check). */
+      /** What is really at the top of the screen: a hit test down the viewport, whatever the reader thinks is current. */
+      screenTop: () => {
+        const x = window.innerWidth / 2
+        for (let y = 8; y < 300; y += 8) for (const c of this.view?.renderer?.getContents?.() ?? []) {
+          const box = (c.doc?.defaultView?.frameElement as HTMLElement | null)?.getBoundingClientRect()
+          if (!box || y < box.top || y >= box.bottom) continue
+          const el = c.doc.elementFromPoint(x - box.left, y - box.top)
+          const text = el && el !== c.doc.body && el !== c.doc.documentElement ? el.textContent?.trim().slice(0, 60) : ''
+          if (text) return { index: c.index, text }
+        }
+        return null
+      },
       firstVisibleBlock: () => {
         const r = this.view?.lastLocation?.range
         const n = r?.startContainer

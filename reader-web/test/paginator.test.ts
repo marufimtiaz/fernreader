@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { heldShift, pagedVerticalRl, scrolledInlineInset, verticalPagesRootStyles } from '../vendor/foliate-js/paginator.js'
+import { describe, expect, it, vi } from 'vitest'
+import { heldShift, View, pagedVerticalRl, scrolledInlineInset, verticalPagesRootStyles } from '../vendor/foliate-js/paginator.js'
 
 // Local patch (F-081, PATCHES.md): vertical-rl sections in paginated flow are laid out as horizontal pages moving
 // right-to-left (CSS multicol rows, `column-wrap: wrap`), not foliate's top-to-bottom vertical pages.
@@ -103,4 +103,24 @@ describe('heldShift: the text on screen is held in stack mode, the user\'s scrol
   it('both: only the growth counts', () => expect(heldShift(screen, -118, 5048)).toBe(30))
   it('a slot above was dropped and scrollTop already followed (the capture moved with it): no shift', () =>
     expect(heldShift({ top: -100, scrollTop: 5000 - 786 }, -100, 5000 - 786)).toBe(0))
+})
+
+describe('a view dropped while it loads (a jump evicts the stacked sections)', () => {
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })
+  const loading = () => {
+    const view = new View({ container: document.createElement('div'), onExpand: () => {} })
+    document.body.append(view.element)
+    const frame = view.element.querySelector('iframe')!
+    Object.defineProperty(frame, 'contentDocument', { value: { body: null } }) // mid-load: a document with no body yet
+    return view
+  }
+  it('destroy does not throw on a document with no body', () => {
+    expect(() => loading().destroy()).not.toThrow()
+  })
+  it('destroy releases whoever waits for the load: a removed frame never fires `load`', async () => {
+    const view = loading()
+    const load = view.load('blob:never', () => {}, () => ({}))
+    view.destroy()
+    await expect(load).resolves.toBeUndefined()
+  })
 })
