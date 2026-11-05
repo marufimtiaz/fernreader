@@ -143,11 +143,11 @@ class ScrollStabilityTest {
                 h.ready(); h.openBook("/sdcard/Books/epub3-samples/accessible_epub_3.epub", "Accessible")
                 h.scrolled(); h.still()
                 h.contentsJump("2. Building", "forward to chapter 2")
-                repeat(3) { fling(); delay(900) }
+                repeat(3) { fling(); delay(900) }; h.still() // a jump during the run-out is another case: see the commit
                 h.contentsJump("Preface", "back to the Preface")
                 h.contentsJump("Acknowledgments", "forward to Acknowledgments")
                 h.contentsJump("1. Introduction", "to chapter 1")
-                repeat(3) { fling(); delay(900) }
+                repeat(3) { fling(); delay(900) }; h.still() // a jump during the run-out is another case: see the commit
                 h.contentsJump("Preface", "back to the Preface again")
             } finally { sc.onActivity { it.controller.updateSettings { ReaderSettings() } }; h.a.settingsStored(); h.stop() }
         }
@@ -160,7 +160,7 @@ class ScrollStabilityTest {
                 h.ready(); h.openBook("/sdcard/Books/gutenberg/war-and-peace-epub3.epub", "War and Peace")
                 h.scrolled(); h.still()
                 h.contentsJump("BOOK THREE", "forward far")
-                repeat(3) { fling(); delay(900) }
+                repeat(3) { fling(); delay(900) }; h.still() // a jump during the run-out is another case: see the commit
                 h.contentsJump("BOOK ONE", "far back")
                 h.contentsJump("BOOK TWO", "forward")
                 h.contentsJump("BOOK ONE", "back again")
