@@ -128,6 +128,9 @@ export class Reader {
       },
       lastPage: () => { const v = this.view; const i = v?.lastLocation?.section?.current; if (v && i != null) void v.renderer.goTo({ index: i, anchor: () => 1 }) },
       /** Text of the block element where the visible range starts (F-070 check). */
+      /** Scroll and touch trace of the renderer (paginator.js startTrace), for a test's failure message. */
+      traceStart: () => this.view?.renderer?.startTrace?.(),
+      traceStop: () => JSON.stringify(this.view?.renderer?.stopTrace?.() ?? []),
       /** What is really at the top of the screen: a hit test down the viewport, whatever the reader thinks is current. */
       screenTop: () => {
         const x = window.innerWidth / 2

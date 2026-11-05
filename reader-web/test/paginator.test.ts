@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { heldShift, View, pagedVerticalRl, scrolledInlineInset, verticalPagesRootStyles } from '../vendor/foliate-js/paginator.js'
+import { heldShift, pushRing, View, pagedVerticalRl, scrolledInlineInset, verticalPagesRootStyles } from '../vendor/foliate-js/paginator.js'
 
 // Local patch (F-081, PATCHES.md): vertical-rl sections in paginated flow are laid out as horizontal pages moving
 // right-to-left (CSS multicol rows, `column-wrap: wrap`), not foliate's top-to-bottom vertical pages.
@@ -122,5 +122,13 @@ describe('a view dropped while it loads (a jump evicts the stacked sections)', (
     const load = view.load('blob:never', () => {}, () => ({}))
     view.destroy()
     await expect(load).resolves.toBeUndefined()
+  })
+})
+
+describe('pushRing: the test trace keeps the newest entries', () => {
+  it('drops the oldest past the cap', () => {
+    const ring: number[] = []
+    for (let i = 0; i < 5; i++) pushRing(ring, i, 3)
+    expect(ring).toEqual([2, 3, 4])
   })
 })

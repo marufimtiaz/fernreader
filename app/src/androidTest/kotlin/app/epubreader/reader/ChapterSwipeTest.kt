@@ -223,6 +223,7 @@ class ChapterSwipeTest {
     @Test fun vertical_drags_and_flings_are_as_before() = run { h ->
         val i = h.oneAtATimeAt("CHAPTER II")
         h.sidesLoaded()
+        h.traced {
         val top = h.edges().start()
         h.staysIn(this, i, "a drag") { dragUp() }
         val dragged = h.edges().start()
@@ -233,6 +234,7 @@ class ChapterSwipeTest {
         val flung = h.edges().start()
         val fingerFling = (hgt * 15 / 100) / h.edges().getDouble("dpr")
         assertTrue("the fling ran on past the finger: ${flung - dragged} > $fingerFling", flung - dragged > fingerFling)
+        }
     }
 
     @Test fun the_pull_and_the_next_control_stay() = run { h ->

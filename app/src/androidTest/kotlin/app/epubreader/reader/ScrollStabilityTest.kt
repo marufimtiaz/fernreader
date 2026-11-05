@@ -90,7 +90,7 @@ class ScrollStabilityTest {
                 // "the start": the first contents entry (resuming would start wherever an earlier run left the book)
                 val start = h.tocJump(jump ?: h.a.controller.state.value.toc.first().label).sectionIndex
                 h.still()
-                val pos = h.scrollDownSteadily(15, "${File(path).name} from ${jump ?: "the start"}")
+                val pos = h.traced { h.scrollDownSteadily(15, "${File(path).name} from ${jump ?: "the start"}") }
                 assertTrue("went on into later sections: from $start to ${pos.last().first}; samples ${pos.first()}..${pos.last()}, max offset ${pos.maxOf { it.second }}; slots ${h.sc.js("JSON.stringify(window.__readerTest.slots())")}",
                     pos.last().first >= start + 2)
             } finally { sc.onActivity { it.controller.updateSettings { ReaderSettings() } }; h.a.settingsStored(); h.stop() }

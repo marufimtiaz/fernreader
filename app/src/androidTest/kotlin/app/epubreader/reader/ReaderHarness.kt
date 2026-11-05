@@ -55,6 +55,21 @@ class ReaderHarness(val sc: ActivityScenario<MainActivity>, scope: CoroutineScop
     fun send(m: ToWeb) = sc.onActivity { it.reader.send(m) }
     fun stop() = job.cancel()
 
+    /**
+     * Runs [block] with the renderer's scroll and touch trace on, and adds it to a failure's message: for failures that
+     * need a load nobody can summon on demand. Entries: [ms, kind, scrollTop, stackTop, ...]; kinds raf, scroll, down, move
+     * (y, cancelable), up, keep, fix, hold (shift in px).
+     */
+    suspend fun <T> traced(block: suspend () -> T): T {
+        sc.js("window.__readerTest.traceStart(); true")
+        val r = try { block() } catch (e: AssertionError) {
+            throw AssertionError("${e.message}\ntrace: ${runCatching { sc.js("window.__readerTest.traceStop()") }.getOrElse { "unavailable: $it" }}", e)
+        }
+        val trace = sc.js("window.__readerTest.traceStop()")
+        check("raf" in trace) { "the trace recorded nothing: $trace" }
+        return r
+    }
+
     private fun see(e: FromWeb) { if (e is FromWeb.Relocate) at = e }
     fun drain() { while (true) see(ch.tryReceive().getOrNull() ?: return) }
     suspend fun <T : FromWeb> next(ms: Long = 10_000, accept: (FromWeb) -> T?): T = withTimeout(ms) {

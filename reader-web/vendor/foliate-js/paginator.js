@@ -639,6 +639,13 @@ export class View {
     }
 }
 
+/** Local patch (test diagnostics): adds [item] to [ring], dropping the oldest past [cap]. */
+export const pushRing = (ring, item, cap = 4000) => { // about a minute of frames, scroll events and touches
+    ring.push(item)
+    if (ring.length > cap) ring.shift()
+    return ring
+}
+
 /** Two frames, or 200 ms where frames don't run (a hidden page). */
 const nextFrames = () => new Promise(r => { requestAnimationFrame(() => requestAnimationFrame(r)); setTimeout(r, 200) })
 
@@ -711,6 +718,7 @@ export class Paginator extends HTMLElement {
         this.#container.scrollTop = cur.slot.offsetTop + rel
         this.#stackTop = cur.slot.offsetTop
         this.#screenMoved(cur.slot.offsetTop - was)
+        this.#note('keep', cur.slot.offsetTop - was)
     }
     /** Keeps what is on screen in place when slots above the current one change height. */
     #fixStack() {
@@ -720,9 +728,29 @@ export class Paginator extends HTMLElement {
         if (delta) this.#container.scrollTop += delta
         this.#stackTop = top
         this.#screenMoved(delta)
+        if (delta) this.#note('fix', delta)
     }
     // local patch (C-079/C-080): stack-mode stability
     #scrolledAt = -Infinity // when the container last scrolled
+    #trace = null // test diagnostics (startTrace): null, and so nothing recorded, unless a test asks
+    #note(kind, ...values) {
+        if (this.#trace) pushRing(this.#trace, [Math.round(performance.now()), kind, Math.round(this.#container.scrollTop), this.#stackTop, ...values])
+    }
+    /** Records [ms, kind, scrollTop, stackTop, ...] per frame, scroll event, touch and text-holding shift, until [stopTrace]. */
+    startTrace() {
+        const trace = this.#trace = []
+        const frame = () => {
+            if (this.#trace !== trace) return
+            this.#note('raf')
+            requestAnimationFrame(frame)
+        }
+        requestAnimationFrame(frame)
+    }
+    stopTrace() {
+        const trace = this.#trace ?? []
+        this.#trace = null
+        return trace
+    }
     #jumps = 0 // deliberate jumps or re-layouts being applied (they can overlap): no following, no 'scroll' relocates, no stack work
     get #jumping() { return this.#jumps > 0 }
     #restoring = false // since the last deliberate jump the user has not scrolled: layout changes re-apply its anchor
@@ -809,6 +837,7 @@ export class Paginator extends HTMLElement {
         if (Math.abs(moved) > 0.5) {
             this.#container.scrollTop += moved
             this.#screenMoved(moved)
+            this.#note('hold', Math.round(moved))
         }
         this.#stackTop = this.#slotOffset()
     }
@@ -1248,6 +1277,7 @@ export class Paginator extends HTMLElement {
         // viewport both ways (#ensureStack; slots inserted or dropped above keep the text in place, #keepStack).
         this.#container.addEventListener('scroll', () => {
             this.#scrolledAt = performance.now()
+            this.#note('scroll')
             if (!this.#stack || this.#jumping) return
             this.#followStack()
             this.#ensureStack()
@@ -1601,6 +1631,7 @@ export class Paginator extends HTMLElement {
         })
     }
     #onTouchStart(e) {
+        this.#note('down', Math.round(e.changedTouches?.[0]?.screenY ?? -1))
         this.#motion?.finish() // local patch (C-094): a touch finishes a settling turn at once
         this.#dragAbort() // a second finger, or a gesture whose end never came
         this.#userScroll()
@@ -1616,6 +1647,7 @@ export class Paginator extends HTMLElement {
         }
     }
     #onTouchMove(e) {
+        this.#note('move', Math.round(e.changedTouches?.[0]?.screenY ?? -1), e.cancelable ? 1 : 0)
         const state = this.#touchState
         if (!state) return // local patch: a move without a start (began outside) is ignored
         if (state.pinched) return
@@ -1651,6 +1683,7 @@ export class Paginator extends HTMLElement {
         this.scrollBy(dx, dy)
     }
     #onTouchEnd(e) {
+        this.#note('up', Math.round(e.changedTouches?.[0]?.screenY ?? -1))
         this.#touchScrolled = false
         if (this.#touchState?.drag) { // local patch (C-094): the page followed it, so it ends here
             if (!e.touches?.length) this.#dragRelease(e, this.#touchState)
