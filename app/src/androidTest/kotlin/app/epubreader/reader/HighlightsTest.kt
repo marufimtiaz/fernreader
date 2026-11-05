@@ -63,8 +63,6 @@ class HighlightsTest {
     private suspend fun ActivityScenario<MainActivity>.waitDrawn(id: String, ms: Long = 8_000, ok: (Drawn) -> Boolean = { it.text != null && it.overlay != null }): Drawn =
         withTimeout(ms) { while (true) { drawn(id)?.takeIf(ok)?.let { return@withTimeout it }; delay(100) }; error("unreachable") }
 
-    private suspend fun ReaderHarness.quiet() { delay(800); drain(); settle() }
-
     private suspend fun rows(bookId: String) = graph.annotations.annotations(bookId).first()
     private suspend fun row(bookId: String, ok: (List<Annotation>) -> Boolean) = withTimeout(5_000) { graph.annotations.annotations(bookId).first(ok) }
 
@@ -120,7 +118,7 @@ class HighlightsTest {
                 hr.tocJump("CHAPTER I"); hr.quiet()
                 val bookId = graph.library.knownBookId(SourceRef.File(wp.path))!!
                 for (a in rows(bookId)) graph.annotations.remove(a.id) // a clean book
-                delay(300)
+                hr.still()
 
                 // 1. A real long-press + the menu's Highlight; then a green highlight and a blue underline.
                 val sel = hr.longPress("Prince")
@@ -136,12 +134,12 @@ class HighlightsTest {
                 assertEquals("Prince", before.text)
                 assertTrue("overlay ${before.overlay} on the word ${before.range}", before.overlay!!.intersects(before.range!!))
                 assertTrue("overlay covers the word", before.overlay.covers(before.range))
-                delay(600); shot("M6-highlights.png")
+                hr.still(); shot("M6-highlights.png")
 
                 // 2. Text size +2 steps: after the re-layout the drawing still covers the same word (and moved with it).
                 hr.drain()
                 sc.onActivity { it.controller.updateSettings { s -> s.stepFont(2) } }
-                hr.relocate(10_000); hr.quiet(); delay(800)
+                hr.relocate(10_000); hr.quiet()
                 val after = sc.waitDrawn(prince.id)
                 assertEquals("Prince", after.text)
                 Log.i("HLT", "before ${before.range} after ${after.range} overlay ${after.overlay}")
@@ -202,10 +200,10 @@ class HighlightsTest {
                 assertEquals(Notice.HighlightRemoved, c.state.value.notice)
                 assertNotNull(sc.drawn(genoa.id))
             } finally {
-                dev.pressBack(); delay(300)
+                dev.pressBack(); hr.still()
                 graph.library.knownBookId(SourceRef.File(wp.path))?.let { id -> for (a in rows(id)) graph.annotations.remove(a.id) }
                 sc.onActivity { it.controller.updateSettings { ReaderSettings() } }
-                delay(800)
+                hr.a.settingsStored()
                 hr.stop()
             }
         }

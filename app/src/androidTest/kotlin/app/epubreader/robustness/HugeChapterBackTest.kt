@@ -54,7 +54,7 @@ class HugeChapterBackTest {
                 sc.onActivity { it.goBack() }
                 val beat = Heartbeat().also { it.start() }
                 sc.onActivity { it.openBook(SourceRef.File(huge.path)) }
-                delay(1_000)
+                delay(1_000) // Back comes one second into the load: the scenario itself
                 // Injected without waiting (UiDevice.pressBack waits up to ~1 s for an accessibility event before returning).
                 val t0 = SystemClock.uptimeMillis()
                 for (action in listOf(KeyEvent.ACTION_DOWN, KeyEvent.ACTION_UP)) {
