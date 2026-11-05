@@ -102,7 +102,8 @@ class HugeChapterChunkTest {
         drain()
         step("$run selectCfi->selection") {
             assertEquals("true", sc.js("window.__readerTest.selectCfi(${JSONObject.quote(cfi)})"))
-            next(5_000) { e -> (e as? FromWeb.Selection)?.takeIf { it.cfi != null } }
+            // 10 s: on the unchunked control the selection takes 3-4.4 s on a quiet emulator and over 5 s on a loaded host
+            next(10_000) { e -> (e as? FromWeb.Selection)?.takeIf { it.cfi != null } }
         }
         val row = step("$run highlightSelection->row") {
             sc.onActivity { it.controller.highlightSelection() }

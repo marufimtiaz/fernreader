@@ -332,6 +332,7 @@ const setStylesImportant = (el, styles) => {
 }
 
 export class View {
+    #loading = null // resolves the running load()
     #observer = new ResizeObserver(() => this.expand())
     #element = document.createElement('div')
     #iframe = document.createElement('iframe')
@@ -379,6 +380,7 @@ export class View {
     async load(src, afterLoad, beforeRender) {
         if (typeof src !== 'string') throw new Error(`${src} is not string`)
         return new Promise(resolve => {
+            this.#loading = resolve
             this.#iframe.addEventListener('load', () => {
                 const doc = this.document
                 afterLoad?.(doc)
@@ -589,10 +591,17 @@ export class View {
     get overlayer() {
         return this.#overlayer
     }
+    // local patch: a view can go while it loads (a jump drops the stacked sections): its document has no body yet, and its
+    // frame, out of the page, never fires `load`, so whoever waits for the load is released here
     destroy() {
-        if (this.document) this.#observer.unobserve(this.document.body)
+        const body = this.document?.body
+        if (body) this.#observer.unobserve(body)
+        this.#loading?.()
     }
 }
+
+/** Two frames, or 200 ms where frames don't run (a hidden page). */
+const nextFrames = () => new Promise(r => { requestAnimationFrame(() => requestAnimationFrame(r)); setTimeout(r, 200) })
 
 // NOTE: everything here assumes the so-called "negative scroll type" for RTL
 export class Paginator extends HTMLElement {
@@ -674,6 +683,7 @@ export class Paginator extends HTMLElement {
         this.#screenMoved(delta)
     }
     // local patch (C-079/C-080): stack-mode stability
+    #scrolledAt = -Infinity // when the container last scrolled
     #jumps = 0 // deliberate jumps or re-layouts being applied (they can overlap): no following, no 'scroll' relocates, no stack work
     get #jumping() { return this.#jumps > 0 }
     #restoring = false // since the last deliberate jump the user has not scrolled: layout changes re-apply its anchor
@@ -712,12 +722,20 @@ export class Paginator extends HTMLElement {
     /** Runs a deliberate navigation [f]; the flags drop two frames after it (its own scroll events are past by then). */
     async #navigate(f) {
         this.#jumps++
+        // A fling runs on the compositor and doesn't stop for a scrollTop set from here: its later scroll events would
+        // move the page and the current section off the target. A scroller that can't be scrolled by the user ends it.
+        // It ends at the next frames, so a jump made while the page moves waits for them, or the last steps would land on it.
+        if (this.#stack) {
+            this.#container.style.overflow = 'hidden'
+            if (performance.now() - this.#scrolledAt < 100) await nextFrames()
+        }
         this.#restoring = true
         this.#screen = null
         this.#noStack.clear()
         try { return await f() } finally {
-            await new Promise(r => { requestAnimationFrame(() => requestAnimationFrame(r)); setTimeout(r, 200) })
+            await nextFrames()
             this.#jumps--
+            if (!this.#jumps) this.#container.style.overflow = ''
             this.#ensureStack()
         }
     }
@@ -956,6 +974,7 @@ export class Paginator extends HTMLElement {
                     entry.mismatch = true
                 return this.#lastLayout
             })
+            if (this.#cache.get(index) !== entry) return // evicted while it loaded
             if (entry.mismatch) throw new Error(`section ${index}: other writing mode, not preloaded`)
             this.dispatchEvent(new CustomEvent('create-overlayer', {
                 detail: { doc: entry.view.document, index, attach: o => entry.view.overlayer = o },
@@ -1190,6 +1209,7 @@ export class Paginator extends HTMLElement {
         // Stack mode (C-079): follow the section at the top while scrolling and keep sections loaded ahead of the
         // viewport both ways (#ensureStack; slots inserted or dropped above keep the text in place, #keepStack).
         this.#container.addEventListener('scroll', () => {
+            this.#scrolledAt = performance.now()
             if (!this.#stack || this.#jumping) return
             this.#followStack()
             this.#ensureStack()
@@ -1768,6 +1788,7 @@ export class Paginator extends HTMLElement {
             }
             const beforeRender = this.#beforeRender.bind(this)
             await view.load(src, afterLoad, beforeRender)
+            if (this.#preload && this.#cache.get(index)?.view !== view) return // dropped by a later jump while it loaded
             this.dispatchEvent(new CustomEvent('create-overlayer', {
                 detail: {
                     doc: view.document, index,
