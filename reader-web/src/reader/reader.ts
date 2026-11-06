@@ -134,6 +134,34 @@ export class Reader {
       },
       lastPage: () => { const v = this.view; const i = v?.lastLocation?.section?.current; if (v && i != null) void v.renderer.goTo({ index: i, anchor: () => 1 }) },
       /** Text of the block element where the visible range starts (F-070 check). */
+      /**
+       * C-099: where the page keeps the cutout's band: the inset it was given, the top of the scroller or the page, the page
+       * counter's page height, the top of the reported position, and the text in the band (host CSS px).
+       */
+      cutout: () => {
+        const r = this.view?.renderer
+        if (!r) return null
+        const range = this.view.lastLocation?.range
+        const frame = range?.startContainer?.ownerDocument?.defaultView?.frameElement as HTMLElement | null
+        const rect = range ? [...range.getClientRects()].find((x: DOMRect) => x.width > 0 && x.height > 0) as DOMRect | undefined : undefined
+        const inset = Number(r.getAttribute('top-inset') ?? 0)
+        let bandText = ''
+        for (let y = 0; y < inset && !bandText; y += 2) for (const c of r.getContents?.() ?? []) {
+          const box = (c.doc?.defaultView?.frameElement as HTMLElement | null)?.getBoundingClientRect()
+          if (!box || y < box.top || y >= box.bottom) continue
+          const el = c.doc.elementFromPoint(window.innerWidth / 2 - box.left, y - box.top)
+          if (el && el !== c.doc.body && el !== c.doc.documentElement) bandText = el.textContent?.trim().slice(0, 40) ?? ''
+        }
+        return { inset, containerTop: r.containerRect.top, pagedHeight: r.pagedLayout.height, dpr: window.devicePixelRatio, bandText,
+          positionTop: rect ? (frame?.getBoundingClientRect().top ?? 0) + rect.top : null }
+      },
+      /** C-099: top edge (host px) of the first [selector] in loaded section [index], its box on screen; null if none. */
+      blockTop: (index: number, selector: string) => {
+        const doc: Document | undefined = this.view?.renderer?.getContents?.().find((x: any) => x.index === index)?.doc
+        const el = doc?.querySelector(selector)
+        if (!doc || !el) return null
+        return ((doc.defaultView?.frameElement as HTMLElement | null)?.getBoundingClientRect().top ?? 0) + el.getBoundingClientRect().top
+      },
       /** Scroll and touch trace of the renderer (paginator.js startTrace), for a test's failure message. */
       traceStart: () => this.view?.renderer?.startTrace?.(),
       traceStop: () => JSON.stringify(this.view?.renderer?.stopTrace?.() ?? []),
