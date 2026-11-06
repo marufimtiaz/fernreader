@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { heldShift, pushRing, View, pagedVerticalRl, scrolledInlineInset, verticalPagesRootStyles } from '../vendor/foliate-js/paginator.js'
+import { chapterStage, heldShift, pushRing, View, pagedVerticalRl, restingPad, restingScroll, scrolledInlineInset, verticalPagesRootStyles } from '../vendor/foliate-js/paginator.js'
 
 // Local patch (F-081, PATCHES.md): vertical-rl sections in paginated flow are laid out as horizontal pages moving
 // right-to-left (CSS multicol rows, `column-wrap: wrap`), not foliate's top-to-bottom vertical pages.
@@ -130,5 +130,32 @@ describe('pushRing: the test trace keeps the newest entries', () => {
     const ring: number[] = []
     for (let i = 0; i < 5; i++) pushRing(ring, i, 3)
     expect(ring).toEqual([2, 3, 4])
+  })
+})
+
+// C-099: in fullscreen the scroller reaches the top of the screen and what comes to rest sits [inset] below it.
+describe('restingScroll: where a landing puts the scroller', () => {
+  it('the target sits the inset below the top of the screen', () => expect(restingScroll(500, 2000, 30)).toBe(2470))
+  it('the first section: its slot starts the inset down, so its top rests at scrollTop 0', () => expect(restingScroll(0, 30, 30)).toBe(0))
+  it('never above the scroller', () => expect(restingScroll(-40, 30, 30)).toBe(0))
+  it('no inset: as before', () => expect(restingScroll(500, 2000, 0)).toBe(2500))
+})
+
+describe('restingPad: the room after the book\'s last section', () => {
+  it('a section shorter than the screen can still rest at its top, below the inset', () => expect(restingPad(900, 30, 300)).toBe(570))
+  it('a long section needs none', () => expect(restingPad(900, 30, 2000)).toBe(0))
+  it('no inset: as before', () => expect(restingPad(900, 0, 300)).toBe(600))
+})
+
+describe('chapterStage: the screen a chapter opens at, staged for the slide (One at a time)', () => {
+  it('the next chapter at its top: below the inset, where the swap will put it', () =>
+    expect(chapterStage({ height: 900, inset: 30, chapter: 5000, atEnd: false })).toEqual({ top: 30, height: 870, scrollTop: 0 }))
+  it('the previous chapter at its end fills the screen', () =>
+    expect(chapterStage({ height: 900, inset: 30, chapter: 5000, atEnd: true })).toEqual({ top: 0, height: 900, scrollTop: 4100 }))
+  it('a previous chapter shorter than the screen rests at its top, below the inset', () =>
+    expect(chapterStage({ height: 900, inset: 30, chapter: 400, atEnd: true })).toEqual({ top: 30, height: 870, scrollTop: 0 }))
+  it('no inset: as before', () => {
+    expect(chapterStage({ height: 900, inset: 0, chapter: 5000, atEnd: false })).toEqual({ top: 0, height: 900, scrollTop: 0 })
+    expect(chapterStage({ height: 900, inset: 0, chapter: 5000, atEnd: true })).toEqual({ top: 0, height: 900, scrollTop: 4100 })
   })
 })

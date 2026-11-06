@@ -28,6 +28,7 @@ export class FootnotePopup {
     root.style.setProperty('--er-fn-link', t.link)
     root.style.setProperty('--er-fn-rule', t.rule)
     root.style.setProperty('--er-fn-scrim', t.dark ? 'rgba(0,0,0,0.6)' : 'rgba(0,0,0,0.32)')
+    root.style.paddingTop = `${24 + (s.topInset ?? 0)}px` // C-099: centred in the room below the cutout
     const panel = this.doc.createElement('div')
     panel.setAttribute('role', 'dialog')
     panel.setAttribute('aria-modal', 'true')

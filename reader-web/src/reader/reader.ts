@@ -678,6 +678,8 @@ export class Reader {
     // C-085: before `flow`, so switching to Scroll lays out the chosen chapter mode once (each change re-renders)
     if (s.chapters === 'one-at-a-time') set('chapter-stop', '')
     else r.removeAttribute('chapter-stop')
+    set('top-inset', String(s.topInset ?? 0)) // C-099: before `flow`, as above
+    if (isFixedLayout(r) && this.view) this.view.style.top = s.topInset ? `${s.topInset}px` : '' // no flow and no paginator there
     set('flow', s.flow)
     if (s.pageAnimation === 'none') r.removeAttribute('animated') // F-032: no slide
     else set('animated', '')
@@ -705,7 +707,7 @@ export class Reader {
   private setSettings(s: WebSettings) {
     const old = this.settings
     this.settings = s
-    const layout = (x: WebSettings) => [x.fontScale, x.fontFamily, x.lineHeight, x.marginPercent, x.align].join('|')
+    const layout = (x: WebSettings) => [x.fontScale, x.fontFamily, x.lineHeight, x.marginPercent, x.align, x.topInset ?? 0].join('|')
     if (layout(old) !== layout(s) && this.counter) this.scheduleCount()
     const look = (x: WebSettings) => [layout(x), x.theme, x.flow].join('|')
     if (this.view && look(old) === look(s)) this.layoutAttributes(this.view.renderer) // input settings only: nothing to restyle

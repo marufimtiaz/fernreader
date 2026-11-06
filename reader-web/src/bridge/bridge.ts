@@ -10,7 +10,8 @@ function validSettings(x: unknown): boolean {
     ['light', 'dark', 'black', 'warm'].includes(s.theme as string) && ['paginated', 'scrolled'].includes(s.flow as string) &&
     (s.swipeDirection == null || ['auto', 'ltr', 'rtl'].includes(s.swipeDirection as string)) &&
     (s.pageAnimation == null || ['slide', 'none'].includes(s.pageAnimation as string)) &&
-    (s.chapters == null || ['continuous', 'one-at-a-time'].includes(s.chapters as string))
+    (s.chapters == null || ['continuous', 'one-at-a-time'].includes(s.chapters as string)) &&
+    (s.topInset == null || (typeof s.topInset === 'number' && s.topInset >= 0))
 }
 
 function validAnnotation(x: unknown): boolean {
