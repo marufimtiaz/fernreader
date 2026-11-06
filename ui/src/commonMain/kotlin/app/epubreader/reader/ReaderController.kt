@@ -260,6 +260,7 @@ class ReaderController(
         hidePanel = ::hideSearch,
     )
     private var landscape = false
+    private var topInset = 0
     private var saveJob: Job? = null
     /** Settings are read before the first open is sent, so a book never opens with the defaults first. */
     private val settingsLoaded: Deferred<Unit> = scope.async {
@@ -519,6 +520,18 @@ class ReaderController(
         if (web() != before) { bookNumbers.pinHere(); probe.ev("layout_change", "flow"); reader.send(ToWeb.SetSettings(settings = web())) }
     }
 
+    /**
+     * C-099: the band at the top of the page the display cutout takes, in CSS px (0 when the page doesn't draw under it).
+     * The window's, not a reading setting: the surface reports it, and it goes with the settings to the web side.
+     */
+    fun setTopInset(value: Int) {
+        if (value == topInset) return
+        topInset = value
+        bookNumbers.pinHere()
+        probe.ev("layout_change", "topInset")
+        reader.send(ToWeb.SetSettings(settings = web()))
+    }
+
     /** The settings as the web side applies them (AUTO flow resolved by orientation). */
     private fun web(s: ReaderSettings = _settings.value) = WebSettings(
         fontScale = s.fontScale, fontFamily = s.fontFamily, lineHeight = s.lineHeight, marginPercent = s.marginPercent,
@@ -528,6 +541,7 @@ class ReaderController(
         swipeDirection = when (s.swipeDirection) { SwipeDirection.AUTO -> "auto"; SwipeDirection.LTR -> "ltr"; SwipeDirection.RTL -> "rtl" },
         pageAnimation = if (s.pageAnimation == PageAnimation.NONE) "none" else "slide",
         chapters = if (s.scrollChapters == ScrollChapters.ONE_AT_A_TIME) "one-at-a-time" else "continuous",
+        topInset = topInset,
     )
 
     /** One page turn through the web side's queue (same path as the bench's `next`/`prev`). */

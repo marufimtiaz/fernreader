@@ -20,6 +20,11 @@ export type WebSettings = {
    * at the chapter's end, with "Next"/"Previous" controls and an overscroll pull. Optional (older apps: continuous).
    */
   chapters?: 'continuous' | 'one-at-a-time'
+  /**
+   * C-099: CSS px at the top of the page kept free of text at rest (fullscreen: the display cutout, which the page draws
+   * under). Pages stay below it; Scroll runs to the top of the screen and only its resting positions keep it. Optional (older apps: 0).
+   */
+  topInset?: number
 }
 
 export const DEFAULT_SETTINGS: WebSettings = {

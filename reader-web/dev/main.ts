@@ -61,7 +61,7 @@ const paintFrame = () => { phone.style.background = THEMES[host.settings.theme].
 
 function bindSetting<K extends keyof WebSettings>(id: string, key: K, parse: (v: string) => WebSettings[K]) {
   const el = $<HTMLInputElement | HTMLSelectElement>(id)
-  el.value = String(host.settings[key])
+  el.value = String(host.settings[key] ?? 0)
   el.addEventListener('input', () => {
     host.changeSettings({ [key]: parse(el.value) } as Partial<WebSettings>)
     paintFrame()
@@ -73,10 +73,13 @@ function showSettings() {
   $('fontScaleValue').textContent = `${Math.round(host.settings.fontScale * 100)} %`
   $('marginValue').textContent = `${host.settings.marginPercent} %`
   $('lineHeightValue').textContent = host.settings.lineHeight.toFixed(1)
+  $('topInsetValue').textContent = `${host.settings.topInset ?? 0} px`
+  $('cutout').style.height = `${host.settings.topInset ?? 0}px` // C-099: the band a camera cutout takes on a phone
 }
 
 bindSetting('flow', 'flow', v => v as WebSettings['flow'])
 bindSetting('chapters', 'chapters', v => v as WebSettings['chapters'])
+bindSetting('topInset', 'topInset', Number)
 bindSetting('fontScale', 'fontScale', Number)
 bindSetting('marginPercent', 'marginPercent', Number)
 bindSetting('lineHeight', 'lineHeight', Number)

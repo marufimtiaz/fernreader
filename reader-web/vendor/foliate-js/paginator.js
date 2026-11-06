@@ -65,6 +65,22 @@ export const SLIDE_MS = 300
  */
 export const heldShift = (screen, now, scrollTop) => (now - screen.top) + (scrollTop - screen.scrollTop)
 
+/**
+ * Local patch (C-099), stack mode with `top-inset`: the scroller reaches the top of the screen, and what comes to rest
+ * sits [inset] below it. The scrollTop that puts [offset] of a section (its slot at [slotTop]) there.
+ */
+export const restingScroll = (offset, slotTop, inset) => Math.max(0, offset + slotTop - inset)
+/** The room a last section of [slotHeight] needs below it to rest at its top. */
+export const restingPad = (viewport, inset, slotHeight) => Math.max(0, viewport - inset - slotHeight)
+/**
+ * The box (in a viewport of [height]) and the scroll position that show a chapter of height [chapter] as it opens: its
+ * top below the inset, or ([atEnd]) its last screen, which fills the viewport unless the chapter is shorter than the room.
+ */
+export const chapterStage = ({ height, inset, chapter, atEnd }) => {
+    const top = atEnd && chapter > height - inset ? 0 : inset
+    return { top, height: height - top, scrollTop: atEnd ? Math.max(0, chapter - (height - top)) : 0 }
+}
+
 export const slideSign = (dir, rtl) => (dir > 0 ? -1 : 1) * (rtl ? -1 : 1)
 export const slideFrame = (t, sign, width) => ({ old: sign * width * t + 0, next: -sign * width * (1 - t) + 0 })
 // local patch (C-094): a turn that follows the finger. [dragProgress]: the finger's movement [delta] (CSS px, positive =
@@ -657,6 +673,7 @@ export class Paginator extends HTMLElement {
         'flow', 'gap', 'margin',
         'max-inline-size', 'max-block-size', 'max-column-count',
         'chapter-stop', // local patch (C-085)
+        'top-inset', // local patch (C-099)
     ]
     #root = this.attachShadow({ mode: 'closed' })
     #observer = new ResizeObserver(() => this.render())
@@ -697,6 +714,11 @@ export class Paginator extends HTMLElement {
     get #single() { return this.#stack && this.hasAttribute('chapter-stop') }
     #mode = null // 'paged' | 'stack' | 'single' | null: what the cached slots are laid out for
     #stackTop = 0 // offsetTop of the current slot when the scroll position was last set or fixed
+    // local patch (C-099): CSS px at the top of the view kept free of text at rest (a display cutout). Paged flow, and
+    // any scrolled flow that isn't the stack, stay below it (a grid row); the stack runs to the top of the view and only
+    // its resting positions keep it: #scrollTo lands there, and [start] is the position at that line, not at the edge.
+    #topInset = 0
+    get #restInset() { return this.#stack ? this.#topInset : 0 }
     // [side] (C-093): a chapter next to the current one in One at a time, laid out and hidden, outside the stack's flow
     #slotStyle(slot, current, side = false) {
         slot.style.cssText = this.#stack && !side ? ''
@@ -782,7 +804,7 @@ export class Paginator extends HTMLElement {
             // shorter than the screen can still be scrolled to the top, and no blank screen past the end
             // (One at a time, C-085: room only while parts of the chapter follow; at its end the Next control)
             if (this.#nextStacked(last, 1) != null) h = vh
-            else if (!this.#single) h = Math.max(0, vh - (this.#cache.get(last)?.slot.offsetHeight ?? vh))
+            else if (!this.#single) h = restingPad(vh, this.#restInset, this.#cache.get(last)?.slot.offsetHeight ?? vh)
         }
         h = `${h}px`
         if (this.#stackPad.style.height !== h) this.#stackPad.style.height = h
@@ -825,7 +847,7 @@ export class Paginator extends HTMLElement {
         const doc = e?.view.document, frame = e?.view.element.querySelector('iframe')
         if (!doc || !frame) { this.#screen = null; return }
         const f = frame.getBoundingClientRect(), c = this.#container.getBoundingClientRect()
-        const y = c.top + 1 - f.top
+        const y = c.top + this.#restInset + 1 - f.top
         let el = y >= 0 && y < f.height ? doc.elementFromPoint(f.width / 2, y) : null
         if (el === doc.body || el === doc.documentElement) el = null // a gap: no element to hold (the slot is held)
         this.#screen = el ? { view: e.view, el, top: this.#screenTop(e.view, el), scrollTop: this.#container.scrollTop } : null
@@ -957,12 +979,12 @@ export class Paginator extends HTMLElement {
         const el = this.#container
         return { single: this.#single, head: r(this.#edgeHead), foot: r(this.#edgeFoot), span: this.#span(this.#index),
             scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, viewport: el.clientHeight, current: this.#index,
-            start: this.#view ? this.start : null, viewSize: this.#view ? this.viewSize : null }
+            start: this.#view ? this.start : null, viewSize: this.#view ? this.viewSize : null, inset: this.#restInset }
     }
     /** Stack mode: the slot at the top of the viewport becomes the current section (no scrolling). */
     #followStack() {
         if (!this.#stack || this.#jumping) return false
-        const y = this.#container.scrollTop + 1
+        const y = this.#container.scrollTop + this.#restInset + 1
         for (const e of this.#cache.values()) {
             const { offsetTop, offsetHeight } = e.slot
             if (e.loaded && !e.side && e.index !== this.#index && y >= offsetTop && y < offsetTop + offsetHeight) {
@@ -1157,6 +1179,7 @@ export class Paginator extends HTMLElement {
             --_half-gap: calc(var(--_gap) / 2);
             --_max-width: calc(var(--_max-inline-size) * var(--_max-column-count-spread));
             --_max-height: var(--_max-block-size);
+            --_top-inset: 0px;
             display: grid;
             grid-template-columns:
                 minmax(var(--_half-gap), 1fr)
@@ -1165,6 +1188,7 @@ export class Paginator extends HTMLElement {
                 var(--_half-gap)
                 minmax(var(--_half-gap), 1fr);
             grid-template-rows:
+                var(--_top-inset)
                 minmax(var(--_margin), 1fr)
                 minmax(0, var(--_max-height))
                 minmax(var(--_margin), 1fr);
@@ -1188,29 +1212,34 @@ export class Paginator extends HTMLElement {
         }
         #probe { /* where the paged #container is, in any flow (page counter) */
             grid-column: 2 / 5;
-            grid-row: 2;
+            grid-row: 3;
             visibility: hidden;
             pointer-events: none;
         }
         #container {
             grid-column: 2 / 5;
-            grid-row: 2;
+            grid-row: 3;
             overflow: hidden;
             position: relative;
         }
         :host([flow="scrolled"]) #container {
             grid-column: 1 / -1;
-            grid-row: 1 / -1;
+            grid-row: 2 / -1;
             overflow: auto;
             overflow-anchor: none; /* stack mode anchors itself (#fixStack); the browser's anchoring would add to it */
         }
+        /* local patch (C-099): the stack runs to the top of the view; the first slot starts below the inset */
+        :host([flow="scrolled"][preload]) #top:not(.vertical) #container {
+            grid-row: 1 / -1;
+            padding-top: var(--_top-inset);
+        }
         #header {
             grid-column: 3 / 4;
-            grid-row: 1;
+            grid-row: 2;
         }
         #footer {
             grid-column: 3 / 4;
-            grid-row: 3;
+            grid-row: 4;
             align-self: end;
         }
         #header, #footer {
@@ -1367,6 +1396,11 @@ export class Paginator extends HTMLElement {
                 this.render()
                 break
             case 'chapter-stop': // local patch (C-085): only scrolled flow stacks sections
+                if (this.scrolled) this.render()
+                break
+            case 'top-inset': // local patch (C-099): paged flow's container resizes, which renders; the stack's doesn't
+                this.#topInset = Math.max(0, Number(value) || 0)
+                this.#top.style.setProperty('--_top-inset', `${this.#topInset}px`)
                 if (this.scrolled) this.render()
                 break
             case 'gap':
@@ -1591,11 +1625,13 @@ export class Paginator extends HTMLElement {
         return this.#view.element.getBoundingClientRect()[this.sideProp]
     }
     get start() {
-        return Math.abs(this.#container[this.scrollProp]) - this.#slotOffset()
+        return Math.abs(this.#container[this.scrollProp]) - this.#slotOffset() + this.#restInset
     }
     get end() {
-        return this.start + this.size
+        return this.start + this.#restSize
     }
+    /** What a screen holds from [start] down (C-099: what is under the inset is not read at rest). */
+    get #restSize() { return this.size - this.#restInset }
     get page() {
         return Math.floor(((this.start + this.end) / 2) / this.size)
     }
@@ -1948,7 +1984,7 @@ export class Paginator extends HTMLElement {
         const element = this.#container
         const { scrollProp, size } = this
         if (this.#stack) { // offsets are relative to the current section; the scroller holds the whole stack
-            offset = Math.max(0, offset + this.#slotOffset())
+            offset = restingScroll(offset, this.#slotOffset(), this.#restInset)
             this.#stackTop = this.#slotOffset()
         }
         if (element[scrollProp] === offset) {
@@ -1994,7 +2030,7 @@ export class Paginator extends HTMLElement {
         // if anchor is a fraction
         if (this.scrolled) {
             // the end of a section is its last screen (in stack mode the next section starts right below)
-            await this.#scrollTo(Math.min(anchor * this.viewSize, Math.max(0, this.viewSize - this.size)), reason)
+            await this.#scrollTo(Math.min(anchor * this.viewSize, Math.max(0, this.viewSize - this.#restSize)), reason)
             return
         }
         const { pages } = this
@@ -2113,7 +2149,7 @@ export class Paginator extends HTMLElement {
         this.#userScroll()
         if (!this.#view) return true
         if (this.#stack) { // one screen up, across sections; only the very top goes to an unloaded section
-            if (this.#container.scrollTop > 0) return this.#scrollTo(this.start - (distance ?? this.size), null, true)
+            if (this.#container.scrollTop > 0) return this.#scrollTo(this.start - (distance ?? this.#restSize), null, true)
             return true
         }
         if (this.scrolled) {
@@ -2130,7 +2166,7 @@ export class Paginator extends HTMLElement {
         if (!this.#view) return true
         if (this.#stack) {
             const el = this.#container
-            if (el.scrollTop + el.clientHeight < el.scrollHeight - 2) return this.#scrollTo(this.start + (distance ?? this.size), null, true)
+            if (el.scrollTop + el.clientHeight < el.scrollHeight - 2) return this.#scrollTo(this.start + (distance ?? this.#restSize), null, true)
             return true
         }
         if (this.scrolled) {
@@ -2305,9 +2341,10 @@ export class Paginator extends HTMLElement {
         const moving = [...this.#stacked.map(e => e.slot), this.#edgeHead, this.#edgeFoot]
         const anchor = dir > 0 ? 0 : 1
         if (to) {
-            const height = el.clientHeight
-            to.slot.style.cssText = `position: absolute; top: ${el.scrollTop}px; left: 0; width: 100%; height: ${height}px; overflow: hidden; pointer-events: none`
-            to.slot.scrollTop = anchor ? Math.max(0, to.view.element.getBoundingClientRect().height - height) : 0
+            const stage = chapterStage({ height: el.clientHeight, inset: this.#restInset,
+                chapter: to.view.element.getBoundingClientRect().height, atEnd: !!anchor })
+            to.slot.style.cssText = `position: absolute; top: ${el.scrollTop + stage.top}px; left: 0; width: 100%; height: ${stage.height}px; overflow: hidden; pointer-events: none`
+            to.slot.scrollTop = stage.scrollTop
         }
         el.style.overflow = 'hidden' // nothing scrolls under the slide, and the moving slots add no scroll range
         const sign = slideSign(dir, this.#rtl)

@@ -235,6 +235,19 @@ class ReaderControllerTest {
         assertTrue(reader.sent.isEmpty()) // paged stays paged in landscape
     }
 
+    /** C-099: the cutout's band goes to the web side with the settings, live, and with every later settings message. */
+    @Test fun the_top_inset_goes_with_the_settings() = runTest(dispatcher) {
+        val c = controller()
+        reader.sent.clear()
+        c.setTopInset(28)
+        assertEquals(28, (reader.sent.single() as ToWeb.SetSettings).settings.topInset)
+        reader.sent.clear()
+        c.setTopInset(28)
+        assertTrue(reader.sent.isEmpty()) // nothing changed
+        c.updateSettings { it.copy(lineHeight = 2.0) }
+        assertEquals(28, reader.sent.filterIsInstance<ToWeb.SetSettings>().last().settings.topInset)
+    }
+
     /** C-085: Scroll mode's "Chapters" goes to the web side live and is stored with the other display settings. */
     @Test fun scroll_chapters_reach_the_web_side_and_are_stored() = runTest(dispatcher) {
         val c = controller()
