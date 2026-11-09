@@ -35,7 +35,10 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.LayoutDirection
+import app.epubreader.reader.contents.FingerHold
+import app.epubreader.reader.contents.SlideTrace
 import app.epubreader.reader.contents.contentsSlideMs
+import app.epubreader.reader.contents.follow
 import app.epubreader.reader.contents.panelSwipeCloses
 import app.epubreader.ui.Copy
 import kotlinx.coroutines.flow.collectLatest
@@ -80,6 +83,9 @@ fun drawerSwipeFinishes(travelDp: Float, widthDp: Float, speedDpPerMs: Float): B
  * watched from above the grid, in the Initial pass, and only taken at the sideways part: until then the grid scrolls and
  * taps tap. No gesture exclusion: on gesture navigation the system takes a straight swipe for Back, which arrives here as a
  * cancel and never opens anything. The position changes the placement only, so nothing recomposes while it moves.
+ *
+ * C-100: the gesture is recognised only after the finger has travelled; a finger takes hold through a [FingerHold], so the
+ * drawer comes from the edge and catches up instead of jumping to the finger.
  */
 @Composable
 fun DrawerSlide(open: Boolean, edgeGesture: Boolean, onOpen: (Boolean) -> Unit, drawer: @Composable () -> Unit, content: @Composable () -> Unit) {
@@ -94,9 +100,11 @@ fun DrawerSlide(open: Boolean, edgeGesture: Boolean, onOpen: (Boolean) -> Unit, 
     val density = LocalDensity.current.density
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     LaunchedEffect(Unit) {
+        var hold: FingerHold? = null
         snapshotFlow { openNow to held }.collectLatest { (o, h) ->
             val to = if (o) 1f else 0f
-            if (h != null) shown.snapTo(h) else shown.animateTo(to, tween(contentsSlideMs(shown.value, to), easing = FastOutSlowInEasing))
+            if (h == null) hold = null
+            if (h != null) shown.follow(h, hold ?: FingerHold(h, shown.value).also { hold = it }) else shown.animateTo(to, tween(contentsSlideMs(shown.value, to), easing = FastOutSlowInEasing))
         }
     }
     LaunchedEffect(open) { held = null }
@@ -161,7 +169,10 @@ fun DrawerSlide(open: Boolean, edgeGesture: Boolean, onOpen: (Boolean) -> Unit, 
                 .layout { measurable, constraints ->
                     val sheet = measurable.measure(constraints.copy(minWidth = 0, minHeight = 0))
                     width[0] = sheet.width.toFloat()
-                    layout(sheet.width, sheet.height) { sheet.placeRelative(-((1f - shown.value) * sheet.width).roundToInt(), 0) }
+                    layout(sheet.width, sheet.height) {
+                        sheet.placeRelative(-((1f - shown.value) * sheet.width).roundToInt(), 0)
+                        SlideTrace.sink?.invoke("drawer", shown.value, sheet.width.toFloat())
+                    }
                 }
                 .semantics {
                     paneTitle = Copy.navigationMenu
