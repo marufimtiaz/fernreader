@@ -1423,6 +1423,28 @@ class ReaderControllerTest {
         assertNull(c.contentsDrag.value)
     }
 
+    /** C-100: a touch in the strip gets the panel ready (composed, not shown) before the gesture may move it. */
+    @Test fun a_touch_in_the_strip_gets_the_panel_ready_until_it_ends() = runTest(dispatcher) {
+        val c = controller(); openBook(c)
+        assertFalse(c.contentsReady.value)
+        edge("down", 0.0); assertTrue(c.contentsReady.value)
+        assertNull(c.contentsDrag.value)
+        edge("up", 0.0); assertFalse(c.contentsReady.value)
+        edge("down", 0.0); edge("start", 0.1); edge("end", 0.5, open = true)
+        assertFalse(c.contentsReady.value)
+        assertTrue(c.state.value.tocVisible)
+    }
+
+    @Test fun nothing_is_got_ready_with_something_over_the_page_or_after_the_book_closed() = runTest(dispatcher) {
+        val c = controller(); openBook(c)
+        c.showSheet(); advanceUntilIdle()
+        edge("down", 0.0); assertFalse(c.contentsReady.value)
+        c.hideSheet(); advanceUntilIdle()
+        edge("down", 0.0); assertTrue(c.contentsReady.value)
+        c.close(); advanceUntilIdle()
+        assertFalse(c.contentsReady.value)
+    }
+
     @Test fun a_swipe_on_the_panel_holds_it_and_closes_or_not_on_release() = runTest(dispatcher) {
         val c = controller(); openBook(c)
         c.showToc()
