@@ -10,6 +10,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import app.epubreader.MainActivity
+import app.epubreader.SlideFrames
 import app.epubreader.ui.Copy
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -145,6 +146,33 @@ class EdgeDrawerTest {
             assertTrue("the drawer's end is at the finger: $right of $w", abs(right - w / 2) < w / 8)
         }
         a.awaitOpen()
+    }
+
+    /** C-100: the drawer comes from the screen edge and catches up with the finger; it never pops in where the finger is. */
+    @Test fun the_drawer_starts_from_the_edge_and_catches_up_with_the_finger() = run { a ->
+        val rec = SlideFrames(inst, "drawer")
+        rec.record()
+        rec.drag(strip, hgt / 2, dir = 1)
+        rec.assertSmoothFromTheEdge { x -> x }
+        a.awaitClosed()
+    }
+
+    /** C-100: the menu button's slide starts at the edge too. */
+    @Test fun the_menu_button_slide_starts_from_the_edge() = run { a ->
+        val scale = shell("settings get global animator_duration_scale")
+        val rec = SlideFrames(inst, "drawer")
+        try {
+            shell("settings put global animator_duration_scale 1")
+            delay(500)
+            rec.record()
+            a.library.setDrawer(true)
+            a.awaitOpen()
+            delay(200)
+        } finally {
+            rec.stop()
+            shell("settings put global animator_duration_scale ${scale.takeUnless { it == "null" } ?: "1"}")
+        }
+        rec.assertSlidesInFromTheEdge(rec.frames.maxOf { it.edge }.toInt())
     }
 
     @Test fun short_of_a_third_it_slides_back() = run { a ->

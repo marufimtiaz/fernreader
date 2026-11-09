@@ -150,7 +150,7 @@ describe('EdgeGesture', () => {
     g.up(ev(320, 300, 48, 1, true))
     expect(got.at(-1)?.[2]).toBe(true)
   })
-  it('a scroll is watched, not reported, until it goes sideways, and the panel then jumps to the finger', () => {
+  it('a scroll is watched, not reported, until it goes sideways, and then the finger is reported where it is', () => {
     g.down(ev(390, 300, 0))
     expect(g.move(ev(390, 330, 16))).toBe('watching')
     expect(g.move(ev(390, 400, 32))).toBe('watching')
@@ -202,6 +202,32 @@ describe('EdgeGesture', () => {
     expect(g.move(ev(200, 300, 32))).toBe('watching')
     expect(g.up(ev(200, 300, 48, 1, true))).toBe(true)
     expect(got).toEqual([])
+  })
+  describe('C-100: the app is told of a touch in the strip, to get the panel ready', () => {
+    let touched: boolean[]
+    beforeEach(() => {
+      touched = []
+      g = new EdgeGesture((p, f, o) => got.push([p, f, o]), d => touched.push(d))
+    })
+    it('down at the touch, up when it ends without moving the panel (a tap, a scroll, a cancel)', () => {
+      g.down(ev(390, 300))
+      expect(touched).toEqual([true])
+      g.up(ev(390, 300, 80, 1, true))
+      expect(touched).toEqual([true, false])
+      g.down(ev(390, 300)); g.move(ev(390, 500, 100)); g.up(ev(390, 600, 200, 1, true))
+      g.down(ev(390, 300)); g.drop()
+      expect(touched).toEqual([true, false, true, false, true, false])
+      expect(got).toEqual([])
+    })
+    it('a gesture that moved the panel ends with its end only', () => {
+      g.down(ev(390, 300, 0)); g.move(ev(350, 300, 16)); g.up(ev(350, 300, 900, 1, true))
+      expect(touched).toEqual([true])
+      expect(got.map(r => r[0])).toEqual(['start', 'end'])
+    })
+    it('a touch outside the strip says nothing', () => {
+      g.down(ev(200, 300)); g.up(ev(200, 300, 50, 1, true))
+      expect(touched).toEqual([])
+    })
   })
   it('counts its starts for the tests', () => {
     g.down(ev(390, 300, 0))

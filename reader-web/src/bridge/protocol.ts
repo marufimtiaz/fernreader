@@ -59,8 +59,8 @@ export type FromWeb =
   | { v: 1; type: 'seeked'; sessionId: string; id: number }
   | { v: 1; type: 'pageCounts'; sessionId: string; gen: number; linear?: number[]; counts: [number, number][]; sample: boolean; done: boolean }
   | { v: 1; type: 'tap'; sessionId: string; x: number; y: number }
-  /** C-097: a gesture from the right edge. [fraction]: the share of the screen under the panel; [open]: on `end`, whether it opens. */
-  | { v: 1; type: 'edgeSwipe'; sessionId: string; phase: 'start' | 'move' | 'end'; fraction: number; open: boolean }
+  /** C-097: a gesture from the right edge. [fraction]: the share of the screen under the panel; [open]: on `end`, whether it opens. C-100: `down` at a touch in the strip, `up` when it ends without having moved the panel. */
+  | { v: 1; type: 'edgeSwipe'; sessionId: string; phase: 'down' | 'start' | 'move' | 'end' | 'up'; fraction: number; open: boolean }
   /** F-042: entries in the followed-links history after a push or a pop (0 = Back leaves the book). */
   | { v: 1; type: 'history'; sessionId: string; depth: number }
   /** F-043: the footnote popup opened or closed (a tap outside closes it on the web side). */

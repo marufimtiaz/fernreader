@@ -5,6 +5,9 @@
  * for Back (a `touchcancel` here) and leaves a gesture that moved more down than sideways past its slop to the app, so
  * every touch from the strip is watched, and the sideways part may start at any time. From its first touch such a gesture
  * belongs here: it never turns a page or changes chapter. A tap makes no moves, so it stays a tap.
+ *
+ * C-100: the app also hears of the touch itself ([touch]: true at the touch, false when it ends without having moved the
+ * panel), so that it can get the panel ready while the gesture is still being judged and not on the frame it first shows.
  */
 import { dragFinishes } from './swipe'
 
@@ -81,7 +84,10 @@ export class EdgeGesture {
   /** For tests: what was last reported. */
   last: { phase: EdgePhase; fraction: number; open: boolean; starts: number } = { phase: 'end', fraction: 0, open: false, starts: 0 }
 
-  constructor(private report: (phase: EdgePhase, fraction: number, open: boolean) => void) {}
+  constructor(
+    private report: (phase: EdgePhase, fraction: number, open: boolean) => void,
+    private touch: (down: boolean) => void = () => {},
+  ) {}
 
   private send(phase: EdgePhase, fraction: number, open: boolean) {
     this.last = { phase, fraction, open, starts: this.last.starts + (phase === 'start' ? 1 : 0) }
@@ -101,6 +107,7 @@ export class EdgeGesture {
       ox: p.x - t.screenX, oy: p.y - t.screenY, anchor: { x: p.x, y: p.y, first: true },
       following: false, off: false, fraction: 0, trail: [],
     }
+    this.touch(true)
     return true
   }
 
@@ -132,7 +139,7 @@ export class EdgeGesture {
     const g = this.g
     if (!g) return false
     this.g = null
-    if (!g.following) return true
+    if (!g.following) { this.touch(false); return true }
     const t = e.changedTouches?.[0]
     if (t) {
       const { x } = this.point(g, t)
@@ -148,5 +155,6 @@ export class EdgeGesture {
     const g = this.g
     this.g = null
     if (g?.following) this.send('end', g.fraction, false)
+    else if (g) this.touch(false)
   }
 }
