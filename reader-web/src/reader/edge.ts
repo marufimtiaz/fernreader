@@ -3,7 +3,8 @@
  * (always the right one, also in right-to-left books) and then travels left is reported to the app as `start`, `move`,
  * `end`; the app moves the panel. No gesture exclusion: on gesture navigation the system takes a straight inward swipe
  * for Back (a `touchcancel` here) and leaves a gesture that moved more down than sideways past its slop to the app, so
- * every touch from the strip is watched, and the sideways part may start at any time. From its first touch such a gesture
+ * every touch from the strip is watched, and the sideways part may start at any time: a step that goes clearly sideways
+ * ([edgeStep]) or, from the touch-down, enough of a leftward angle ([edgeAngled], C-100c). From its first touch such a gesture
  * belongs here: it never turns a page or changes chapter. A tap makes no moves, so it stays a tap.
  */
 import { dragFinishes } from './swipe'
@@ -19,6 +20,13 @@ const NEXT_STEP = 20
  * more down than sideways; over the drift of a scrolling thumb.
  */
 const SIDEWAYS = 0.6
+/**
+ * C-100c: a natural angled swipe goes two or three times as far down as left, so no step of it is at [SIDEWAYS]. Measured
+ * from the touch-down instead, it counts once it is this far left (dp; the strip's width, past any jitter)...
+ */
+const ANGLED_LEFT = 24
+/** ...and its leftward part is at least this share of its vertical one: about 17 degrees off vertical, past a thumb's drift. */
+const ANGLED = 0.3
 const SPEED_WINDOW = 100
 
 export const inEdgeStrip = (x: number, width: number) => width > 0 && x >= width - EDGE_STRIP
@@ -33,6 +41,15 @@ export function edgeStep(anchor: Anchor, x: number, y: number): { anchor: Anchor
   const left = anchor.x - x, down = Math.abs(y - anchor.y)
   if (Math.max(Math.abs(left), down) < (anchor.first ? FIRST_STEP : NEXT_STEP)) return { anchor, sideways: false }
   return { anchor: { x, y, first: false }, sideways: left > 0 && left >= SIDEWAYS * down }
+}
+
+/**
+ * C-100c: whether the gesture that went down at [from] has, with the finger at ([x], [y]), gone far enough left at an angle that
+ * isn't nearly vertical. From the touch-down, so a long scroll weighs against it; one that turns sideways later is [edgeStep]'s.
+ */
+export function edgeAngled(from: { x: number; y: number }, x: number, y: number): boolean {
+  const left = from.x - x
+  return left >= ANGLED_LEFT && left >= ANGLED * Math.abs(y - from.y)
 }
 
 /** The share of the screen the panel covers with its edge under the finger. */
@@ -67,6 +84,8 @@ export type EdgeMove = 'watching' | 'following' | null
 type Gesture = {
   /** From screen coordinates, which stay put when a frame scrolls or moves under the finger, to the viewport's. */
   ox: number; oy: number
+  /** Where it went down (viewport). */
+  from: { x: number; y: number }
   anchor: Anchor
   following: boolean
   /** Text is being selected: the gesture stays out of the panel's way and still turns nothing. */
@@ -98,7 +117,7 @@ export class EdgeGesture {
     const p = viewportPoint(t)
     if (!inEdgeStrip(p.x, window.innerWidth)) return false
     this.g = {
-      ox: p.x - t.screenX, oy: p.y - t.screenY, anchor: { x: p.x, y: p.y, first: true },
+      ox: p.x - t.screenX, oy: p.y - t.screenY, from: { x: p.x, y: p.y }, anchor: { x: p.x, y: p.y, first: true },
       following: false, off: false, fraction: 0, trail: [],
     }
     return true
@@ -115,7 +134,7 @@ export class EdgeGesture {
     if (!g.following) {
       const step = edgeStep(g.anchor, x, y)
       g.anchor = step.anchor
-      if (!step.sideways) return 'watching'
+      if (!step.sideways && !edgeAngled(g.from, x, y)) return 'watching'
       const sel = (t.target as Node | null)?.ownerDocument?.getSelection?.()
       if (sel && !sel.isCollapsed) { g.off = true; return 'watching' }
       g.following = true
