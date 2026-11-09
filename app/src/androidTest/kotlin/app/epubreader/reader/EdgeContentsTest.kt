@@ -10,6 +10,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import app.epubreader.MainActivity
+import app.epubreader.SlideFrames
 import app.epubreader.core.data.Flow
 import app.epubreader.core.data.PageAnimation
 import app.epubreader.core.data.ReaderSettings
@@ -299,6 +300,59 @@ class EdgeContentsTest {
         assertEquals(start.index, h.pos().index)
         h.scrollThenSideways()
         assertEquals(start.index, h.pos().index)
+    }
+
+    // ---- C-100: the start of the slide ----
+
+    /** The panel comes from the screen edge and catches up with the finger; it never pops in where the finger is. */
+    @Test fun the_panel_starts_from_the_edge_and_catches_up_with_the_finger() = run { h ->
+        val start = h.midChapter()
+        val rec = SlideFrames(inst, "contents")
+        rec.record()
+        rec.drag(strip, hgt / 2, dir = -1)
+        rec.assertSmoothFromTheEdge { x -> w - x }
+        delay(600)
+        h.closed()
+        assertEquals(start, h.pos())
+    }
+
+    /** The same after a scroll in the strip: there the finger is well in when the sideways part starts. */
+    @Test fun after_a_scroll_in_the_strip_it_starts_from_the_edge_too() = run(settings = { it.copy(flow = Flow.SCROLLED) }) { h ->
+        h.midChapter()
+        val f = Finger(strip, hgt * 3 / 4)
+        f.move(strip - 30, hgt / 2, steps = 16)
+        delay(200)
+        assertNull("no panel yet", h.held)
+        val rec = SlideFrames(inst, "contents")
+        rec.record()
+        val x0 = f.x
+        f.move(x0 - 240, f.y - 8, steps = 40)
+        delay(400)
+        rec.stop()
+        val seen = rec.frames.filter { it.edge > 0.5f }
+        val trace = seen.joinToString(" ") { "%.0f".format(it.edge) }
+        assertTrue("the panel came out: $trace", seen.size >= 5)
+        assertTrue("first visible frame at ${seen.first().edge} px, the finger is ${w - x0} px in before it moves sideways: $trace", seen.first().edge <= 2 * 240f / 40 + 1)
+        seen.zipWithNext().forEach { (a, b) -> assertTrue("never back: ${a.edge} -> ${b.edge} in $trace", b.edge >= a.edge - 0.5f) }
+        assertEquals("caught up: $trace", (w - f.x).toFloat(), seen.last().edge, 3f)
+        f.up()
+    }
+
+    @Test fun the_button_slide_starts_from_the_edge() = run { h ->
+        val scale = shell("settings get global animator_duration_scale")
+        val rec = SlideFrames(inst, "contents")
+        try {
+            shell("settings put global animator_duration_scale 1")
+            delay(500)
+            rec.record()
+            h.sc.onActivity { it.controller.showToc() }
+            awaitPanelOpen()
+            delay(200)
+        } finally {
+            rec.stop()
+            shell("settings put global animator_duration_scale ${scale.takeUnless { it == "null" } ?: "1"}")
+        }
+        rec.assertSlidesInFromTheEdge(w)
     }
 
     // ---- the slide ----
