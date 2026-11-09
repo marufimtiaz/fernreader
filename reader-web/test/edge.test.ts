@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { EDGE_STRIP, EdgeGesture, edgeFraction, edgeOpens, edgeSpeed, edgeStep, inEdgeStrip, viewportPoint } from '../src/reader/edge'
+import { EDGE_STRIP, EdgeGesture, edgeAngled, edgeFraction, edgeOpens, edgeSpeed, edgeStep, inEdgeStrip, viewportPoint } from '../src/reader/edge'
 import { reportSwipes } from '../src/reader/swipe'
 
 const W = 400
@@ -56,6 +56,41 @@ describe('edgeStep: when the sideways part starts', () => {
   it('moves far apart (a native scroll throttles them to about five a second) still work', () => {
     expect(firstSideways([[390, 330], [385, 430], [290, 450]])).toBe(2)
   })
+})
+
+/**
+ * C-100c: swipes from the user's phone (a screen recording with the touches shown, 2.75 px per dp): where the finger was
+ * every 10 ms or so, as dp from the right edge and from the top. Placed here on a 400 px wide page.
+ */
+const phone = (pts: [number, number][]) => pts.map(([inDp, y]) => [W - inDp, y] as [number, number])
+/** 24.2 s in the recording: down and left, more than twice as far down; the steepest one. */
+const steepDown = phone([[7.3, 269.5], [9.5, 288.0], [12.7, 305.8], [18.5, 324.0], [24.7, 342.5], [29.1, 358.5], [44.4, 401.5], [55.3, 427.3]])
+/** 27.6 s: up and left. */
+const upAndLeft = phone([[8.4, 646.9], [18.9, 623.6], [33.1, 591.6], [48.0, 559.3], [60.0, 536.4], [72.7, 512.0]])
+
+describe('edgeAngled: an angled swipe counts once it has gone some way left (C-100c)', () => {
+  const first = (points: [number, number][]) => {
+    const [x0, y0] = points[0]
+    return points.findIndex(([x, y]) => edgeAngled({ x: x0, y: y0 }, x, y))
+  }
+  it('the phone\'s swipes, which no 20 dp step of at 0.6 finds, count once 24 dp left', () => {
+    expect(first(steepDown)).toBe(7) // 48 dp left, 157.8 down; at 6, 37.1 left is under 0.3 of 132 down
+    expect(first(upAndLeft)).toBe(2) // 24.7 left, 55.3 up
+  })
+  it('not before 24 dp left, however flat', () => {
+    expect(edgeAngled({ x: 390, y: 300 }, 367, 300)).toBe(false)
+    expect(edgeAngled({ x: 390, y: 300 }, 366, 300)).toBe(true)
+  })
+  it('nearly vertical never: left must be at least 0.3 of the way down (about 17 degrees off vertical)', () => {
+    expect(edgeAngled({ x: 390, y: 300 }, 360, 400)).toBe(true)
+    expect(edgeAngled({ x: 390, y: 300 }, 360, 401)).toBe(false)
+    expect(edgeAngled({ x: 390, y: 300 }, 360, 199)).toBe(false)
+  })
+  it('a thumb scrolling down the strip 15 degrees off vertical never counts', () => {
+    const k = Math.tan(15 * Math.PI / 180)
+    for (let d = 0; d <= 1500; d += 10) expect(edgeAngled({ x: 395, y: 0 }, 395 - k * d, d)).toBe(false)
+  })
+  it('rightward never', () => expect(edgeAngled({ x: 380, y: 300 }, 410, 300)).toBe(false))
 })
 
 describe('edgeFraction, edgeOpens, edgeSpeed', () => {
@@ -157,6 +192,13 @@ describe('EdgeGesture', () => {
     expect(got).toEqual([])
     expect(g.move(ev(350, 402, 48))).toBe('following')
     expect(got).toEqual([['start', 0.125, false]])
+  })
+  it('a steep swipe from the phone starts it once it is 24 dp left, from the touch-down', () => {
+    const [[x0, y0], ...rest] = upAndLeft
+    g.down(ev(x0, y0, 0))
+    const seen = rest.map(([x, y], i) => g.move(ev(x, y, 10 * (i + 1))))
+    expect(seen).toEqual(['watching', 'following', 'following', 'following', 'following'])
+    expect(got[0][0]).toBe('start')
   })
   it('a scroll that never turns ends silently, and it was still the gesture\'s', () => {
     g.down(ev(390, 300, 0))

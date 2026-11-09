@@ -22,10 +22,12 @@ import app.epubreader.ui.Copy
 import app.epubreader.ui.Route
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -455,6 +457,48 @@ class EdgeContentsTest {
         f.up()
         h.awaitOpen()
         assertEquals(Route.Reader, h.a.nav.top)
+    }
+
+    /**
+     * C-100c: a swipe from the user's phone, from a screen recording with the touches shown (27.6 s in it): where the finger
+     * was, ms after the touch-down, as dp from the right edge and from the top. Up and left, twice as far up as left; held
+     * still 0.45 s before the lift. Fullscreen and gesture navigation, as on the phone. It never opened the panel there.
+     */
+    @Test fun a_steep_swipe_recorded_on_the_phone_opens_it() = run(nav = GESTURAL) { h ->
+        val start = h.midChapter()
+        val d = h.a.resources.displayMetrics.density
+        val path = listOf(
+            0 to (8.4f to 646.9f), 11 to (18.9f to 623.6f), 20 to (33.1f to 591.6f), 31 to (48f to 559.3f), 43 to (60f to 536.4f),
+            53 to (72.7f to 512f), 59 to (86.2f to 488f), 69 to (96f to 462.5f), 80 to (108.4f to 434.2f), 91 to (121.1f to 406.5f),
+            103 to (128.7f to 393.1f), 114 to (140.7f to 371.3f), 122 to (145.1f to 365.8f),
+        )
+        val down = SystemClock.uptimeMillis() + 20
+        fun send(action: Int, ms: Int, inDp: Float, yDp: Float) {
+            while (SystemClock.uptimeMillis() < down + ms) Thread.sleep(1)
+            val e = MotionEvent.obtain(down, down + ms, action, w - inDp * d, yDp * d, 0).apply { source = InputDevice.SOURCE_TOUCHSCREEN }
+            check(inst.uiAutomation.injectInputEvent(e, false)) { "injection refused: $e" }
+            e.recycle()
+        }
+        // Every 8 ms between the recorded points, as a phone's touch screen reports them.
+        val s0 = h.starts()
+        withContext(Dispatchers.IO) {
+            send(MotionEvent.ACTION_DOWN, 0, path[0].second.first, path[0].second.second)
+            for ((a, b) in path.zipWithNext()) {
+                var ms = a.first + 8
+                while (ms < b.first) {
+                    val f = (ms - a.first).toFloat() / (b.first - a.first)
+                    send(MotionEvent.ACTION_MOVE, ms, a.second.first + (b.second.first - a.second.first) * f, a.second.second + (b.second.second - a.second.second) * f)
+                    ms += 8
+                }
+                send(MotionEvent.ACTION_MOVE, b.first, b.second.first, b.second.second)
+            }
+            val (inDp, yDp) = path.last().second
+            send(MotionEvent.ACTION_UP, 589, inDp, yDp)
+        }
+        h.awaitOpen()
+        assertEquals("one gesture", s0 + 1, h.starts())
+        assertEquals(Route.Reader, h.a.nav.top)
+        assertEquals(start, h.pos())
     }
 
     /** With the bars hidden (Fullscreen, the default) the system has no Back gesture, so a straight swipe reaches the page. */
