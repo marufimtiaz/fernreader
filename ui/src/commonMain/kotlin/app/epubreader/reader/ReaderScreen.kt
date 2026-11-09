@@ -137,8 +137,7 @@ fun ReaderScreen(
             LaunchedEffect(Unit) { withFrameNanos { }; probe.ev("display_shown", "") }
             ReaderSheet(settings, fonts, onChange = c::updateSettings, onTab = c::selectSheetTab, modifier = Modifier.align(Alignment.BottomCenter), landscape = landscape)
         }
-        val contentsReady by c.contentsReady.collectAsState()
-        ContentsSlide(s.tocVisible, c.contentsDrag, settings.pageAnimation != PageAnimation.NONE, contentsReady, c::dragContents, c::releaseContents) {
+        ContentsSlide(s.tocVisible, c.contentsDrag, settings.pageAnimation != PageAnimation.NONE, c::dragContents, c::releaseContents) {
             ContentsPanel(
                 s.title, s.contentsTab, c::selectContentsTab, s.toc, s.currentTocHref, c::onTocSelected,
                 s.bookmarks, page, formatDate, c::onBookmarkSelected, c::removeBookmark, c::hideToc, probe,

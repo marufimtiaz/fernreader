@@ -55,8 +55,6 @@ export class Reader {
    */
   private edge = new EdgeGesture((phase, fraction, open) => {
     if (this.sessionId) this.bridge.send({ v: 1, type: 'edgeSwipe', sessionId: this.sessionId, phase, fraction, open })
-  }, down => {
-    if (this.sessionId) this.bridge.send({ v: 1, type: 'edgeSwipe', sessionId: this.sessionId, phase: down ? 'down' : 'up', fraction: 0, open: false })
   })
   private queue: Cmd[] = []
   private pumping = false

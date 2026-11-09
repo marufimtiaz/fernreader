@@ -20,7 +20,6 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
@@ -91,12 +90,12 @@ fun panelSwipeCloses(travelDp: Float, widthDp: Float, speedDpPerMs: Float): Bool
  * it has left. With [animated] false it just appears and goes.
  *
  * C-100: a finger takes hold through a [FingerHold], so the panel comes from where it was and never jumps to the finger.
- * While [ready] (a finger is down in the strip, the gesture not yet judged) the panel is composed and measured but not
- * placed, so its first frame on screen costs no more than any other.
+ * The panel is composed only when it is to show, not ahead of it: composing it at the touch-down in the strip put that
+ * work on the main thread while the page was still judging the gesture, and the edge swipe got harder to start.
  */
 @Composable
 fun ContentsSlide(
-    open: Boolean, drag: StateFlow<Float?>, animated: Boolean, ready: Boolean,
+    open: Boolean, drag: StateFlow<Float?>, animated: Boolean,
     onDrag: (Float) -> Unit, onRelease: (close: Boolean) -> Unit,
     content: @Composable () -> Unit,
 ) {
@@ -116,7 +115,7 @@ fun ContentsSlide(
         }
     }
     val onScreen by remember { derivedStateOf { shown.value > 0f } }
-    if (!open && !onScreen && !ready) return
+    if (!open && !onScreen) return
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val width = constraints.maxWidth.toFloat()
         val density = LocalDensity.current.density
@@ -134,15 +133,10 @@ fun ContentsSlide(
             ),
         ) {
             Box(
-                Modifier.fillMaxSize()
-                    .layout { measurable, constraints ->
-                        val panel = measurable.measure(constraints)
-                        layout(panel.width, panel.height) { if (openNow || onScreen) panel.place(0, 0) }
-                    }
-                    .graphicsLayer {
-                        translationX = size.width * (1f - shown.value)
-                        SlideTrace.sink?.invoke("contents", shown.value, size.width)
-                    },
+                Modifier.fillMaxSize().graphicsLayer {
+                    translationX = size.width * (1f - shown.value)
+                    SlideTrace.sink?.invoke("contents", shown.value, size.width)
+                },
             ) { content() }
         }
     }

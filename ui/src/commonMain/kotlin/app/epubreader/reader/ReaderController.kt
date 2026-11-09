@@ -211,9 +211,6 @@ class ReaderController(
     private val _contentsDrag = MutableStateFlow<Float?>(null)
     /** C-097: where a finger holds the Contents panel (0 = off screen, 1 = open), null when none does. */
     val contentsDrag: StateFlow<Float?> = _contentsDrag
-    private val _contentsReady = MutableStateFlow(false)
-    /** C-100: a finger is down in the right edge's strip: the panel is got ready (composed, not shown) before it may move. */
-    val contentsReady: StateFlow<Boolean> = _contentsReady
     private val _seekPreview = MutableStateFlow<SeekPreview?>(null)
     /** C-073: where the dragged slider would land (chapter and page); null when it is not dragged. */
     val seekPreview: StateFlow<SeekPreview?> = _seekPreview
@@ -474,7 +471,7 @@ class ReaderController(
         s?.let(::saveNote) // a sheet open when the book closes keeps its note
         searcher.reset()
         bookNumbers.reset(); fixedLayoutBook.value = false
-        _state.value = ReaderUiState(); _seekPreview.value = null; _contentsDrag.value = null; _contentsReady.value = false
+        _state.value = ReaderUiState(); _seekPreview.value = null; _contentsDrag.value = null
         if (s == null) return
         reader.send(ToWeb.Close())
         s.bookId?.let { id -> runCatching { search?.bookClosed(id) } } // an unfinished index is finished later (idle job)
@@ -572,11 +569,6 @@ class ReaderController(
      * off it opens on release only. A release short of opening, or a gesture the system took, lets the panel slide back.
      */
     private fun onEdgeSwipe(s: Session, m: FromWeb.EdgeSwipe) {
-        when (m.phase) {
-            "down" -> { _contentsReady.value = !somethingOverThePage(_state.value) && !_state.value.loading; return }
-            "up" -> { _contentsReady.value = false; return }
-            "end" -> _contentsReady.value = false
-        }
         if (m.phase == "start") s.edgeSwipe = !somethingOverThePage(_state.value) && !_state.value.loading
         if (!s.edgeSwipe) return
         if (m.phase == "end") {
