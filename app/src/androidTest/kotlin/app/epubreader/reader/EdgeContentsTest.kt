@@ -8,6 +8,7 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
+import androidx.test.uiautomator.StaleObjectException
 import androidx.test.uiautomator.UiDevice
 import app.epubreader.MainActivity
 import app.epubreader.SlideFrames
@@ -148,7 +149,8 @@ class EdgeContentsTest {
     /** The left of the Contents tab: the panel's left edge and a little; null when it isn't on screen. */
     private fun panelLeft(): Int? {
         inst.uiAutomation.clearCache()
-        return dev.findObject(By.text(Copy.contents))?.visibleBounds?.left
+        // A panel that has just slid out is gone between the find and the read of its bounds: it isn't on screen.
+        return try { dev.findObject(By.text(Copy.contents))?.visibleBounds?.left } catch (_: StaleObjectException) { null }
     }
     private suspend fun awaitPanelOpen() = withTimeout(3_000) { while ((panelLeft() ?: w) > w / 8) delay(30) }
     private suspend fun awaitPanelGone() = withTimeout(3_000) { while (panelLeft() != null) delay(30) }
