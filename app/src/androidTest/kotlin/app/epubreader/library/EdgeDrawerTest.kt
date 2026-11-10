@@ -25,6 +25,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import kotlin.math.PI
+import kotlin.math.tan
 import java.util.regex.Pattern
 import kotlin.math.abs
 
@@ -216,6 +218,21 @@ class EdgeDrawerTest {
         assertTrue("the drawer is out", (drawerRight() ?: 0) > 0)
         f.up()
         a.awaitOpen()
+    }
+
+    /** C-101, C-102: the angle rule shared with the reader never takes a scroll within about 15 degrees of vertical. */
+    @Test fun a_scroll_15_degrees_off_vertical_from_the_strip_scrolls_and_opens_nothing() = run { a ->
+        val before = onScreen()
+        val f = Finger(strip, hgt * 3 / 4)
+        val up = hgt / 2
+        f.move(strip + (up * tan(15 * PI / 180)).toInt(), hgt / 4, steps = 40)
+        delay(300)
+        assertNotEquals("the strip scrolls", before, onScreen())
+        assertNull("no drawer", drawerRight())
+        f.up()
+        delay(500)
+        assertFalse(a.open)
+        assertNull(drawerRight())
     }
 
     @Test fun a_leftward_swipe_closes_it_a_short_one_does_not() = run { a ->
