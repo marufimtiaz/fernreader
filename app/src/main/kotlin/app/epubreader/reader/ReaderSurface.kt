@@ -57,7 +57,7 @@ import kotlin.math.ceil
  */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-fun ReaderSurface(engine: ReaderEngine, covered: Boolean, background: Color, fullscreen: Boolean = false, loading: () -> Boolean = { false }, onTopInset: (Int) -> Unit = {}) {
+fun ReaderSurface(engine: ReaderEngine, covered: Boolean, background: Color, fullscreen: Boolean = false, loading: () -> Boolean = { false }, onTopInset: (Int) -> Unit = {}, pageGestures: Modifier = Modifier) {
     val created by engine.created.collectAsState()
     if (!created) return
     val density = LocalDensity.current
@@ -91,6 +91,15 @@ fun ReaderSurface(engine: ReaderEngine, covered: Boolean, background: Color, ful
     }
     // The strips around the inset page (status and navigation bar areas) take the page colour (M2 note, F-074).
     Box(Modifier.fillMaxSize().background(background)) {
+    // C-102: [pageGestures] (the Contents edge swipe) watch every touch on the page from its parent, ahead of the WebView.
+    // The inset is stable: it never follows the bars showing or hiding (with the controls, F-035), so the page does not
+    // reflow. Fullscreen: only the display cutout (transient bars draw over the page), whose top the page keeps itself
+    // (C-099); otherwise the bars' size.
+    Box(
+        Modifier.fillMaxSize().windowInsetsPadding(
+            if (fullscreen) WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom) else WindowInsets.systemBarsIgnoringVisibility,
+        ).then(pageGestures),
+    ) {
     AndroidView(
         factory = {
             engine.webView.also {
@@ -100,14 +109,10 @@ fun ReaderSurface(engine: ReaderEngine, covered: Boolean, background: Color, ful
                 it.layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
             }
         },
-        // The inset is stable: it never follows the bars showing or hiding (with the controls, F-035), so the page does
-        // not reflow. Fullscreen: only the display cutout (transient bars draw over the page), whose top the page keeps
-        // itself (C-099); otherwise the bars' size.
-        modifier = Modifier.fillMaxSize().windowInsetsPadding(
-            if (fullscreen) WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom) else WindowInsets.systemBarsIgnoringVisibility,
-        ),
+        modifier = Modifier.fillMaxSize(),
         update = { it.setBackgroundColor(background.toArgb()) },
     )
+    }
     }
 }
 

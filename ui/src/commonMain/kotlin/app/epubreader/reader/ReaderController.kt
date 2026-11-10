@@ -187,8 +187,6 @@ class ReaderController(
         var bookmarkBusy = false
         /** F-060: the settled text selection as the web side last reported it (virtual CFI); null when there is none. */
         var selection: FromWeb.Selection? = null
-        /** C-097: the running gesture from the right edge may open the panel. */
-        var edgeSwipe = false
         /** F-060: the annotation the colour row recolours (the one just made from the selection menu). */
         var picked: Annotation? = null
         /** F-062: the book's annotations as last read (book order), watched from the first `painted` until the session ends. */
@@ -565,17 +563,20 @@ class ReaderController(
         st.footnoteOpen || st.externalLink != null || st.annotationSheet != null
 
     /**
-     * C-097: the page's gesture from the right edge. With nothing over the page the panel follows it; with page animation
-     * off it opens on release only. A release short of opening, or a gesture the system took, lets the panel slide back.
+     * C-102: whether a gesture from the right edge may take hold of the Contents panel now: a book is shown, with nothing over
+     * the page and no text selected (a drag from the strip may be a selection handle's). The app recognises the gesture above
+     * the page ([contentsEdgeSwipe]); while the finger holds the panel it goes through [dragContents].
      */
-    private fun onEdgeSwipe(s: Session, m: FromWeb.EdgeSwipe) {
-        if (m.phase == "start") s.edgeSwipe = !somethingOverThePage(_state.value) && !_state.value.loading
-        if (!s.edgeSwipe) return
-        if (m.phase == "end") {
-            s.edgeSwipe = false
-            if (m.open) showToc()
-            _contentsDrag.value = null
-        } else dragContents(m.fraction.toFloat())
+    fun edgeSwipeAllowed(): Boolean {
+        val st = _state.value
+        val s = session ?: return false
+        return st.open && !st.loading && !somethingOverThePage(st) && s.selection == null
+    }
+
+    /** C-097: the edge gesture let go of the panel: it opens, or slides back (a release short of opening, or the system took it). */
+    fun releaseEdge(open: Boolean) {
+        if (open && session != null) showToc()
+        _contentsDrag.value = null
     }
 
     /** C-097: a finger holds the panel at [fraction]. */
@@ -1155,7 +1156,6 @@ class ReaderController(
                     else -> Unit
                 }
             }
-            is FromWeb.EdgeSwipe -> if (m.sessionId == s.id) onEdgeSwipe(s, m)
             is FromWeb.History -> if (m.sessionId == s.id) {
                 // The web side answers every `back` with one `history`; Backs not answered yet will still pop entries.
                 if (s.pendingBacks > 0) s.pendingBacks--

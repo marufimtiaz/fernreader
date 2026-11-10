@@ -86,6 +86,19 @@ describe('reportSwipes (fixed layout: foliate-fxl reports no swipes; F-032 for F
     touch(doc, 'touchend', 100, 400, 1100)
     expect(got).toEqual([])
   })
+  it('a gesture the app took (a touchcancel, C-102) is no swipe, even if a stray end follows', async () => {
+    const { reportSwipes } = await import('../src/reader/swipe')
+    const doc = document.implementation.createHTMLDocument('p')
+    const renderer = document.createElement('div')
+    const got: any[] = []
+    renderer.addEventListener('swipe', (e: Event) => got.push(e))
+    reportSwipes(doc, renderer)
+    touch(doc, 'touchstart', 390, 400, 1000)
+    touch(doc, 'touchmove', 370, 400, 1016)
+    touch(doc, 'touchcancel', 370, 400, 1020)
+    touch(doc, 'touchend', 100, 400, 1100)
+    expect(got).toEqual([])
+  })
 })
 
 describe('dragFinishes (C-094): a released drag finishes its turn past about a third of the screen or as a flick', () => {

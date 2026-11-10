@@ -1366,27 +1366,32 @@ class ReaderControllerTest {
         c.open(ref); advanceUntilIdle()
         reader.events.emit(opened()); reader.events.emit(FromWeb.Painted(sessionId = "s-1")); advanceUntilIdle()
     }
-    private suspend fun TestScope.edge(phase: String, fraction: Double, open: Boolean = false, sid: String = "s-1") {
-        reader.events.emit(FromWeb.EdgeSwipe(sessionId = sid, phase = phase, fraction = fraction, open = open)); advanceUntilIdle()
+    /** C-102: the edge gesture as the app's recogniser drives it: held at [fractions], then let go. */
+    private fun edge(c: ReaderController, vararg fractions: Float, open: Boolean) {
+        assertTrue(c.edgeSwipeAllowed(), "a gesture may start")
+        fractions.forEach(c::dragContents)
+        c.releaseEdge(open)
     }
 
     @Test fun the_panel_follows_a_gesture_from_the_right_edge_and_opens_on_release() = runTest(dispatcher) {
         val c = controller(); openBook(c)
         c.toggleChrome()
-        edge("start", 0.1); assertEquals(0.1f, c.contentsDrag.value)
-        edge("move", 0.4); assertEquals(0.4f, c.contentsDrag.value)
+        assertTrue(c.edgeSwipeAllowed())
+        c.dragContents(0.1f); assertEquals(0.1f, c.contentsDrag.value)
+        c.dragContents(0.4f); assertEquals(0.4f, c.contentsDrag.value)
         assertFalse(c.state.value.tocVisible)
         assertTrue(c.state.value.chromeVisible, "the bars stay until it opens")
-        edge("end", 0.4, open = true)
+        c.releaseEdge(open = true)
         assertTrue(c.state.value.tocVisible)
         assertFalse(c.state.value.chromeVisible)
         assertEquals(ContentsTab.Contents, c.state.value.contentsTab)
         assertNull(c.contentsDrag.value)
+        assertFalse(c.edgeSwipeAllowed(), "not over the open panel")
     }
 
     @Test fun a_release_short_of_opening_lets_the_panel_go_back() = runTest(dispatcher) {
         val c = controller(); openBook(c)
-        edge("start", 0.1); edge("end", 0.2, open = false)
+        edge(c, 0.1f, 0.2f, open = false)
         assertFalse(c.state.value.tocVisible)
         assertNull(c.contentsDrag.value)
     }
@@ -1394,33 +1399,42 @@ class ReaderControllerTest {
     @Test fun with_page_animation_off_the_gesture_only_opens_on_release() = runTest(dispatcher) {
         val c = controller(); openBook(c)
         c.updateSettings { it.copy(pageAnimation = PageAnimation.NONE) }; advanceUntilIdle()
-        edge("start", 0.1); edge("move", 0.5)
+        c.dragContents(0.1f); c.dragContents(0.5f)
         assertNull(c.contentsDrag.value)
-        edge("end", 0.5, open = true)
+        c.releaseEdge(open = true)
         assertTrue(c.state.value.tocVisible)
     }
 
-    @Test fun the_edge_gesture_does_nothing_with_something_over_the_page() = runTest(dispatcher) {
+    @Test fun the_edge_gesture_may_not_start_with_something_over_the_page() = runTest(dispatcher) {
         val c = controller(); openBook(c)
         c.showSheet(); advanceUntilIdle()
-        edge("start", 0.1); edge("move", 0.5)
-        assertNull(c.contentsDrag.value)
-        edge("end", 0.5, open = true)
-        assertFalse(c.state.value.tocVisible)
+        assertFalse(c.edgeSwipeAllowed())
     }
 
-    @Test fun an_edge_gesture_of_another_session_is_ignored() = runTest(dispatcher) {
+    @Test fun nor_without_a_book_nor_while_it_loads() = runTest(dispatcher) {
+        val c = controller()
+        assertFalse(c.edgeSwipeAllowed())
+        c.open(ref); advanceUntilIdle()
+        assertFalse(c.edgeSwipeAllowed(), "loading")
+        reader.events.emit(opened()); reader.events.emit(FromWeb.Painted(sessionId = "s-1")); advanceUntilIdle()
+        assertTrue(c.edgeSwipeAllowed())
+    }
+
+    @Test fun nor_with_text_selected_a_drag_from_the_strip_may_be_a_handles() = runTest(dispatcher) {
         val c = controller(); openBook(c)
-        edge("start", 0.1, sid = "old"); edge("end", 0.5, open = true, sid = "old")
-        assertNull(c.contentsDrag.value)
-        assertFalse(c.state.value.tocVisible)
+        reader.events.emit(FromWeb.Selection(sessionId = "s-1", text = "word", cfi = "epubcfi(/6/4!/4/2,/1:4,/1:8)", sectionIndex = 2)); advanceUntilIdle()
+        assertFalse(c.edgeSwipeAllowed())
+        reader.events.emit(FromWeb.Selection(sessionId = "s-1", text = "", cfi = null, sectionIndex = 2)); advanceUntilIdle()
+        assertTrue(c.edgeSwipeAllowed())
     }
 
     @Test fun closing_the_book_lets_go_of_the_panel() = runTest(dispatcher) {
         val c = controller(); openBook(c)
-        edge("start", 0.3)
+        c.dragContents(0.3f)
         c.close(); advanceUntilIdle()
         assertNull(c.contentsDrag.value)
+        c.releaseEdge(open = true)
+        assertFalse(c.state.value.tocVisible, "a release after the close opens nothing")
     }
 
     @Test fun a_swipe_on_the_panel_holds_it_and_closes_or_not_on_release() = runTest(dispatcher) {
