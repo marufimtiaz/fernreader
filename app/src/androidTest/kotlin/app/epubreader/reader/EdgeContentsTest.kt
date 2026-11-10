@@ -29,7 +29,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
-import org.json.JSONObject
+import org.json.JSONArray
+import org.json.JSONTokener
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -42,8 +43,10 @@ import java.io.File
 import kotlin.math.abs
 
 /**
- * C-097: Contents from the right edge. Motion events are injected one by one, as in DragTurnTest. Probes: `edge()` (what the
- * page last reported), the controller's `contentsDrag` and `tocVisible`, and the Contents tab's place on screen for the panel.
+ * C-097, C-102: Contents from the right edge, recognised by the app above the WebView. Motion events are injected one by one,
+ * as in DragTurnTest. Probes: the controller's `contentsDrag` (every hold during a gesture: [holdsDuring]) and `tocVisible`,
+ * the page's own touches (the paginator's trace: [touchesDuring]; a gesture the app took ends there with a `cancel`), and the
+ * Contents tab's place on screen for the panel.
  *
  * Navigation: each test says which mode it needs; it is set before the activity starts and put back afterwards.
  *
@@ -61,8 +64,29 @@ class EdgeContentsTest {
 
     private data class Pos(val index: Int, val page: Int)
     private suspend fun ReaderHarness.pos() = sc.hook("page()").let { Pos(it.getInt("index"), it.getInt("page")) }
-    private suspend fun ReaderHarness.edge() = sc.hook("edge()")
-    private suspend fun ReaderHarness.starts() = edge().getInt("starts")
+    /** Where a finger held the panel (0..1) during [block]. */
+    private suspend fun ReaderHarness.holdsDuring(scope: CoroutineScope, block: suspend () -> Unit): List<Float> {
+        val seen = mutableListOf<Float>()
+        val watch = scope.launch(start = CoroutineStart.UNDISPATCHED) { a.controller.contentsDrag.collect { if (it != null) seen += it } }
+        try { block() } finally { watch.cancel() }
+        return seen
+    }
+    /** The touches the page saw during [block] (down, move, up, cancel), from the paginator's trace. */
+    private suspend fun ReaderHarness.touchesDuring(block: suspend () -> Unit): List<String> {
+        sc.js("window.__readerTest.traceStart(); true")
+        try { block() } finally {
+            val trace = JSONArray(JSONTokener(sc.js("window.__readerTest.traceStop()")).nextValue() as String)
+            touches = (0 until trace.length()).map { trace.getJSONArray(it).getString(1) }.filter { it in TOUCH_KINDS }
+        }
+        return touches
+    }
+    private var touches = emptyList<String>()
+    /** C-102: the page had the touch from its start and a cancel when the app took it; never its lift. */
+    private fun List<String>.takenFromThePage() {
+        assertEquals("the page saw the touch go down: $this", "down", firstOrNull())
+        assertEquals("and then a cancel, nothing after it: $this", "cancel", lastOrNull())
+        assertFalse("no lift reached the page: $this", "up" in this)
+    }
     private suspend fun ReaderHarness.lastDrag(): String = sc.js("JSON.stringify(window.__readerTest.drag())")
     private val ReaderHarness.tocOpen get() = a.controller.state.value.tocVisible
     private val ReaderHarness.held get() = a.controller.contentsDrag.value
@@ -195,12 +219,12 @@ class EdgeContentsTest {
         val start = h.midChapter()
         val drag0 = h.lastDrag()
         val moved = h.relocatesDuring(this) {
-            slowDrag(w / 2) {
+            h.touchesDuring { slowDrag(w / 2) {
                 assertFalse("the finger is down", h.tocOpen)
                 assertEquals("the panel's edge is under the finger", 0.5f, assertHeld(h), 0.05f)
                 val left = withTimeout(2_000) { var l = panelLeft(); while (l == null) { delay(30); l = panelLeft() }; l }
                 assertTrue("the panel is where the finger is: $left of $w", abs(left - w / 2) < w / 6)
-            }
+            } }.takenFromThePage()
             h.awaitOpen()
         }
         assertEquals(start, h.pos())
@@ -212,7 +236,6 @@ class EdgeContentsTest {
     @Test fun short_of_a_third_it_slides_back() = run { h ->
         val start = h.midChapter()
         slowDrag(w * 8 / 10) { assertHeld(h) }
-        assertFalse(h.edge().getBoolean("open"))
         delay(400)
         h.closed()
         assertEquals(start, h.pos())
@@ -220,9 +243,11 @@ class EdgeContentsTest {
 
     @Test fun a_flick_opens_it() = run { h ->
         val start = h.midChapter()
-        flick(strip, w * 8 / 10)
-        h.awaitOpen()
-        assertTrue("under a third: ${h.edge()}", h.edge().getDouble("fraction") < 0.33)
+        val holds = h.holdsDuring(this) {
+            flick(strip, w * 8 / 10)
+            h.awaitOpen()
+        }
+        assertTrue("held, under a third: $holds", holds.isNotEmpty() && holds.max() < 0.33f)
         assertEquals(start, h.pos())
     }
 
@@ -245,14 +270,15 @@ class EdgeContentsTest {
 
     @Test fun taps_in_the_strip_stay_page_turns() = run(settings = { it.copy(tapZones = true) }) { h ->
         val start = h.midChapter()
-        val s0 = h.starts()
         val at = w - 50 // about 19 dp from the edge
         val under = h.sc.js("document.elementFromPoint(innerWidth * $at / $w, innerHeight / 2)?.tagName")
         val outer = h.sc.js("document.elementFromPoint(innerWidth - 2, innerHeight / 2)?.tagName")
-        dev.click(at, hgt / 2)
-        h.quiet()
+        val holds = h.holdsDuring(this) {
+            assertEquals("the page has the whole tap", listOf("down", "up"), h.touchesDuring { dev.click(at, hgt / 2); delay(300) })
+            h.quiet()
+        }
         assertEquals("under the tap: $under, at the very edge: $outer", start.copy(page = start.page + 1), h.pos())
-        assertEquals(s0, h.starts())
+        assertEquals(emptyList<Float>(), holds)
         assertFalse(h.tocOpen)
     }
 
@@ -263,6 +289,25 @@ class EdgeContentsTest {
         assertEquals(start, h.pos())
     }
 
+    /** A long press in the strip is the page's (it selects text there): the drag after it is the page's too. */
+    @Test fun a_long_press_in_the_strip_then_a_drag_stays_the_pages() = run { h ->
+        h.midChapter()
+        val holds = h.holdsDuring(this) {
+            val seen = h.touchesDuring {
+                val f = Finger(strip)
+                delay(900)
+                f.move(w / 2, steps = 24)
+                delay(150)
+                f.up()
+                delay(300)
+            }
+            assertFalse("no cancel: $seen", "cancel" in seen)
+            assertEquals("the page had the lift: $seen", "up", seen.lastOrNull())
+        }
+        assertEquals(emptyList<Float>(), holds)
+        assertFalse(h.tocOpen)
+    }
+
     // ---- scrolled flow ----
 
     private suspend fun ReaderHarness.scrollTop() = sc.hook("edges()").getDouble("scrollTop")
@@ -270,7 +315,11 @@ class EdgeContentsTest {
     /** Up the strip for a while, then left: the scroll runs until the sideways part starts and stands from then on. */
     private suspend fun ReaderHarness.scrollThenSideways() {
         val top0 = scrollTop()
-        val f = Finger(strip, hgt * 3 / 4)
+        val seen = touchesDuring { scrollThenSidewaysWith(Finger(strip, hgt * 3 / 4), top0) }
+        seen.takenFromThePage()
+        assertTrue("the page had the scroll's moves: $seen", seen.count { it == "move" } >= 10)
+    }
+    private suspend fun ReaderHarness.scrollThenSidewaysWith(f: Finger, top0: Double) {
         f.move(strip, hgt / 3, steps = 24)
         delay(300)
         val top1 = scrollTop()
@@ -429,20 +478,23 @@ class EdgeContentsTest {
 
     /** The control: Back takes it, before the page sees a move. Without this the two tests below would prove nothing. */
     @Test fun a_straight_swipe_is_back_on_gesture_navigation() = run(nav = GESTURAL, settings = barsShown) { h ->
-        val s0 = h.starts()
-        Finger(strip).run { move(w / 2, steps = 24); delay(250); up() }
-        withTimeout(5_000) { while (h.a.nav.top == Route.Reader) delay(20) }
-        assertEquals("the page never saw it as a gesture", s0, h.starts())
+        val holds = h.holdsDuring(this) {
+            Finger(strip).run { move(w / 2, steps = 24); delay(250); up() }
+            withTimeout(5_000) { while (h.a.nav.top == Route.Reader) delay(20) }
+        }
+        assertEquals("the app never saw it as a gesture", emptyList<Float>(), holds)
         assertFalse(h.tocOpen)
     }
 
     @Test fun an_angled_swipe_reaches_the_app_on_gesture_navigation() = run(nav = GESTURAL, settings = barsShown) { h ->
         val start = h.midChapter()
-        val f = Finger(strip, hgt * 2 / 5)
-        f.move(w * 2 / 5, hgt * 4 / 5, steps = 30) // 0.6 w left, 0.4 h down: more down than sideways all the way
-        delay(250)
-        assertHeld(h)
-        f.up()
+        h.touchesDuring {
+            val f = Finger(strip, hgt * 2 / 5)
+            f.move(w * 2 / 5, hgt * 4 / 5, steps = 30) // 0.6 w left, 0.4 h down: more down than sideways all the way
+            delay(250)
+            assertHeld(h)
+            f.up()
+        }.takenFromThePage()
         h.awaitOpen()
         assertEquals(Route.Reader, h.a.nav.top)
         assertEquals(start, h.pos())
@@ -462,7 +514,8 @@ class EdgeContentsTest {
     /**
      * C-100c: a swipe from the user's phone, from a screen recording with the touches shown (27.6 s in it): where the finger
      * was, ms after the touch-down, as dp from the right edge and from the top. Up and left, twice as far up as left; held
-     * still 0.45 s before the lift. Fullscreen and gesture navigation, as on the phone. It never opened the panel there.
+     * still 0.45 s before the lift. Fullscreen and gesture navigation, as on the phone. It never opened the panel there while
+     * the page recognised the gesture (C-100c, C-101); now the app does (C-102), with C-101's angle from the touch-down.
      */
     @Test fun a_steep_swipe_recorded_on_the_phone_opens_it() = run(nav = GESTURAL) { h ->
         val start = h.midChapter()
@@ -480,8 +533,7 @@ class EdgeContentsTest {
             e.recycle()
         }
         // Every 8 ms between the recorded points, as a phone's touch screen reports them.
-        val s0 = h.starts()
-        withContext(Dispatchers.IO) {
+        val holds = h.holdsDuring(this) { h.touchesDuring { withContext(Dispatchers.IO) {
             send(MotionEvent.ACTION_DOWN, 0, path[0].second.first, path[0].second.second)
             for ((a, b) in path.zipWithNext()) {
                 var ms = a.first + 8
@@ -494,21 +546,21 @@ class EdgeContentsTest {
             }
             val (inDp, yDp) = path.last().second
             send(MotionEvent.ACTION_UP, 589, inDp, yDp)
-        }
-        h.awaitOpen()
-        assertEquals("one gesture", s0 + 1, h.starts())
+        } }.takenFromThePage(); h.awaitOpen() }
+        assertTrue("the panel followed the finger: $holds", holds.isNotEmpty())
         assertEquals(Route.Reader, h.a.nav.top)
         assertEquals(start, h.pos())
     }
 
     /** With the bars hidden (Fullscreen, the default) the system has no Back gesture, so a straight swipe reaches the page. */
     @Test fun with_the_bars_hidden_a_straight_swipe_opens_it_on_gesture_navigation_too() = run(nav = GESTURAL) { h ->
-        slowDrag(w / 2)
+        h.touchesDuring { slowDrag(w / 2) }.takenFromThePage()
         h.awaitOpen()
         assertEquals(Route.Reader, h.a.nav.top)
     }
 
     private companion object {
+        val TOUCH_KINDS = setOf("down", "move", "up", "cancel")
         const val GESTURAL = "gestural"
         const val THREE_BUTTON = "threebutton"
     }
