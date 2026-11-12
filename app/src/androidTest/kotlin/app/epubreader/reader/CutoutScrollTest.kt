@@ -155,7 +155,7 @@ class CutoutScrollTest {
     private suspend fun ReaderHarness.exactPage() = withTimeout(30_000) { a.controller.page.first { it.exact && it.total != null } }
 
     /** C-002, C-003: the counter's page is the same size in both flows, so the numbers are; F-037: so is the place. */
-    @Test fun a_mode_switch_keeps_the_place_and_the_numbers() = reading(scroll) { h, _ ->
+    @Test fun a_mode_switch_keeps_the_place_and_the_numbers() = reading(scroll.copy(pageNumbers = app.epubreader.core.data.PageNumbers.SCREEN_BOOK)) { h, _ ->
         dragUp(); dragUp(); h.still()
         val before = h.quiet()
         val shown = h.exactPage()

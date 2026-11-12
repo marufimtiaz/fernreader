@@ -68,6 +68,11 @@ import kotlinx.serialization.json.Json
     @Serializable @SerialName("goToOffset") data class GoToOffset(val v: Int = 1, val sectionIndex: Int, val offset: Int) : ToWeb
     /** C-083: where these virtual CFIs start in their sections' text; answered by [FromWeb.TextOffsets] with [id]. */
     @Serializable @SerialName("textOffsets") data class TextOffsets(val v: Int = 1, val sessionId: String, val id: Int, val cfis: List<String>) : ToWeb
+    /**
+     * C-108 (c): count the screen pages of layout generation [gen] (announced by [FromWeb.CountReady]; the web side ignores
+     * an older one), or with [run] false stop counting (screen pages are no longer shown).
+     */
+    @Serializable @SerialName("countPages") data class CountPages(val v: Int = 1, val sessionId: String, val gen: Int, val run: Boolean) : ToWeb
 }
 
 /** One annotation as the page draws it (F-061): [cfi] virtual range CFI, [color] a HighlightColors id, [style] "highlight" | "underline". */
@@ -134,6 +139,11 @@ import kotlinx.serialization.json.Json
         val v: Int = 1, val sessionId: String, val gen: Int, val linear: List<Int>? = null, val counts: List<List<Int>> = emptyList(),
         val sample: Boolean = false, val done: Boolean = false,
     ) : FromWeb
+    /**
+     * C-108 (c): layout generation [gen] has settled and can be counted; [key] names everything its counts depend on, so a
+     * book's counts for one key are the same at every open. Nothing is counted until [ToWeb.CountPages].
+     */
+    @Serializable @SerialName("countReady") data class CountReady(val v: Int = 1, val sessionId: String, val gen: Int, val key: String) : FromWeb
     @Serializable @SerialName("tap") data class Tap(val v: Int = 1, val sessionId: String, val x: Double, val y: Double) : FromWeb
     /** F-042: entries in the followed-links history after each push or pop; Back pops one while it is > 0. */
     @Serializable @SerialName("history") data class History(val v: Int = 1, val sessionId: String, val depth: Int) : FromWeb

@@ -2,6 +2,7 @@ package app.epubreader.reader
 
 import android.util.Log
 import androidx.test.core.app.ActivityScenario
+import app.epubreader.core.data.ReaderSettings
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.epubreader.MainActivity
 import app.epubreader.core.data.CfiOrder
@@ -58,7 +59,7 @@ class VerticalWritingTest {
         ActivityScenario.launch(MainActivity::class.java).use { sc ->
             val h = ReaderHarness(sc, this)
             try {
-                h.ready(); h.open(book)
+                h.ready(); h.screenPages(); h.open(book)
                 val linear = JSONArray(JSONTokener(sc.js("JSON.stringify(window.__readerTest.linear())")).nextValue() as String)
                     .let { a -> List(a.length()) { a.getInt(it) } }
                 // a long chapter: the biggest one by counted pages (counting runs in the background, C-032)
@@ -113,7 +114,7 @@ class VerticalWritingTest {
                 Log.i("EPR", "resume ${saved.cfi} page ${saved.page} -> ${resumed.cfi} page ${resumed.page}")
                 assertEquals(saved.sectionIndex, resumed.sectionIndex)
                 assertEquals(saved.page, resumed.page)
-            } finally { h.stop() }
+            } finally { sc.onActivity { it.controller.updateSettings { ReaderSettings() } }; h.a.settingsStored(); h.stop() }
         }
     }
 
@@ -123,7 +124,7 @@ class VerticalWritingTest {
         ActivityScenario.launch(MainActivity::class.java).use { sc ->
             val h = ReaderHarness(sc, this)
             try {
-                h.ready(); h.open(book)
+                h.ready(); h.screenPages(); h.open(book)
                 val exact = withTimeout(30_000) { h.a.controller.page.first { it.exact } }
                 Log.i("EPR", "kusamakura exact total: $exact")
                 val linear = JSONArray(JSONTokener(sc.js("JSON.stringify(window.__readerTest.linear())")).nextValue() as String)
@@ -160,7 +161,7 @@ class VerticalWritingTest {
                 Log.i("EPR", "vertical agreement mismatches: $wrong; section $longest counted $counted turned $turned (sections ${linear.size})")
                 assertEquals(emptyList<String>(), wrong)
                 assertEquals(counted, turned)
-            } finally { h.stop() }
+            } finally { sc.onActivity { it.controller.updateSettings { ReaderSettings() } }; h.a.settingsStored(); h.stop() }
         }
     }
 }

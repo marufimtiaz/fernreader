@@ -40,6 +40,7 @@ function validShape(m: Record<string, unknown>): boolean {
     case 'setAnnotations': return isStr(m.sessionId) && Array.isArray(m.items) && (m.items as unknown[]).every(validAnnotation)
     case 'removeAnnotation': return isStr(m.sessionId) && isStr(m.id)
     case 'setSettings': return validSettings(m.settings)
+    case 'countPages': return isStr(m.sessionId) && Number.isInteger(m.gen) && typeof m.run === 'boolean'
     case 'goToFraction': return isNum(m.fraction) && (m.fraction as number) >= 0 && (m.fraction as number) <= 1 && (m.id == null || Number.isInteger(m.id))
     default: return true
   }

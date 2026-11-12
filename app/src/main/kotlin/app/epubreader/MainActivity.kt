@@ -288,6 +288,11 @@ class MainActivity : ComponentActivity() {
             BenchCommands.register("fontStep") { d -> controller.updateSettings { it.stepFont(d.trim().toIntOrNull() ?: 1) } }
             BenchCommands.register("fontScale") { v -> v.trim().toDoubleOrNull()?.let { f -> controller.updateSettings { it.copy(fontScale = f) } } }
             BenchCommands.register("resetSettings") { controller.updateSettings { app.epubreader.core.data.ReaderSettings() } }
+            // C-108 (c): the screen-page counter runs only while screen pages are shown (`pageNumbers screen`; `book` = default)
+            BenchCommands.register("pageNumbers") { v ->
+                val p = if (v.trim() == "screen") app.epubreader.core.data.PageNumbers.SCREEN_BOOK else app.epubreader.core.data.PageNumbers.BOOK_PAGES
+                controller.updateSettings { it.copy(pageNumbers = p) }
+            }
             // C-079: reading mode for the scroll-mode fling checks (paged | scrolled | auto)
             BenchCommands.register("flow") { f -> runCatching { app.epubreader.core.data.Flow.valueOf(f.trim().uppercase()) }.getOrNull()?.let { v -> controller.updateSettings { it.copy(flow = v) } } }
             BenchCommands.register("display") { controller.showSheet(app.epubreader.core.data.ReaderSheetTab.DISPLAY) }

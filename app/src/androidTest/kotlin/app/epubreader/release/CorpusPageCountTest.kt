@@ -7,6 +7,7 @@ import app.epubreader.MainActivity
 import app.epubreader.core.data.ReaderSettings
 import app.epubreader.reader.PageIndicator
 import app.epubreader.reader.ReaderHarness
+import app.epubreader.reader.settingsStored
 import app.epubreader.reader.bridge.FromWeb
 import app.epubreader.reader.js
 import app.epubreader.reader.warAndPeace
@@ -52,7 +53,7 @@ class CorpusPageCountTest {
         val problems = mutableListOf<String>()
         ActivityScenario.launch(MainActivity::class.java).use { sc ->
             val h = ReaderHarness(sc, this)
-            sc.onActivity { it.controller.updateSettings { ReaderSettings() } }
+            sc.onActivity { it.controller.updateSettings { ReaderSettings(pageNumbers = app.epubreader.core.data.PageNumbers.SCREEN_BOOK) } } // C-108 (c): counted only then
             try {
                 h.ready()
                 for (book in books) {
@@ -61,7 +62,7 @@ class CorpusPageCountTest {
                     Log.i("EPR", "corpus pagecount: ${r.row()}")
                     sc.onActivity { it.goBack() }
                 }
-            } finally { h.stop() }
+            } finally { sc.onActivity { it.controller.updateSettings { ReaderSettings() } }; h.a.settingsStored(); h.stop() }
         }
         val table = (listOf("book | fixed | scope | sections checked | exact total | worst estimate error % | mismatches | note") + rows).joinToString("\n")
         runCatching { File("/sdcard/Download/corpus-pagecount.txt").writeText(table + "\n\nproblems:\n" + problems.joinToString("\n") + "\n") }

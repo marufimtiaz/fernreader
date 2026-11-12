@@ -30,7 +30,7 @@ class CounterSelfCheckTest {
         val book = File("/sdcard/Books/epub3-samples/$name").also { check(it.isFile) { "corpus not pushed: $it" } }
         ActivityScenario.launch(MainActivity::class.java).use { sc ->
             val h = ReaderHarness(sc, this)
-            sc.onActivity { it.controller.updateSettings { ReaderSettings() } }
+            sc.onActivity { it.controller.updateSettings { ReaderSettings(pageNumbers = app.epubreader.core.data.PageNumbers.SCREEN_BOOK) } } // C-108 (c): counted only then
             try {
                 h.ready(); h.open(book, withToc = false)
                 val t0 = System.currentTimeMillis()
@@ -54,7 +54,7 @@ class CounterSelfCheckTest {
                 }
                 Log.i("EPR", "self-check $name mismatches: $wrong")
                 assertEquals(emptyList<String>(), wrong)
-            } finally { h.stop() }
+            } finally { sc.onActivity { it.controller.updateSettings { ReaderSettings() } }; h.a.settingsStored(); h.stop() }
         }
     }
 }

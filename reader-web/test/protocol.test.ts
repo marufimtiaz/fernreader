@@ -7,7 +7,7 @@ import type { ToWeb } from '../src/bridge/protocol'
 const fixture = (n: string) => readFileSync(resolve(__dirname, `../../bridge/fixtures/${n}.json`), 'utf8').trim()
 
 describe('protocol v1', () => {
-  it.each(['open', 'openChapterTexts', 'openContinued', 'close', 'next', 'prev', 'goTo', 'goToSeek', 'setSettings', 'goToFraction', 'goToFractionSeek', 'goToText', 'clearSearchHighlight', 'back', 'closeFootnote', 'setBookmarks', 'addAnnotation', 'clearSelection', 'setAnnotations', 'removeAnnotation', 'goToOffset', 'textOffsets'])('dispatches %s to handlers unchanged', name => {
+  it.each(['open', 'openChapterTexts', 'openContinued', 'close', 'next', 'prev', 'goTo', 'goToSeek', 'setSettings', 'goToFraction', 'goToFractionSeek', 'goToText', 'clearSearchHighlight', 'back', 'closeFootnote', 'setBookmarks', 'addAnnotation', 'clearSelection', 'setAnnotations', 'removeAnnotation', 'goToOffset', 'textOffsets', 'countPages'])('dispatches %s to handlers unchanged', name => {
     const seen: ToWeb[] = []
     const b = new Bridge(vi.fn())
     b.onMessage(m => seen.push(m))
@@ -28,6 +28,10 @@ describe('protocol v1', () => {
     const h = vi.fn(); const b = new Bridge(vi.fn()); b.onMessage(h)
     b.receive(JSON.stringify({ ...JSON.parse(fixture('openContinued')), continued })); expect(h).not.toHaveBeenCalled()
   })
+  it.each(['{"v":1,"type":"countPages","sessionId":"s","gen":1}', '{"v":1,"type":"countPages","sessionId":"s","gen":1.5,"run":true}', '{"v":1,"type":"countPages","gen":1,"run":true}'])('C-108: drops malformed countPages %#', json => {
+    const h = vi.fn(); const b = new Bridge(vi.fn()); b.onMessage(h)
+    b.receive(json); expect(h).not.toHaveBeenCalled()
+  })
   it('still ignores unknown types', () => {
     const h = vi.fn(); const b = new Bridge(vi.fn()); b.onMessage(h)
     b.receive(fixture('unknown')); expect(h).not.toHaveBeenCalled()
@@ -40,7 +44,7 @@ describe('protocol v1', () => {
     const h = vi.fn(); const b = new Bridge(vi.fn()); b.onMessage(h)
     b.receive(json); expect(h).not.toHaveBeenCalled()
   })
-  it.each(['opened', 'relocate', 'painted', 'seeked', 'tap', 'error', 'pageCounts', 'history', 'footnote', 'externalLink', 'pageBookmarks', 'selection', 'annotationTapped'])('%s fixture is well-formed JSON with v and type', name => {
+  it.each(['opened', 'relocate', 'painted', 'seeked', 'tap', 'error', 'pageCounts', 'history', 'footnote', 'externalLink', 'pageBookmarks', 'selection', 'annotationTapped', 'countReady'])('%s fixture is well-formed JSON with v and type', name => {
     const m = JSON.parse(fixture(name)); expect(m.v).toBe(1); expect(m.type).toBe(name)
   })
   it('the textOffsets answer fixture is well-formed', () => {

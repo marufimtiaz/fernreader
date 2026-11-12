@@ -39,8 +39,13 @@ export type ToWeb =
   | { v: 1; type: 'goToOffset'; sectionIndex: number; offset: number }
   /** C-083: where these CFIs are in their sections' text (the lists' book pages); answered by `textOffsets` with [id]. */
   | { v: 1; type: 'textOffsets'; sessionId: string; id: number; cfis: string[] }
+  /**
+   * C-108 (c): count the screen pages of layout generation [gen] (announced by `countReady`; an older one is ignored), or
+   * with [run] false stop counting (the app no longer shows them).
+   */
+  | { v: 1; type: 'countPages'; sessionId: string; gen: number; run: boolean }
 
-export const TO_WEB_TYPES: ReadonlyArray<ToWeb['type']> = ['ping', 'open', 'close', 'next', 'prev', 'goTo', 'setSettings', 'goToFraction', 'goToText', 'clearSearchHighlight', 'back', 'closeFootnote', 'setBookmarks', 'addAnnotation', 'clearSelection', 'setAnnotations', 'removeAnnotation', 'goToOffset', 'textOffsets']
+export const TO_WEB_TYPES: ReadonlyArray<ToWeb['type']> = ['ping', 'open', 'close', 'next', 'prev', 'goTo', 'setSettings', 'goToFraction', 'goToText', 'clearSearchHighlight', 'back', 'closeFootnote', 'setBookmarks', 'addAnnotation', 'clearSelection', 'setAnnotations', 'removeAnnotation', 'goToOffset', 'textOffsets', 'countPages']
 
 export type FromWeb =
   | { v: 1; type: 'ready'; engine: string }
@@ -58,6 +63,11 @@ export type FromWeb =
   | { v: 1; type: 'painted'; sessionId: string }
   | { v: 1; type: 'seeked'; sessionId: string; id: number }
   | { v: 1; type: 'pageCounts'; sessionId: string; gen: number; linear?: number[]; counts: [number, number][]; sample: boolean; done: boolean }
+  /**
+   * C-108 (c): layout generation [gen] has settled and can be counted; [key] names everything its counts depend on (the
+   * layout settings and the page box), so equal keys of one book have equal counts. Nothing is counted until `countPages`.
+   */
+  | { v: 1; type: 'countReady'; sessionId: string; gen: number; key: string }
   | { v: 1; type: 'tap'; sessionId: string; x: number; y: number }
   /** F-042: entries in the followed-links history after a push or a pop (0 = Back leaves the book). */
   | { v: 1; type: 'history'; sessionId: string; depth: number }

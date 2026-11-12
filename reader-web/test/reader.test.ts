@@ -76,10 +76,13 @@ beforeEach(() => {
   h.epubInit.mockReset().mockImplementation(async () => book())
   h.packageProblem.mockReset().mockResolvedValue(null)
   sent = []
-  // Page counts are the counter's business (counter.test.ts); these tests follow the open/turn/seek sequence.
-  bridge = new Bridge(json => { const m = JSON.parse(json); if (m.type !== 'pageCounts') sent.push(m) })
+  // Page counts are the counter's business (counter.test.ts, and 'screen-page counter' below); these tests follow the
+  // open/turn/seek sequence.
+  counting = []
+  bridge = new Bridge(json => { const m = JSON.parse(json); if (m.type === 'pageCounts' || m.type === 'countReady') counting.push(m); else sent.push(m) })
   new Reader(bridge)
 })
+let counting: FromWeb[]
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
 
 describe('Reader open', () => {
@@ -1176,5 +1179,46 @@ describe('Reader chapters of a split document', () => {
     open('s1'); await settle(); await settle()
     const r = FakeView.all.at(-1)!.renderer as any
     expect(r.chapterSpan(1)).toEqual([1, 1])
+  })
+})
+
+/**
+ * C-108 (c): a layout ready to count is announced with its key; the count runs only when the app asks (screen pages
+ * shown, and nothing stored for that key), and stops when the app says so.
+ */
+describe('screen-page counter', () => {
+  const ready = () => counting.filter(m => m.type === 'countReady') as Extract<FromWeb, { type: 'countReady' }>[]
+  const counts = (gen: number) => counting.filter(m => m.type === 'pageCounts' && m.gen === gen)
+  const setSettings = (fontScale: number) => send({ v: 1, type: 'setSettings', settings: { fontScale, fontFamily: 'publisher', lineHeight: 1.5, marginPercent: 5, align: 'publisher', theme: 'light', flow: 'paginated' } })
+
+  it('announces the first layout after the first page and counts nothing until asked', async () => {
+    open('s1', 'cfi-a'); await settle(); await settle()
+    await vi.advanceTimersByTimeAsync(500)
+    const r = ready()
+    expect(r).toHaveLength(1)
+    expect(r[0]).toMatchObject({ sessionId: 's1', gen: expect.any(Number), key: expect.any(String) })
+    expect(counts(r[0].gen)).toHaveLength(1) // the generation's announcement only: no count started
+    send({ v: 1, type: 'countPages', sessionId: 's1', gen: r[0].gen, run: true }); await settle()
+    expect(counts(r[0].gen).length).toBeGreaterThan(1) // the count started (its first message)
+  })
+
+  it('a layout change announces a new generation with a new key; the same layout again has the same key', async () => {
+    open('s1', 'cfi-a'); await settle(); await settle(); await vi.advanceTimersByTimeAsync(500)
+    setSettings(1.2); await vi.advanceTimersByTimeAsync(500)
+    setSettings(1.0); await vi.advanceTimersByTimeAsync(500)
+    const [a, b, c] = ready()
+    expect(b.gen).toBeGreaterThan(a.gen)
+    expect(b.key).not.toBe(a.key)
+    expect(c.key).toBe(a.key)
+  })
+
+  it('an old generation is not counted, and run false stops nothing that is not running', async () => {
+    open('s1', 'cfi-a'); await settle(); await settle(); await vi.advanceTimersByTimeAsync(500)
+    const old = ready()[0].gen
+    setSettings(1.2); await vi.advanceTimersByTimeAsync(500)
+    const before = counting.length
+    send({ v: 1, type: 'countPages', sessionId: 's1', gen: old, run: true }); await settle()
+    send({ v: 1, type: 'countPages', sessionId: 's1', gen: old, run: false }); await settle()
+    expect(counting.length).toBe(before)
   })
 })

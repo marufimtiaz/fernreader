@@ -22,7 +22,7 @@ class PageCountAgreementTest {
         ActivityScenario.launch(MainActivity::class.java).use { sc ->
             val h = ReaderHarness(sc, this)
             try {
-                h.ready(); h.open(wp)
+                h.ready(); h.screenPages(); h.open(wp)
                 val linear = JSONArray(sc.js("JSON.stringify(window.__readerTest.linear())").let { org.json.JSONTokener(it).nextValue() as String })
                     .let { a -> List(a.length()) { a.getInt(it) } }
                 val wrong = mutableListOf<String>()
@@ -60,7 +60,7 @@ class PageCountAgreementTest {
         ActivityScenario.launch(MainActivity::class.java).use { sc ->
             val h = ReaderHarness(sc, this)
             try {
-                h.ready(); h.open(book)
+                h.ready(); h.screenPages(); h.open(book)
                 withTimeout(20_000) { h.a.controller.page.first { it.exact } }
                 val linear = JSONArray(org.json.JSONTokener(sc.js("JSON.stringify(window.__readerTest.linear())")).nextValue() as String)
                     .let { a -> List(a.length()) { a.getInt(it) } }
@@ -82,7 +82,7 @@ class PageCountAgreementTest {
                 }
                 Log.i("EPR", "rtl agreement mismatches: $wrong (sections ${linear.size})")
                 assertEquals(emptyList<String>(), wrong)
-            } finally { h.stop() }
+            } finally { sc.onActivity { it.controller.updateSettings { ReaderSettings() } }; h.a.settingsStored(); h.stop() }
         }
     }
 }
