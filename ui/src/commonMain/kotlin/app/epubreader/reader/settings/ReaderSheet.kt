@@ -57,6 +57,8 @@ fun ReaderSheet(
     modifier: Modifier = Modifier,
     /** C-004: Auto reading mode scrolls in landscape. */
     landscape: Boolean = false,
+    /** C-109: the phone's brightness, for the brightness slider. */
+    brightness: app.epubreader.reader.display.ScreenBrightness = app.epubreader.reader.display.ScreenBrightness.Unknown,
 ) {
     val tabs = ReaderSheetTab.entries
     val pager = rememberPagerState(initialPage = s.sheetTab.ordinal) { tabs.size }
@@ -85,7 +87,7 @@ fun ReaderSheet(
             }
             HorizontalPager(pager, Modifier.weight(1f), verticalAlignment = Alignment.Top) { page ->
                 when (tabs[page]) {
-                    ReaderSheetTab.DISPLAY -> DisplayTab(s, fonts, onChange, displayScroll, landscape)
+                    ReaderSheetTab.DISPLAY -> DisplayTab(s, fonts, onChange, displayScroll, landscape, brightness)
                     ReaderSheetTab.GENERAL -> GeneralTab(s, onChange, generalScroll)
                 }
             }

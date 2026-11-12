@@ -147,6 +147,8 @@ class ReaderController(
     private val annotations: AnnotationPort? = null,
     /** The selection menu's Copy and Share (F-060); null in tests that do not care. */
     private val textActions: TextActions? = null,
+    /** C-109: the phone's brightness, which the display panel's slider matches. */
+    val screenBrightness: app.epubreader.reader.display.ScreenBrightness = app.epubreader.reader.display.ScreenBrightness.Unknown,
 ) {
     /**
      * [map] is the opened book's (M8: its ChunkMap when a huge document was split): every CFI, section index and text

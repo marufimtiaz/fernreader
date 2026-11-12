@@ -177,6 +177,7 @@ class MainActivity : ComponentActivity() {
             bookmarks = graph.bookmarks,
             annotations = graph.annotations,
             textActions = textActions,
+            screenBrightness = app.epubreader.reader.SystemBrightness(contentResolver), // C-109
             closeScope = graph.appScope, // onDestroy's close-out must not run on the already-cancelled lifecycleScope
         )
         // F-060: our selection menu items act on the selection the controller last heard of.

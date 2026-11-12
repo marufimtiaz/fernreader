@@ -32,6 +32,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -45,6 +46,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.epubreader.core.data.Align
+import app.epubreader.core.data.BrightnessCurve
 import app.epubreader.core.data.Flow
 import app.epubreader.core.data.PageNumbers
 import app.epubreader.core.data.ReaderSettings
@@ -67,6 +69,8 @@ fun DisplayTab(
     scroll: ScrollState,
     /** C-004: Auto reading mode scrolls in landscape. */
     landscape: Boolean = false,
+    /** C-109: the phone's brightness, which the slider's scale and its start when leaving "follow system" match. */
+    brightness: ScreenBrightness = ScreenBrightness.Unknown,
 ) {
     Column(
         Modifier.fillMaxSize().verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 16.dp),
@@ -94,7 +98,7 @@ fun DisplayTab(
         Segments(Copy.pageNumbers, PageNumberOptions, s.pageNumbers, hint = Copy.pageNumbersHint(s.pageNumbers)) { p ->
             onChange { it.copy(pageNumbers = p) }
         }
-        BrightnessRow(s.brightness) { b -> onChange { it.copy(brightness = b) } }
+        BrightnessRow(s.brightness, brightness) { b -> onChange { it.copy(brightness = b) } }
     }
 }
 
@@ -205,18 +209,30 @@ internal fun <T> Segments(label: String, options: List<Pair<T, String>>, current
     }
 }
 
+/**
+ * C-109: the slider is on the system slider's perceptual scale ([BrightnessCurve]): the same position gives the same
+ * screen brightness, and its end is the panel's full brightness. [brightness] is the stored window brightness (linear),
+ * null while following the system; the greyed-out slider then shows where the system's is. Switching "follow system"
+ * off starts from the system's current brightness, so the screen doesn't change.
+ */
 @Composable
-private fun BrightnessRow(brightness: Double?, onValue: (Double?) -> Unit) {
+private fun BrightnessRow(brightness: Double?, screen: ScreenBrightness, onValue: (Double?) -> Unit) {
+    val following = brightness == null
+    val system = remember(following) { if (following) screen.current() else null }
+    val linear = brightness ?: system ?: BrightnessCurve.toLinear(0.5, screen.min, 1.0)
     Column {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Label(Copy.brightness, Modifier.weight(1f))
             Text(Copy.followSystem, style = MaterialTheme.typography.labelLarge)
             Spacer(Modifier.width(8.dp))
-            Switch(checked = brightness == null, onCheckedChange = { onValue(if (it) null else 0.5) })
+            Switch(checked = following, onCheckedChange = { follow ->
+                onValue(if (follow) null else (screen.current() ?: linear).coerceIn(screen.min, 1.0))
+            })
         }
         Slider(
-            value = (brightness ?: 0.5).toFloat(), onValueChange = { onValue(it.toDouble()) }, valueRange = 0.05f..1f,
-            enabled = brightness != null, modifier = Modifier.keepsSideways().semantics { contentDescription = Copy.brightness },
+            value = BrightnessCurve.toPosition(linear, screen.min, 1.0).toFloat(),
+            onValueChange = { onValue(BrightnessCurve.toLinear(it.toDouble(), screen.min, 1.0)) },
+            enabled = !following, modifier = Modifier.keepsSideways().semantics { contentDescription = Copy.brightness },
         )
     }
 }

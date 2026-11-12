@@ -136,7 +136,7 @@ fun ReaderScreen(
         }
         if (s.sheetVisible && s.error == null) {
             LaunchedEffect(Unit) { withFrameNanos { }; probe.ev("display_shown", "") }
-            ReaderSheet(settings, fonts, onChange = c::updateSettings, onTab = c::selectSheetTab, modifier = Modifier.align(Alignment.BottomCenter), landscape = landscape)
+            ReaderSheet(settings, fonts, onChange = c::updateSettings, onTab = c::selectSheetTab, modifier = Modifier.align(Alignment.BottomCenter), landscape = landscape, brightness = c.screenBrightness)
         }
         ContentsSlide(s.tocVisible, c.contentsDrag, settings.pageAnimation != PageAnimation.NONE, c::dragContents, c::releaseContents) {
             ContentsPanel(

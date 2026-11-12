@@ -14,7 +14,8 @@ class ReaderSettingsTest {
         assertEquals(1.7, ReaderSettings(lineHeight = 1.66).clamped().lineHeight)
         assertEquals(0, ReaderSettings(marginPercent = -1).clamped().marginPercent)
         assertEquals(10, ReaderSettings(marginPercent = 11).clamped().marginPercent)
-        assertEquals(0.05, ReaderSettings(brightness = 0.0).clamped().brightness)
+        assertEquals(ReaderSettings.MIN_BRIGHTNESS, ReaderSettings(brightness = 0.0).clamped().brightness) // C-109
+        assertEquals(0.0123, ReaderSettings(brightness = 0.012345).clamped().brightness) // fine enough for the dim range
         assertEquals(null, ReaderSettings(brightness = null).clamped().brightness)
         assertEquals(ReaderSettings.PUBLISHER, ReaderSettings(fontFamily = "comic").clamped().fontFamily)
     }
@@ -84,6 +85,25 @@ class ReaderSettingsTest {
         assertEquals(1.4, s.fontScale)
         assertEquals(ReadingThemeId.WARM, s.theme)
         assertEquals(ReaderSettings(1.4, ReaderSettings.LITERATA, 1.8, 3, Align.JUSTIFY, ReadingThemeId.WARM, Flow.AUTO, 0.4, PageNumbers.SCREEN_CHAPTER), s)
+    }
+
+    /**
+     * C-109: older versions stored the window brightness, linear, 0.05..1. It is still stored that way, so each old value
+     * gives the same window brightness after the update; the slider shows it on the system's scale.
+     */
+    @Test fun c109_brightness_stored_by_older_versions_keeps_the_screen_as_it_was() {
+        for (old in listOf(0.05, 0.4, 0.5, 1.0)) {
+            val s = ReaderSettings.decode("""{"fontScale":1.2,"brightness":$old}""")
+            assertEquals(old, s.brightness, "window brightness for stored $old")
+            assertEquals(s, ReaderSettings.decode(s.encode()))
+        }
+        // Where the slider shows them now (min 0): the old middle, 0.5 linear, is near the system slider's 87 %.
+        assertEquals(0.8716, BrightnessCurve.toPosition(ReaderSettings.decode("""{"brightness":0.5}""").brightness!!, 0.0, 1.0), 1e-3)
+        assertEquals(1.0, BrightnessCurve.toPosition(ReaderSettings.decode("""{"brightness":1.0}""").brightness!!, 0.0, 1.0), 1e-4)
+        // A slider value round-trips through storage closely enough to keep the screen unchanged.
+        val p = 0.3
+        val stored = ReaderSettings.decode(ReaderSettings(brightness = BrightnessCurve.toLinear(p, 0.0035, 1.0)).clamped().encode()).brightness!!
+        assertEquals(p, BrightnessCurve.toPosition(stored, 0.0035, 1.0), 2e-3)
     }
 
     @Test fun highlight_colour_defaults_to_yellow_round_trips_and_rejects_unknown_ids() {
