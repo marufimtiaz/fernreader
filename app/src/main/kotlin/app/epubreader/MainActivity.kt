@@ -20,6 +20,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import app.epubreader.reader.BarsRevealWatch
+import app.epubreader.reader.BarsVisibility
 import app.epubreader.reader.ReaderWindowInputs
 import app.epubreader.reader.WindowApplier
 import app.epubreader.reader.WindowLook
@@ -244,6 +246,7 @@ class MainActivity : ComponentActivity() {
             val win = readerWindowState(readerShown, winInputs, rs)
             val brightness = if (readerShown) rs.brightness?.toFloat() ?: WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
             SideEffect { windowLook.update(WindowLook(brightness, lightBars = if (readerShown) theme.isLight else !dark, win)) }
+            BarsVisibility(::barsVisibilityChanged)
             // C-102: kept across recompositions, so a recomposition never restarts a gesture in progress.
             val pageGestures = remember { Modifier.contentsEdgeSwipe(controller) { nav.top == Route.Reader } }
             Box {
@@ -365,6 +368,19 @@ class MainActivity : ComponentActivity() {
     var windowApplies = 0
         private set
 
+    /** What [applyReaderWindow] asked of the system bars and what they did (C-103). */
+    private val barsReveal = BarsRevealWatch()
+
+    /**
+     * C-103: the bars' visibility changed. When the user swiped them back over the fullscreen reader, the reader's controls
+     * come with them, so a tap hides both again (the controls have no timeout of their own).
+     */
+    private fun barsVisibilityChanged(visible: Boolean) {
+        if (barsReveal.seen(visible, hasWindowFocus()) && nav.top == Route.Reader && !controller.state.value.chromeVisible) {
+            controller.toggleChrome()
+        }
+    }
+
     private fun applyReaderWindow(look: WindowLook) {
         windowApplies++
         val win = look.win
@@ -372,7 +388,11 @@ class MainActivity : ComponentActivity() {
         WindowCompat.getInsetsController(window, window.decorView).apply {
             isAppearanceLightStatusBars = look.lightBars
             isAppearanceLightNavigationBars = look.lightBars
-            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            // C-103: the default behaviour, not "transient bars by swipe": with the bars hidden the system keeps its gestures
+            // (Back on both edges, the first time); a swipe from the top or bottom brings the bars back for good, and
+            // [barsVisibilityChanged] shows the controls with them.
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_DEFAULT
+            barsReveal.requested(hidden = win.barsHidden)
             if (win.barsHidden) hide(WindowInsetsCompat.Type.systemBars()) else show(WindowInsetsCompat.Type.systemBars())
         }
         if (win.keepScreenOn) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
