@@ -112,9 +112,10 @@ class ReaderSheetTest {
                 displayTabShown()
                 assertFalse("the controls gave way to the sheet", h.a.controller.state.value.chromeVisible)
                 shot("c095-display")
-                // The sheet is no taller than the display panel was (460 dp over the navigation bar), tabs included.
+                // The sheet is no taller than the display panel was (460 dp over the navigation bar), tabs included. With the
+                // bars hidden, over the strip where the system keeps its bottom gestures instead (C-103).
                 var nav = 0
-                sc.onActivity { nav = if (Build.VERSION.SDK_INT >= 30) it.window.decorView.rootWindowInsets.getInsets(WindowInsets.Type.navigationBars()).bottom else 0 }
+                sc.onActivity { nav = if (Build.VERSION.SDK_INT >= 30) it.window.decorView.rootWindowInsets.run { maxOf(getInsets(WindowInsets.Type.navigationBars()).bottom, getInsets(WindowInsets.Type.mandatorySystemGestures()).bottom) } else 0 }
                 val density = inst.targetContext.resources.displayMetrics.density
                 val height = (dev.displayHeight - nav - obj(Copy.general).visibleBounds.top) / density
                 assertTrue("sheet height $height dp", height <= 462)
