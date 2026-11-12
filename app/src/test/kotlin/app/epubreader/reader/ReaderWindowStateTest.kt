@@ -26,6 +26,12 @@ class ReaderWindowStateTest {
         assertTrue(state(chrome = false).barsHidden)
     }
 
+    /** C-104: bars the user swiped in stay in without the controls, until the reader lets them go. */
+    @Test fun swiped_in_bars_stay_shown_without_the_controls() {
+        assertFalse(state(ui = reading.copy(barsRevealed = true)).barsHidden)
+        assertFalse(ReaderWindowInputs.of(reading) == ReaderWindowInputs.of(reading.copy(barsRevealed = true)))
+    }
+
     @Test fun fullscreen_off_never_hides_bars() {
         assertFalse(state(s = defaults.copy(fullscreen = false)).barsHidden)
     }
