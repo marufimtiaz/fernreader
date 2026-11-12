@@ -1,13 +1,17 @@
 #!/bin/bash
 # Power audit scenarios. Takes the device lock, releases it on any exit.
+# APKDIR: the play APKs to measure (default: this worktree's). SCENARIOS: which to run (default all):
+# a0 a b c d (always run), e a1 a2 a3 z, io (the debug build's /proc/<pid>/io pass). OWNER: the lock owner text.
 set -u
 D=$(cd "$(dirname "$0")" && pwd)
-APKDIR=$(cd "$D/../.." && pwd)/app/build/outputs/apk/play
+APKDIR=${APKDIR:-$(cd "$D/../.." && pwd)/app/build/outputs/apk/play}
+SCENARIOS=" ${SCENARIOS:-a0 a b c d e a1 a2 a3 z io} "
+want() { [[ "$SCENARIOS" == *" $1 "* ]]; }
 export OUT=${OUT:-$D/results.txt}
 : > $OUT
 LOCK=/tmp/epub-reader-device.lock
 until mkdir $LOCK 2>/dev/null; do echo "lock held by: $(cat $LOCK/owner 2>/dev/null)"; sleep 30; done
-echo "power-audit (research) $(date '+%F %T')" > $LOCK/owner
+echo "${OWNER:-power-audit (research)} $(date '+%F %T')" > $LOCK/owner
 cleanup() { adb shell dumpsys battery reset >/dev/null 2>&1; adb shell settings put system screen_off_timeout 2147483647; adb shell settings put global stay_on_while_plugged_in 1; rm -rf $LOCK; }
 trap cleanup EXIT INT TERM
 source $D/power.sh
@@ -39,14 +43,14 @@ adb shell dumpsys battery unplug
 adb shell dumpsys batterystats --reset >/dev/null
 
 # baseline: emulator noise with the app on the library, before anything (disk, SF)
-# a0: first open of the book, 60 s untouched (includes the page counter)
+# a0: first open of the book, 60 s untouched (includes the page counter where it runs)
 adb logcat -c
 sc_begin "a0 first open $BOOK, 60 s untouched"
 cmd openPath $BOOK
 sleep 60
 sc_end; evlog
-# a: same page, untouched 60 s (counter done)
-wait_ev page_total_exact 120 || echo "no exact total yet" | tee -a $OUT
+# a: same page, untouched 60 s (counter done: C-108 c, with Book pages it no longer runs, so do not wait long for it)
+wait_ev page_total_exact 10 || echo "no exact total" | tee -a $OUT
 sleep 5; adb logcat -c
 sc_begin "a still page 60 s"
 sleep 60
@@ -80,12 +84,15 @@ sleep 180
 sc_end; evlog
 echo "--- batterystats (d)" >> $OUT
 adb shell dumpsys batterystats $PKG | grep -E -i 'wake|job|alarm|sync|cpu:|Foreground|Background|Cached|Uid u0a|Estimated power' | head -40 >> $OUT
+if want e; then
 # e: return to the reader from the background, 30 s (foreground scan)
 adb logcat -c
 sc_begin "e back to the reader from Home, 30 s"
 adb shell am start -n $PKG/app.epubreader.MainActivity >/dev/null
 sleep 30
 sc_end; evlog
+fi
+if want a1; then
 # a1: War and Peace first open: page counter cost on a long book, 90 s
 adb shell input keyevent 4; sleep 5
 adb logcat -c
@@ -93,12 +100,16 @@ sc_begin "a1 first open $WP, 90 s untouched"
 cmd openPath $WP
 sleep 90
 sc_end; evlog
+fi
+if want a2; then
 # a2: one text-size step on War and Peace: recount, 60 s
 adb logcat -c
 sc_begin "a2 W&P text size +1 step, 60 s"
 cmd fontStep 1
 sleep 60
 sc_end; evlog
+fi
+if want a3; then
 # a3: reopen War and Peace (counts not stored): 60 s
 adb shell input keyevent 4; sleep 5; cmd openPath $BOOK; sleep 10; adb shell input keyevent 4; sleep 5
 adb logcat -c
@@ -108,12 +119,16 @@ sleep 60
 sc_end; evlog
 cmd fontStep -1; sleep 2
 
+fi
+if want z; then
 # baseline: app force-stopped, 60 s (emulator disk/SF noise)
 adb shell am force-stop $PKG
 sc_begin "z baseline: app stopped, 60 s"
 sleep 60
 snap after | tee -a $OUT
 
+fi
+if want io; then
 echo "##### debug build (per-app /proc/<pid>/io via run-as; CPU not representative)" | tee -a $OUT
 export RUNAS=1
 setup $APKDIR/debug/app-play-debug.apk
@@ -135,5 +150,6 @@ sc_begin "io-d background 180 s (debug)"
 adb shell input keyevent 3
 sleep 180
 sc_end; evlog
+fi
 adb shell settings put system screen_off_timeout 2147483647
 echo DONE | tee -a $OUT
