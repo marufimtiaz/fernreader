@@ -1,6 +1,8 @@
 package app.epubreader.library
 
+import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ActivityScenario
+import app.epubreader.reader.bridge.ToWeb
 import android.os.Environment
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -27,8 +29,11 @@ class FileReplacedUnderReaderTest {
 
     @After fun cleanUp() { shared.deleteRecursively() }
 
-    /** [onSharedStorage]: the book lies in /sdcard (FUSE), as books do, instead of the app's cache directory. */
-    private fun underReader(name: String, onSharedStorage: Boolean = false, change: (File) -> Unit): Unit = runBlocking {
+    /**
+     * [onSharedStorage]: the book lies in /sdcard (FUSE), as books do, instead of the app's cache directory. FUSE sends no
+     * inotify event for the change, so the app sees it at the next check (C-108 b): [notice] makes one happen.
+     */
+    private fun underReader(name: String, onSharedStorage: Boolean = false, notice: (ActivityScenario<MainActivity>, MainActivity) -> Unit = { _, _ -> }, change: (File) -> Unit): Unit = runBlocking {
         val bytes = TestBooks.epub(id = "urn:uuid:$name", chapters = 3, paragraphs = 60)
         val f = if (!onSharedStorage) TestBooks.write(ctx, name, bytes) else {
             InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("appops set ${ctx.packageName} MANAGE_EXTERNAL_STORAGE allow").close()
@@ -42,6 +47,7 @@ class FileReplacedUnderReaderTest {
             val opened = withTimeout(20_000) { a.controller.state.first { it.open && !it.loading } }
             assertNull("the open itself failed", opened.error) // C-049: a failed open used to read as a wrong R-008 result
             change(f)
+            notice(sc, a)
             val s = withTimeout(5_000) { a.controller.state.first { it.error != null } }
             assertEquals(ReaderError.FileChanged, s.error)
             sc.onActivity { it.goBack() } // back to the library, still running
@@ -51,8 +57,14 @@ class FileReplacedUnderReaderTest {
 
     @Test fun replaced(): Unit = underReader("r8-replace.epub") { it.writeBytes(TestBooks.epub(id = "urn:uuid:other", title = "Other")) }
     @Test fun deleted(): Unit = underReader("r8-delete.epub") { it.delete() }
-    @Test fun deleted_on_shared_storage(): Unit = underReader("r8-sd-delete.epub", onSharedStorage = true) { it.delete() }
-    @Test fun replaced_by_rename_on_shared_storage(): Unit = underReader("r8-sd-rename.epub", onSharedStorage = true) { f ->
+    /** Seen when the app comes back to the foreground. */
+    @Test fun deleted_on_shared_storage(): Unit = underReader("r8-sd-delete.epub", onSharedStorage = true, notice = { sc, _ ->
+        sc.moveToState(Lifecycle.State.CREATED); sc.moveToState(Lifecycle.State.RESUMED)
+    }) { it.delete() }
+    /** Seen before the next position is stored (a page turn). */
+    @Test fun replaced_by_rename_on_shared_storage(): Unit = underReader("r8-sd-rename.epub", onSharedStorage = true, notice = { _, a ->
+        a.runOnUiThread { a.reader.send(ToWeb.Next()) }
+    }) { f ->
         val tmp = File(f.parentFile, "r8-sd-rename.tmp").apply { writeBytes(TestBooks.epub(id = "urn:uuid:renamed-over-sd")) }
         check(tmp.renameTo(f))
     }

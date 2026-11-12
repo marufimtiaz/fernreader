@@ -6,6 +6,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import android.os.Environment
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -21,12 +22,32 @@ class FileWatchTest {
         inst.runOnMainSync {
             val w = FileWatch(f.path) { called.set(true) }.start()
             f.delete()
-            Thread.sleep(1_600) // main held: the watch notices (inotify, then the 1 s poll) and posts its callback
+            Thread.sleep(600) // main held: the watch notices (inotify) and posts its callback
             w.stop() // the book is closed or another one opened, before that callback runs
         }
         inst.waitForIdleSync()
         Thread.sleep(300)
         assertFalse("callback ran after stop()", called.get())
+    }
+
+    /** C-108 (b): on shared storage (FUSE: no inotify event) a check notices a delete; nothing polls meanwhile. */
+    @Test fun a_check_notices_a_change_on_shared_storage() {
+        inst.uiAutomation.executeShellCommand("appops set ${inst.targetContext.packageName} MANAGE_EXTERNAL_STORAGE allow").close()
+        val dir = File(Environment.getExternalStorageDirectory(), "Download/fw-test").apply { mkdirs() }
+        try {
+            val f = File(dir, "fw-check.epub").apply { writeBytes(ByteArray(64) { 1 }) }
+            val called = AtomicBoolean(false)
+            lateinit var w: FileWatch
+            inst.runOnMainSync { w = FileWatch(f.path) { called.set(true) }.start() }
+            f.delete()
+            Thread.sleep(2_500)
+            assertFalse("noticed without a check: a timer polls again, or FUSE sent an event", called.get())
+            w.checkNow()
+            val end = System.currentTimeMillis() + 2_000
+            while (!called.get() && System.currentTimeMillis() < end) Thread.sleep(20)
+            inst.runOnMainSync { w.stop() }
+            assertTrue("the check noticed the delete", called.get())
+        } finally { dir.deleteRecursively() }
     }
 
     @Test fun a_change_is_delivered_while_watching() {

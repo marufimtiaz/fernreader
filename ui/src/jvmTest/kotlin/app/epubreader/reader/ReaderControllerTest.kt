@@ -184,10 +184,17 @@ class ReaderControllerTest {
         override fun textToVirtual(p: TextPos) = TextPos(p.spineIndex + 10, p.offset)
         override fun textToOriginal(p: TextPos) = TextPos(p.spineIndex - 10, p.offset)
     }
+    /** C-108 (b): the open book's file as the app's watch would report it; counts the checks. */
+    private class FakeBookFile : BookFileCheck {
+        var same = true
+        var checks = 0
+        override suspend fun unchanged(): Boolean { checks++; return same }
+    }
+    private val bookFile = FakeBookFile()
     private suspend fun controller(controllerScope: CoroutineScope = scope, opener: FakeOpener = this.opener, map: PositionMap = PositionMap.Identity) = ReaderController(
         reader, opener.also { it.map = map }, library, CompletableDeferred(PositionWriter.create(db, clock, appScope)), controllerScope, WebTexts("missing"),
         closeScope = appScope, settingsStore = settings, search = searchPort, searchHistory = searchHistory, links = links,
-        bookmarks = bookmarkPort, annotations = annotationPort, textActions = textActions,
+        bookmarks = bookmarkPort, annotations = annotationPort, textActions = textActions, bookFile = bookFile,
     )
     /** Every later library query fails (stands in for a corrupt database or a full disk). */
     private suspend fun breakDatabase() = db.useWriterConnection { it.execSQL("DROP TABLE book_file"); it.execSQL("DROP TABLE book") }
@@ -970,6 +977,21 @@ class ReaderControllerTest {
         assertTrue(c.state.value.bookmarked) // the marker shows at once, before the web side has answered
         assertEquals(listOf(b), c.state.value.bookmarks)
         assertEquals(ToWeb.SetBookmarks(sessionId = "s-1", cfis = listOf(rangeCfi)), reader.sent.filterIsInstance<ToWeb.SetBookmarks>().last())
+    }
+
+    /** C-108 (b): the book file is checked before a write that depends on it (a new location, bookmark or highlight), not by a timer. */
+    @Test fun the_book_file_is_checked_before_each_position_and_nothing_is_added_to_a_changed_file() = runTest(dispatcher) {
+        val c = controller(); openedAt(c)
+        assertEquals(1, bookFile.checks) // the relocate's position
+        bookFile.same = false
+        c.toggleBookmark(); advanceUntilIdle()
+        assertEquals(emptyList(), bookmarkPort.all.value) // the file changed under the reader: no bookmark into it
+        reader.events.emit(selection()); advanceUntilIdle()
+        c.highlightSelection(); advanceUntilIdle()
+        assertEquals(0, annotationPort.adds)
+        bookFile.same = true
+        c.toggleBookmark(); advanceUntilIdle()
+        assertEquals(1, bookmarkPort.all.value.size)
     }
 
     @Test fun bookmark_button_on_a_bookmarked_page_removes_it_with_a_confirmation() = runTest(dispatcher) {

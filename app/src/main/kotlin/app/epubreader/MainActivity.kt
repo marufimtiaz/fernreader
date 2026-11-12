@@ -177,6 +177,7 @@ class MainActivity : ComponentActivity() {
             bookmarks = graph.bookmarks,
             annotations = graph.annotations,
             textActions = textActions,
+            bookFile = { watch?.unchanged() ?: true },
             closeScope = graph.appScope, // onDestroy's close-out must not run on the already-cancelled lifecycleScope
         )
         // F-060: our selection menu items act on the selection the controller last heard of.
@@ -543,7 +544,11 @@ class MainActivity : ComponentActivity() {
         // F-012/C-075: back in the foreground (on any screen) → incremental scan. The first resume is the app start.
         // It used to run only when the library was on top and was not repeated when the library came back into view
         // (Back from the reader or settings), so a book copied meanwhile stayed missing until a manual rescan.
-        if (resumedOnce) { Probe.ev("app_foreground"); (application as EpubReaderApp).graph.scans.onForeground() }
+        if (resumedOnce) {
+            Probe.ev("app_foreground")
+            watch?.checkNow() // R-008 / C-108 (b): the open book may have changed while the app was away
+            (application as EpubReaderApp).graph.scans.onForeground()
+        }
         resumedOnce = true
     }
 

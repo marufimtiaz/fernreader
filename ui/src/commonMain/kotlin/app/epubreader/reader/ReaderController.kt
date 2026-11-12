@@ -146,6 +146,8 @@ class ReaderController(
     private val annotations: AnnotationPort? = null,
     /** The selection menu's Copy and Share (F-060); null in tests that do not care. */
     private val textActions: TextActions? = null,
+    /** R-008 / C-108 (b): the open book's file, checked before a write that depends on it; null: not watched. */
+    private val bookFile: BookFileCheck? = null,
 ) {
     /**
      * [map] is the opened book's (M8: its ChunkMap when a huge document was split): every CFI, section index and text
@@ -722,6 +724,7 @@ class ReaderController(
                     s.marks = s.marks - here.map { s.map.cfiToVirtual(it.cfi) }.toSet()
                     publishBookmarks(s, Notice.BookmarkRemoved)
                 } else {
+                    if (bookFile?.unchanged() == false) return@launch // R-008: the book is closing; nothing goes into the old file's data
                     val b = port.add(bookId, s.map.cfiToOriginal(at.cfi), s.map.textToOriginal(TextPos(at.sectionIndex, 0)).spineIndex, at.fraction, chapter)
                     if (session !== s) return@launch
                     s.bookmarkList = s.bookmarkList + b
@@ -882,6 +885,7 @@ class ReaderController(
         val spine = s.map.textToOriginal(TextPos(sel.sectionIndex, 0)).spineIndex
         scope.launch {
             try {
+                if (bookFile?.unchanged() == false) return@launch // R-008, as for a bookmark
                 val a = port.add(bookId, s.map.cfiToOriginal(cfi), spine, annotationText(sel.text), chapter, color, style)
                 if (session !== s) return@launch
                 probe.ev("annotation_added", style)
@@ -1146,6 +1150,7 @@ class ReaderController(
                 if (s.seek == null) s.bookId?.let { id ->
                     val u = PositionWriter.Update(id, s.map.cfiToOriginal(m.cfi), m.fraction, s.map.textToOriginal(TextPos(m.sectionIndex, 0)).spineIndex)
                     s.last = u
+                    bookFile?.let { f -> scope.launch { f.unchanged() } } // C-108 (b): a change closes the book (R-008)
                     positions.await().submit(u)
                 }
                 if (session === s) {
