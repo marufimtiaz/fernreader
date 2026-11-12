@@ -8,6 +8,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
+import androidx.test.uiautomator.StaleObjectException
 import androidx.test.uiautomator.UiObject2
 import androidx.test.uiautomator.Until
 import app.epubreader.MainActivity
@@ -92,6 +93,14 @@ class ReaderSheetTest {
             dev.swipe(x, dev.displayHeight - (dev.displayHeight - top) / 4, x, top + (dev.displayHeight - top) / 4, 40)
         }
         return obj(text)
+    }
+
+    /** The switch on the row at [y]; a node UiAutomator found just before the list came to rest is looked up again. */
+    private fun switchAt(y: Int): UiObject2 {
+        repeat(10) {
+            try { return dev.findObjects(By.checkable(true)).first { it.visibleBounds.run { top <= y && bottom >= y } } } catch (_: StaleObjectException) { waitFresh(200) { false } }
+        }
+        return dev.findObjects(By.checkable(true)).first { it.visibleBounds.run { top <= y && bottom >= y } }
     }
 
     private fun shot(name: String) {
@@ -197,11 +206,11 @@ class ReaderSheetTest {
                 displayTabShown()
 
                 // A greyed-out slider (Brightness follows the system by default) doesn't hand its drag to the tabs.
-                sheetShow(Copy.followSystem)
+                sheetShow(Copy.brightness) // its row; "System" is also the System theme (C-105)
                 assertNull(c.settings.value.brightness)
                 dragAcross(desc(Copy.brightness), leftwards = true)
                 waitFresh(500) { false }
-                shown(Copy.followSystem)
+                shown(Copy.brightness)
                 assertEquals(ReaderSheetTab.DISPLAY, c.settings.value.sheetTab)
                 assertNull("still following the system", c.settings.value.brightness)
             } finally {
@@ -231,10 +240,10 @@ class ReaderSheetTest {
                 // Keep screen on acts on the window at once, with the sheet still open.
                 val keepOn = sheetShow(Copy.keepScreenOn).visibleBounds.centerY()
                 fun windowKeepsOn(): Boolean { var on = false; sc.onActivity { on = it.window.attributes.flags and WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON != 0 }; return on }
-                assertTrue(windowKeepsOn())
-                dev.findObjects(By.checkable(true)).first { it.visibleBounds.run { top <= keepOn && bottom >= keepOn } }.click()
-                withTimeout(5_000) { h.a.controller.settings.first { !it.keepScreenOn } }
-                assertTrue("the window follows", waitFresh(5_000) { !windowKeepsOn() })
+                assertFalse(windowKeepsOn()) // C-106: off by default
+                switchAt(keepOn).click()
+                withTimeout(5_000) { h.a.controller.settings.first { it.keepScreenOn } }
+                assertTrue("the window follows", waitFresh(5_000) { windowKeepsOn() })
                 shown(Copy.keepScreenOn)
             } finally {
                 sc.onActivity { it.controller.updateSettings { ReaderSettings() } }
