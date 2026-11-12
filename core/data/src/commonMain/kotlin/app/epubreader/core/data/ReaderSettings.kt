@@ -66,7 +66,11 @@ data class ReaderSettings(
     val align: Align = Align.PUBLISHER,
     val theme: ReadingThemeId = ReadingThemeId.SYSTEM,
     val flow: Flow = Flow.PAGED,
-    /** null = follow the system brightness; otherwise the reader window's brightness, 0.05..1. */
+    /**
+     * null = follow the system brightness; otherwise the reader window's brightness, linear as the window takes it,
+     * [MIN_BRIGHTNESS]..1. The slider shows it on the system's perceptual scale ([BrightnessCurve], C-109), so values
+     * stored by older versions (0.05..1, the same linear scale) keep the screen as it was.
+     */
     val brightness: Double? = null,
     val pageNumbers: PageNumbers = PageNumbers.BOOK_PAGES,
     val swipeDirection: SwipeDirection = SwipeDirection.AUTO,
@@ -97,7 +101,7 @@ data class ReaderSettings(
         fontFamily = fontFamily.takeIf { it in FONTS } ?: PUBLISHER,
         lineHeight = tenth(lineHeight.coerceIn(1.3, 2.0)),
         marginPercent = marginPercent.coerceIn(0, 10),
-        brightness = brightness?.let { if (it.isNaN()) null else (it.coerceIn(0.05, 1.0) * 100).roundToInt() / 100.0 },
+        brightness = brightness?.let { if (it.isNaN()) null else (it.coerceIn(MIN_BRIGHTNESS, 1.0) * 10_000).roundToInt() / 10_000.0 },
         highlightColor = highlightColor.takeIf { it in HighlightColors.ALL } ?: HighlightColors.YELLOW,
     )
 
@@ -126,6 +130,12 @@ data class ReaderSettings(
         val FONTS = listOf(PUBLISHER, LITERATA, SOURCE_SANS, ATKINSON)
         const val MIN_FONT = 0.8
         const val MAX_FONT = 2.6
+        /**
+         * C-109: the lowest window brightness stored. The slider's start is the panel's own minimum, which the platform
+         * clamps to anyway; this floor only keeps the value above 0, which old Android versions pass to the backlight
+         * as 0/255 (off on some panels). 0.004 x 255 = 1.
+         */
+        const val MIN_BRIGHTNESS = 0.004
 
         private const val CHOSEN = "chosen"
         private val Full = Json { encodeDefaults = true }
