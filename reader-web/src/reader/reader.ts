@@ -194,6 +194,29 @@ export class Reader {
        * and foot are `{label, index, x, y, w, h}` (host viewport CSS px) or null when not shown; with dpr/vw/vh.
        */
       edges: () => { const e = this.view?.renderer?.debugEdges; return e ? { ...e, dpr: window.devicePixelRatio, vw: window.innerWidth, vh: window.innerHeight } : null },
+      /**
+       * C-110: how the current section is painted: its first paragraph's computed text colour, the filter on its frame and
+       * on its highlight layer, the paper colour, and where its first image and its first paragraph's first line are
+       * (host viewport CSS px), with dpr; null before a section is shown.
+       */
+      dim: () => {
+        const c = this.view?.renderer?.getContents?.()[0]
+        const doc: Document | undefined = c?.doc
+        const frame = doc?.defaultView?.frameElement as HTMLElement | null | undefined
+        if (!doc || !frame) return null
+        const f = frame.getBoundingClientRect()
+        const box = (b: DOMRect | null | undefined) => b ? { x: f.left + b.left, y: f.top + b.top, w: b.width, h: b.height } : null
+        const p = doc.querySelector('p')
+        const lines = p ? doc.createRange() : null
+        lines?.selectNodeContents(p!)
+        const line = lines ? [...lines.getClientRects()].find(b => b.width > 0 && b.height > 0) : null
+        const overlay = c.overlayer?.element as Element | undefined
+        return {
+          textColor: p ? doc.defaultView!.getComputedStyle(p).color : null, filter: getComputedStyle(frame).filter,
+          overlayFilter: overlay ? getComputedStyle(overlay).filter : null, paper: getComputedStyle(document.body).backgroundColor,
+          image: box(doc.querySelector('img')?.getBoundingClientRect()), line: box(line), dpr: window.devicePixelRatio,
+        }
+      },
       /** C-071: frames of the last boundary slide (`{ t, old, next }`, CSS px), [] if none ran. */
       slide: () => this.view?.renderer?.debugSlide ?? null,
       /** C-071: the slide's on-screen geometry now (container, both pages' iframes, old page attached), null if none runs. */
