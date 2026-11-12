@@ -1,6 +1,7 @@
 package app.epubreader.reader
 
 import android.os.Build
+import android.os.ParcelFileDescriptor
 import android.view.WindowInsets
 import android.view.WindowManager
 import androidx.test.core.app.ActivityScenario
@@ -320,6 +321,45 @@ class ReaderSheetTest {
             } finally {
                 sc.onActivity { it.controller.updateSettings { ReaderSettings() } }
                 h.a.settingsStored(); h.stop()
+            }
+        }
+    }
+
+    private fun shell(cmd: String): String =
+        ParcelFileDescriptor.AutoCloseInputStream(inst.uiAutomation.executeShellCommand(cmd)).use { it.readBytes().decodeToString() }.trim()
+
+    /**
+     * C-109: switching "follow system" off keeps the screen's brightness: the window takes the brightness the system has
+     * now (`settings get system screen_brightness`), not a fixed middle value. Manual mode, a dim level, where the old
+     * fixed 0.5 was furthest off.
+     */
+    @Test fun follow_system_off_keeps_the_current_brightness(): Unit = runBlocking {
+        val mode = shell("settings get system screen_brightness_mode")
+        val level = shell("settings get system screen_brightness")
+        shell("settings put system screen_brightness_mode 0")
+        shell("settings put system screen_brightness 60")
+        ActivityScenario.launch(MainActivity::class.java).use { sc ->
+            val h = ReaderHarness(sc, this)
+            try {
+                openBook(h)
+                openFromBar(h)
+                val row = sheetShow(Copy.brightness).visibleBounds.centerY()
+                assertNull(h.a.controller.settings.value.brightness)
+                fun window(): Float { var b = 0f; sc.onActivity { b = it.window.attributes.screenBrightness }; return b }
+                assertEquals("following the system: no override", WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE, window(), 0f)
+                val system = shell("settings get system screen_brightness").toInt()
+                assertEquals(60, system)
+                switchAt(row).click()
+                val stored = withTimeout(5_000) { h.a.controller.settings.first { it.brightness != null } }.brightness!!
+                val want = SystemBrightness.fromInt(system)
+                assertEquals("stored brightness is the system's", want, stored, 1.0 / 254)
+                assertTrue("the window takes the system's brightness ${window()} vs $want", waitFresh(5_000) { kotlin.math.abs(window() - want) <= 1.0 / 254 })
+                assertEquals("the system's own setting is untouched", "60", shell("settings get system screen_brightness"))
+            } finally {
+                sc.onActivity { it.controller.updateSettings { ReaderSettings() } }
+                h.a.settingsStored(); h.stop()
+                shell("settings put system screen_brightness $level")
+                shell("settings put system screen_brightness_mode $mode")
             }
         }
     }
