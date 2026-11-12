@@ -262,6 +262,7 @@ object Copy {
     const val brightness = "Brightness"
     const val followSystem = "System"
     fun themeName(id: app.epubreader.core.data.ReadingThemeId) = when (id) {
+        app.epubreader.core.data.ReadingThemeId.SYSTEM -> "System"
         app.epubreader.core.data.ReadingThemeId.LIGHT -> "Light"
         app.epubreader.core.data.ReadingThemeId.DARK -> "Dark"
         app.epubreader.core.data.ReadingThemeId.BLACK -> "Black"

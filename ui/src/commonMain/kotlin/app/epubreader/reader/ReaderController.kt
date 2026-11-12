@@ -41,6 +41,7 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
@@ -266,6 +267,9 @@ class ReaderController(
         hidePanel = ::hideSearch,
     )
     private var landscape = false
+    private val _systemDark = MutableStateFlow(false)
+    /** C-105: the phone's dark mode, which the System theme follows (see [setSystemDark]). */
+    val systemDark: StateFlow<Boolean> = _systemDark.asStateFlow()
     private var topInset = 0
     private var saveJob: Job? = null
     /** Settings are read before the first open is sent, so a book never opens with the defaults first. */
@@ -506,8 +510,9 @@ class ReaderController(
      */
     fun updateSettings(change: (ReaderSettings) -> ReaderSettings) {
         val before = _settings.value
-        val next = change(before).clamped()
-        if (next == before) return
+        val changed = change(before).clamped()
+        if (changed == before) return
+        val next = changed.withChoicesFrom(before) // C-105/C-106: the reader's choices survive a later change of default
         _settings.value = next
         totals.scope = next.pageNumbers.screenScope
         if (next.pageNumbers != before.pageNumbers) session?.let(::requestListPages)
@@ -539,11 +544,22 @@ class ReaderController(
         reader.send(ToWeb.SetSettings(settings = web()))
     }
 
-    /** The settings as the web side applies them (AUTO flow resolved by orientation). */
+    /**
+     * C-105: whether the phone is in dark mode, which the System theme follows. The activity sets it before the first
+     * open and on every configuration change, so the page switches live.
+     */
+    fun setSystemDark(value: Boolean) {
+        if (value == _systemDark.value) return
+        val before = web()
+        _systemDark.value = value
+        if (web() != before) { bookNumbers.pinHere(); probe.ev("layout_change", "systemDark"); reader.send(ToWeb.SetSettings(settings = web())) }
+    }
+
+    /** The settings as the web side applies them (AUTO flow resolved by orientation, the System theme by dark mode). */
     private fun web(s: ReaderSettings = _settings.value) = WebSettings(
         fontScale = s.fontScale, fontFamily = s.fontFamily, lineHeight = s.lineHeight, marginPercent = s.marginPercent,
         align = when (s.align) { Align.PUBLISHER -> "publisher"; Align.START -> "start"; Align.JUSTIFY -> "justify" },
-        theme = s.theme.name.lowercase(),
+        theme = s.theme.resolve(_systemDark.value).name.lowercase(),
         flow = when (s.flow) { Flow.PAGED -> "paginated"; Flow.SCROLLED -> "scrolled"; Flow.AUTO -> if (landscape) "scrolled" else "paginated" },
         swipeDirection = when (s.swipeDirection) { SwipeDirection.AUTO -> "auto"; SwipeDirection.LTR -> "ltr"; SwipeDirection.RTL -> "rtl" },
         pageAnimation = if (s.pageAnimation == PageAnimation.NONE) "none" else "slide",
