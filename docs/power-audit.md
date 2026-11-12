@@ -306,8 +306,8 @@ Per item:
 - (c) C1: with Book pages, nothing is counted (a0: renderer 2.06 → 0.57 s). With screen pages, the counts are stored in
   `book_cache` per book file and layout key, and a reopen with the same layout reads them back with no layout pass
   (`ScreenPageCountTest`). The War and Peace scenarios (a1–a3) were not rerun: with Book pages they count nothing now.
-- (d) D3: the reader window asks for 60 Hz while a book is shown (`dumpsys display`: `frameRateOverride {uid=… 
-  frameRateHz=60.000004}` while reading, none on the library). The emulator only has 60 Hz, so no panel saving can be
+- (d) D3: the reader window asks for 60 Hz while a book is shown (`dumpsys display`: `frameRateOverride {uid=… frameRateHz=60.000004}`
+  while reading, none on the library). The emulator only has 60 Hz, so no panel saving can be
   seen here; a phone with a fixed 90/120 Hz mode is needed (Part 3, "Refresh rate").
 - (e) W1: a position write at most every 5 s while reading; written at once on leaving the reader, on going to the
   background and on close. At one turn per 30–60 s nothing changes: each turn is still one write.
