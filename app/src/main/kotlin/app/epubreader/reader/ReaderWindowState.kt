@@ -109,6 +109,11 @@ class BarsRevealWatch {
         if (!hidden && last != true) ownShowPending = true
         hiddenWanted = hidden
     }
+    /**
+     * C-108 (h): the activity stopped. The bars' state on its return is not compared with the state before: the system
+     * shows them while the app is away, and that is no swipe.
+     */
+    fun away() { last = null; ownShowPending = false }
     fun seen(visible: Boolean, focused: Boolean): Boolean {
         val was = last
         last = visible

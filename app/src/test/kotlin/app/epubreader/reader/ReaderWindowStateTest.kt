@@ -142,6 +142,21 @@ class ReaderWindowStateTest {
         assertFalse("another window on top", w.seen(visible = true, focused = false))
     }
 
+    /**
+     * C-108 (h): the system shows the bars while the app is away (Home, recents) and the reader's first frame back still
+     * sees them shown: that is no swipe (it showed the bars for 3 s and redrew ~145 frames on every return).
+     */
+    @Test fun bars_seen_shown_on_a_return_are_no_reveal() {
+        val w = BarsRevealWatch()
+        w.requested(hidden = true)
+        w.seen(visible = false, focused = true)
+        w.away() // the activity stopped
+        w.requested(hidden = true) // the resume's reapply
+        assertFalse("shown on the return", w.seen(visible = true, focused = true))
+        w.seen(visible = false, focused = true) // the system applies the reader's hidden bars
+        assertTrue("a later swipe is the user's", w.seen(visible = true, focused = true))
+    }
+
     /** C-103: the app shows the bars and hides them again before the system reports them shown: still the app's show. */
     @Test fun a_quick_show_and_hide_by_the_app_is_no_reveal() {
         val w = BarsRevealWatch()

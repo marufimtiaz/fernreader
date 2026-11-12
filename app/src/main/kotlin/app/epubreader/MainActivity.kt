@@ -582,6 +582,7 @@ class MainActivity : ComponentActivity() {
 
     /** R-009: the process may be killed in the background without onDestroy, so a note being typed (and the position) is stored now. */
     override fun onStop() {
+        barsReveal.away() // C-108 (h): the bars shown on the return are the system's, not the user's swipe
         controller.flushNote()
         controller.flushPosition() // C-108 (e): positions are otherwise written at most every 5 s
         super.onStop()
