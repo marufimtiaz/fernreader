@@ -59,6 +59,9 @@ sealed interface ReaderError {
     data object FileChanged : ReaderError
 }
 
+/** C-104: how long system bars swiped in over the fullscreen reader stay before they hide again by themselves. */
+const val BARS_REVEAL_MS = 3_000L
+
 enum class Notice { MissingTarget, HitNotFound, NoAppForLink, BookmarkAdded, BookmarkRemoved, HighlightRemoved }
 
 data class ReaderUiState(
@@ -72,6 +75,11 @@ data class ReaderUiState(
     /** Book fraction of the current location (seek slider, F-034). */
     val fraction: Double = 0.0,
     val chromeVisible: Boolean = false,
+    /**
+     * C-104: the system bars are showing over the fullscreen reader because the user swiped them in from the top or bottom
+     * edge, without the controls. They hide again after [BARS_REVEAL_MS] or at the next tap on the page.
+     */
+    val barsRevealed: Boolean = false,
     val tocVisible: Boolean = false,
     /** The Contents panel's tab (F-041, F-062); opening the panel always starts on Contents. */
     val contentsTab: ContentsTab = ContentsTab.Contents,
@@ -462,6 +470,7 @@ class ReaderController(
     /** Back from the reader (R-005): returns immediately; the engine and the session close in the background. */
     fun close() {
         openJob?.cancel(); openJob = null
+        barsJob?.cancel(); barsJob = null
         val s = session
         session = null
         s?.bookmarkJob?.cancel()
@@ -636,7 +645,33 @@ class ReaderController(
         if (!ok) _state.update { it.copy(notice = Notice.NoAppForLink) }
     }
 
-    fun toggleChrome() = _state.update { it.copy(chromeVisible = !it.chromeVisible) }
+    /** Opening the controls while swiped-in bars show (C-104) makes the bars theirs: they hide again with the controls. */
+    fun toggleChrome() {
+        barsJob?.cancel(); barsJob = null
+        _state.update { it.copy(chromeVisible = !it.chromeVisible, barsRevealed = false) }
+    }
+
+    private var barsJob: Job? = null
+
+    /**
+     * C-104: the user swiped the system bars in over the fullscreen reader. Only the bars show (the controls stay hidden);
+     * they hide again by themselves after [BARS_REVEAL_MS], or at the next tap on the page, whichever comes first.
+     */
+    fun revealBars() {
+        if (_state.value.chromeVisible) return
+        barsJob?.cancel()
+        _state.update { it.copy(barsRevealed = true) }
+        barsJob = scope.launch {
+            kotlinx.coroutines.delay(BARS_REVEAL_MS)
+            barsJob = null
+            _state.update { it.copy(barsRevealed = false) }
+        }
+    }
+
+    private fun hideRevealedBars() {
+        barsJob?.cancel(); barsJob = null
+        _state.update { it.copy(barsRevealed = false) }
+    }
     fun showToc() { probe.ev("toc_cmd", ""); _state.update { it.copy(tocVisible = true, contentsTab = ContentsTab.Contents, chromeVisible = false) } }
     fun hideToc() = _state.update { it.copy(tocVisible = false) }
     fun showSearch() { probe.ev("search_open", ""); _state.update { it.copy(searchVisible = true, chromeVisible = false) }; searcher.loadHistory() }
@@ -1145,10 +1180,14 @@ class ReaderController(
             is FromWeb.Tap -> if (m.sessionId == s.id) {
                 val set = _settings.value
                 val action = tapAction(m.x, set.tapZones, effectiveRtl(set.swipeDirection, s.dir))
+                // C-104: a tap while swiped-in bars show hides them, and that is all it does (no turn, no controls).
+                val barsWere = _state.value.barsRevealed
+                if (barsWere) hideRevealedBars()
                 when {
                     _state.value.highlightPicker != null -> dismissHighlightPicker() // a tap on the page closes the colour row
                     _state.value.annotationSheet != null -> closeAnnotationSheet()
                     _state.value.sheetVisible -> hideSheet() // a tap on the page closes the sheet
+                    barsWere -> Unit
                     action == TapAction.Controls -> toggleChrome()
                     // F-032 tap zones; while the controls are shown an edge tap hides them instead of turning
                     action == TapAction.Next || action == TapAction.Prev ->
