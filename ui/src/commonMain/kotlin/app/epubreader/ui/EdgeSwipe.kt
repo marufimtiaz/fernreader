@@ -58,6 +58,20 @@ class SidewaysWatch(x: Float, y: Float) {
 }
 
 /**
+ * The finger's speed along x at the lift (px/s), from every position the system reported. Input comes batched to the
+ * frame: while the main thread is busy (the panel's first frames) one change brings the moves of the wait in its
+ * `historical`. Its latest position alone left a gap the tracker reads as a stop, so a flick read as speed 0.
+ */
+internal class FlickTracker {
+    private val tracker = VelocityTracker()
+    fun add(c: PointerInputChange) {
+        for (h in c.historical) tracker.addPosition(h.uptimeMillis, h.position)
+        tracker.addPosition(c.uptimeMillis, c.position)
+    }
+    fun xVelocity(): Float = tracker.calculateVelocity().x
+}
+
+/**
  * C-098, C-102: a one-finger gesture that starts in the strip along this element's right edge ([fromRight]) or its left one
  * and travels inward. It is recognised here, above the content: every touch from the strip is watched in the Initial pass and
  * taken only at its sideways part ([SidewaysWatch]). Until then the content gets all of it, so taps tap, scrolls scroll and a
@@ -80,7 +94,7 @@ fun Modifier.edgeSwipe(
         fun inward(c: PointerInputChange) = (if (fromRight) size.width - c.position.x else c.position.x) / density
         if (!enabled() || !inEdgeStrip(inward(down))) return@awaitEachGesture
         val watch = SidewaysWatch(inward(down), down.position.y / density)
-        val tracker = VelocityTracker().apply { addPosition(down.uptimeMillis, down.position) } // a flick has few events: all of them count
+        val tracker = FlickTracker().apply { add(down) } // a flick has few events: all of them count
         var following = false
         while (true) {
             val event = awaitPointerEvent(PointerEventPass.Initial)
@@ -93,14 +107,14 @@ fun Modifier.edgeSwipe(
             if (!c.pressed) {
                 if (following) {
                     // a cancel comes in consumed, a lift doesn't: the system's Back must not read as a flick
-                    tracker.addPosition(c.uptimeMillis, c.position)
-                    val speed = tracker.calculateVelocity().x * (if (fromRight) -1f else 1f) / density / 1000f
+                    tracker.add(c)
+                    val speed = tracker.xVelocity() * (if (fromRight) -1f else 1f) / density / 1000f
                     onEnd(if (c.isConsumed) null else inward(c), widthDp, speed)
                     c.consume()
                 }
                 return@awaitEachGesture
             }
-            tracker.addPosition(c.uptimeMillis, c.position)
+            tracker.add(c)
             if (!following) {
                 if (watch.still && c.uptimeMillis - down.uptimeMillis >= viewConfiguration.longPressTimeoutMillis) return@awaitEachGesture
                 following = watch.sideways(inward(c), c.position.y / density) && enabled()
