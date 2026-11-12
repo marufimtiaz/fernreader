@@ -77,6 +77,7 @@ fun DisplayTab(
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         ThemeRow(s.theme) { id -> onChange { it.copy(theme = id) } }
+        SwitchRow(Copy.followBatterySaver, Copy.followBatterySaverHint, s.followBatterySaver) { v -> onChange { it.copy(followBatterySaver = v) } } // C-107
         TextSizeRow(s.fontScale, onStep = { d -> onChange { it.stepFont(d) } })
         FontRow(s.fontFamily, fonts) { f -> onChange { it.copy(fontFamily = f) } }
         SliderRow(Copy.lineSpacing, s.lineHeight.toString(), s.lineHeight.toFloat(), 1.3f..2.0f, steps = 6) { v ->
@@ -135,6 +136,18 @@ private fun ThemeRow(current: ReadingThemeId, onPick: (ReadingThemeId) -> Unit) 
                     fontWeight = if (selected) FontWeight.SemiBold else null)
             }
         }
+    }
+}
+
+/** C-107: a labelled switch with a hint under the label. */
+@Composable
+private fun SwitchRow(label: String, hint: String, checked: Boolean, onChecked: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Label(label)
+            Text(hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Switch(checked = checked, onCheckedChange = onChecked, modifier = Modifier.semantics { contentDescription = label })
     }
 }
 

@@ -116,6 +116,7 @@ object Copy {
     private fun n(x: Int) = x.toString().reversed().chunked(3).joinToString(",").reversed()
     /** C-091: what the reader shows, "212/718" ("xii/400" with print labels). [pageLabel] stays the spoken wording. */
     fun pageLabelShort(p: app.epubreader.reader.PageIndicator): String? {
+        p.percent?.let { return "$it%" } // C-107
         val page = p.page ?: return null
         val shown = p.label ?: n(page)
         val total = p.total ?: return shown
@@ -126,6 +127,7 @@ object Copy {
         }
     }
     fun pageLabel(p: app.epubreader.reader.PageIndicator): String? {
+        p.percent?.let { return bookmarkPercent(it) } // C-107
         val page = p.page ?: return null
         return when {
             p.label != null -> if (p.total == null) "Page ${p.label}" else "Page ${p.label} of ${n(p.total)}"
@@ -356,6 +358,9 @@ object Copy {
     } + ". " + volumeHint(v)
     const val fullscreen = "Hide system bars"
     const val keepScreenOn = "Keep screen on while reading"
+    // C-107
+    const val followBatterySaver = "Follow Battery Saver"
+    const val followBatterySaverHint = "While Battery Saver is on: black page, no page-turn animation, position in percent instead of screen pages"
     const val orientation = "Orientation"
     const val orientSystem = "System"
     const val orientPortrait = "Portrait"
