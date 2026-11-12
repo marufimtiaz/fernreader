@@ -25,6 +25,7 @@ import app.epubreader.reader.BarsVisibility
 import app.epubreader.reader.ReaderWindowInputs
 import app.epubreader.reader.WindowApplier
 import app.epubreader.reader.WindowLook
+import app.epubreader.reader.preferredRate
 import app.epubreader.reader.readerWindowState
 import app.epubreader.reader.rememberReaderShown
 import android.view.WindowManager
@@ -387,7 +388,12 @@ class MainActivity : ComponentActivity() {
     private fun applyReaderWindow(look: WindowLook) {
         windowApplies++
         val win = look.win
-        if (window.attributes.screenBrightness != look.brightness) window.attributes = window.attributes.apply { screenBrightness = look.brightness }
+        // C-108 (d): the reading refresh rate while a book is shown, no request elsewhere. One attributes change for both.
+        val rate = preferredRate(win.refresh, panelRates())
+        val attrs = window.attributes
+        if (attrs.screenBrightness != look.brightness || attrs.preferredRefreshRate != rate) {
+            window.attributes = attrs.apply { screenBrightness = look.brightness; preferredRefreshRate = rate }
+        }
         WindowCompat.getInsetsController(window, window.decorView).apply {
             isAppearanceLightStatusBars = look.lightBars
             isAppearanceLightNavigationBars = look.lightBars
@@ -402,6 +408,14 @@ class MainActivity : ComponentActivity() {
         else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         // Only on a change, so the bench `orient` command keeps winning until the lock or the route changes.
         if (win.orientation != appliedOrientation) { appliedOrientation = win.orientation; requestedOrientation = win.orientation }
+    }
+
+    /** The panel's refresh rates at the current resolution (the modes a requested rate is matched against). */
+    private fun panelRates(): List<Float> {
+        @Suppress("DEPRECATION")
+        val d = (if (android.os.Build.VERSION.SDK_INT >= 30) display else windowManager.defaultDisplay) ?: return emptyList()
+        val now = d.mode
+        return d.supportedModes.filter { it.physicalWidth == now.physicalWidth && it.physicalHeight == now.physicalHeight }.map { it.refreshRate }
     }
 
     fun openBook(ref: SourceRef) {

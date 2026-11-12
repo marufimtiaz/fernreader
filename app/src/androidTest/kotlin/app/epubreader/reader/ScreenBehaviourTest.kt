@@ -80,6 +80,13 @@ class ScreenBehaviourTest {
         eventually("unspecified in the library", ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) { sc.read { it.requestedOrientation } }
     }
 
+    /** C-108 (d): the reader asks for 60 Hz (the emulator's only rate) while showing a book; the library asks for nothing. */
+    @Test fun the_reader_asks_for_the_reading_rate_and_the_library_for_none() = withReader(null) { sc, _ ->
+        eventually("60 Hz in the reader", 60) { sc.read { Math.round(it.window.attributes.preferredRefreshRate) } }
+        sc.onActivity { it.goBack() }
+        eventually("no request in the library", 0) { sc.read { Math.round(it.window.attributes.preferredRefreshRate) } }
+    }
+
     /** I2 (review): page turns do not touch the window (no flags, insets or attributes set, so no relayout per turn). */
     @Test fun page_turns_do_not_reapply_the_window() = withReader(null) { sc, h ->
         eventually("flag set in the reader", true) { sc.keepOn() }

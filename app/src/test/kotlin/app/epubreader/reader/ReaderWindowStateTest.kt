@@ -49,6 +49,29 @@ class ReaderWindowStateTest {
         assertTrue(state(chrome = true).keepScreenOn)
     }
 
+    /** C-108 (d): the reader asks for the reading rate while a book is shown; elsewhere the app does not ask. */
+    @Test fun a_shown_book_asks_for_the_reading_rate_and_nothing_else_does() {
+        assertEquals(RefreshRate.READING, state().refresh)
+        assertEquals(RefreshRate.READING, state(chrome = true).refresh)
+        assertEquals(RefreshRate.ANY, state(inReader = false).refresh)
+        assertEquals(RefreshRate.ANY, state(ui = ReaderUiState()).refresh) // no book shown yet
+        assertEquals(RefreshRate.LOWEST, readerWindowState(true, ReaderWindowInputs.of(reading), defaults, lowestRefresh = true).refresh)
+        assertEquals(RefreshRate.ANY, readerWindowState(false, ReaderWindowInputs.of(reading), defaults, lowestRefresh = true).refresh)
+    }
+
+    /** C-108 (d): 60 Hz, or the panel's lowest rate if that is higher; C-107's lowest is the panel's lowest. 0 = no request. */
+    @Test fun the_requested_rate_comes_from_the_panel_s_rates() {
+        assertEquals(0f, preferredRate(RefreshRate.ANY, listOf(60f, 120f)))
+        assertEquals(60f, preferredRate(RefreshRate.READING, listOf(120f, 60f, 90f)))
+        assertEquals(60.000004f, preferredRate(RefreshRate.READING, listOf(120.00001f, 60.000004f)))
+        assertEquals(90f, preferredRate(RefreshRate.READING, listOf(90f, 120f))) // lowest is higher than 60
+        assertEquals(60f, preferredRate(RefreshRate.READING, listOf(30f, 60f, 120f))) // 60, not the lowest
+        assertEquals(30f, preferredRate(RefreshRate.LOWEST, listOf(30f, 60f, 120f)))
+        assertEquals(60f, preferredRate(RefreshRate.READING, listOf(60f)))
+        assertEquals(90f, preferredRate(RefreshRate.READING, listOf(48f, 90f, 120f))) // no 60: the next rate above it
+        assertEquals(0f, preferredRate(RefreshRate.READING, emptyList()))
+    }
+
     /**
      * M7 (review): with auto-rotate on, a lock follows the sensor within the locked orientation, so the page is never upside
      * down. C-108 (g): the USER variants, so with auto-rotate off the system does not listen to the accelerometer for it.
