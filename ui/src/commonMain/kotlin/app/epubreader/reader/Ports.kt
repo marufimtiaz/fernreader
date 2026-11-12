@@ -64,6 +64,14 @@ fun interface ExternalLinkOpener {
 }
 
 /**
+ * R-008 / C-108 (b): checks the open book's file now (implemented in app by the file watch, off the main thread). False
+ * when it was deleted, moved away or rewritten since the open; the app then closes the book with its notice by itself.
+ */
+fun interface BookFileCheck {
+    suspend fun unchanged(): Boolean
+}
+
+/**
  * F-060 selection menu: Copy and Share (implemented in app: the clipboard as plain text, an ACTION_SEND chooser).
  * Main thread; must not block.
  */

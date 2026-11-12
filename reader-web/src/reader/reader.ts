@@ -413,6 +413,7 @@ export class Reader {
         case 'clearSelection': this.clearSelection(); break
         case 'goToOffset': this.enqueue({ kind: 'offset', index: m.sectionIndex, offset: m.offset }); break
         case 'textOffsets': void this.textOffsets(m.sessionId, m.id, m.cfis); break
+        case 'countPages': this.countPages(m.sessionId, m.gen, m.run); break
       }
     })
   }
@@ -761,17 +762,41 @@ export class Reader {
     this.scheduleCount()
   }
 
-  /** Counts again 400 ms after the last layout change. */
+  /**
+   * A new layout generation: announced to the app 400 ms after the last layout change (after the new layout has been
+   * painted, and a slider drag announces once) with its key. C-108 (c): the app then asks for the count (`countPages`)
+   * only when screen pages are shown and it has none stored for that key.
+   */
   private scheduleCount() {
     if (this.countTimer) clearTimeout(this.countTimer)
     const gen = ++this.countGen
     this.counter?.announce(gen)
-    // 400 ms: after the new layout has been painted (a batch blocks the page for ~0.2 s, P-020), and a slider drag
-    // counts once.
     this.countTimer = setTimeout(() => {
       this.countTimer = null
-      void this.counter?.start(gen).catch(e => console.warn('count failed', e))
+      const sessionId = this.sessionId
+      if (this.counter && sessionId && this.countGen === gen) this.bridge.send({ v: 1, type: 'countReady', sessionId, gen, key: this.layoutKey() })
     }, 400)
+  }
+
+  /** C-108 (c): the app's answer to `countReady`: count generation [gen] (if it is still the current one), or stop. */
+  private countPages(sessionId: string, gen: number, run: boolean) {
+    if (sessionId !== this.sessionId || !this.counter || gen !== this.countGen) return
+    if (run) void this.counter.start(gen).catch(e => console.warn('count failed', e))
+    else this.counter.stop()
+  }
+
+  /**
+   * What the screen-page counts depend on: the layout settings, the flow, the paginator's page box and the device pixel
+   * ratio (a new viewport, rotation or inset changes the box). The theme, animation and swipe settings do not count.
+   */
+  private layoutKey(): string {
+    const s = this.settings
+    const l = this.view?.renderer?.pagedLayout
+    return JSON.stringify({
+      v: 1, fontScale: s.fontScale, fontFamily: s.fontFamily, lineHeight: s.lineHeight, marginPercent: s.marginPercent,
+      align: s.align, topInset: s.topInset ?? 0, flow: s.flow, dpr: window.devicePixelRatio,
+      box: l ? [l.width, l.height, l.gap, l.columnWidth, l.margin, !!l.verticalPages] : null,
+    })
   }
 
   private sendOpened(sessionId: string) {

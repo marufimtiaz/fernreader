@@ -149,6 +149,8 @@ class ReaderController(
     private val textActions: TextActions? = null,
     /** C-109: the phone's brightness, which the display panel's slider matches. */
     val screenBrightness: app.epubreader.reader.display.ScreenBrightness = app.epubreader.reader.display.ScreenBrightness.Unknown,
+    /** R-008 / C-108 (b): the open book's file, checked before a write that depends on it; null: not watched. */
+    private val bookFile: BookFileCheck? = null,
 ) {
     /**
      * [map] is the opened book's (M8: its ChunkMap when a huge document was split): every CFI, section index and text
@@ -213,6 +215,16 @@ class ReaderController(
         /** C-083: list CFIs (original) asked of the web side for their book pages, and the open requests by id. */
         val pagesAsked = HashSet<String>()
         val pageRequests = HashMap<Int, List<String>>()
+        /** C-108 (c): the screen-page counter's latest layout generation (`countReady`) and its key. */
+        var countGen = -1
+        var countKey: String? = null
+        /** The generation the web side was asked to count (and not told to stop), or -1. */
+        var countAsked = -1
+        /** The generation whose counts came from storage, or -1. */
+        var countStored = -1
+        /** The asked generation's counts as they arrive, stored once complete. */
+        var countLinear: List<Int>? = null
+        val countAcc = HashMap<Int, Int>()
     }
 
     private val _state = MutableStateFlow(ReaderUiState())
@@ -258,6 +270,11 @@ class ReaderController(
     private val bookPagesShown: Boolean get() = useBookPages(_settings.value, fixedLayoutBook.value) && bookNumbers.pages != null
     /** Book pages under the Page numbers setting; a fixed-layout book shows its own pages under every setting (C-087). */
     private fun useBookPages(set: ReaderSettings, fixedLayout: Boolean) = fixedLayout || set.pageNumbers == PageNumbers.BOOK_PAGES
+    /**
+     * C-108 (c): the screen-page counts are shown ([shownPage] shows screen pages): a Screen setting, or Book pages for a
+     * book without them. Only then does the counter run.
+     */
+    private fun screenPagesShown() = !(useBookPages(_settings.value, fixedLayoutBook.value) && !bookPagesMissing.value)
     /** F-050 search state for the open book (reset when another opens). */
     val searcher = ReaderSearch(
         scope, search, searchHistory, probe,
@@ -413,6 +430,7 @@ class ReaderController(
                 if (session !== s) return@launch
                 bookNumbers.setPages(pages, s.map)
                 bookPagesMissing.value = pages == null
+                resolveCount(s) // a book without book pages shows screen pages
                 probe.ev("book_pages_ready", pages?.let { "${it.source} ${it.count}" } ?: "none")
                 requestListPages(s)
                 if (!statsTried) {
@@ -436,6 +454,56 @@ class ReaderController(
     }
 
     private fun onStats(s: Session) = totals.setStats(s.stats, s.sections)
+
+    /**
+     * C-108 (c): what the screen-page counter does for the latest layout generation. Screen pages not shown: nothing (a
+     * running count stops). Shown: the counts stored for this book and layout, else the web side counts them.
+     */
+    private fun resolveCount(s: Session) {
+        val gen = s.countGen
+        val key = s.countKey ?: return
+        if (session !== s) return
+        if (!screenPagesShown()) {
+            if (s.countAsked == gen) { s.countAsked = -1; reader.send(ToWeb.CountPages(sessionId = s.id, gen = gen, run = false)) }
+            return
+        }
+        if (s.countAsked == gen || s.countStored == gen) return
+        val bookId = s.bookId ?: return
+        scope.launch {
+            val stored = try {
+                library.cached(bookId, countsKind(s.map, key), s.cdDigest)?.let { runCatching { BridgeJson.decodeFromString(StoredCounts.serializer(), it) }.getOrNull() }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                failed("reading stored page counts", e, showIfOpen = false); null
+            }
+            if (session !== s || s.countGen != gen || s.countAsked == gen || s.countStored == gen || !screenPagesShown()) return@launch
+            if (stored != null) {
+                s.countStored = gen
+                probe.ev("page_counts_stored", "gen=$gen")
+                totals.onCounts(FromWeb.PageCounts(sessionId = s.id, gen = gen, linear = stored.linear, counts = stored.counts, done = true))
+            } else {
+                s.countAsked = gen
+                reader.send(ToWeb.CountPages(sessionId = s.id, gen = gen, run = true))
+            }
+        }
+    }
+
+    /** C-108 (c): the asked generation's counts; once complete they are stored for this book and layout. */
+    private fun collectCounts(s: Session, m: FromWeb.PageCounts) {
+        if (m.gen != s.countGen || m.gen != s.countAsked) return
+        m.linear?.let { s.countLinear = it }
+        for (c in m.counts) if (c.size == 2) s.countAcc[c[0]] = c[1]
+        if (!m.done) return
+        val linear = s.countLinear ?: return
+        val bookId = s.bookId ?: return
+        if (!linear.all { it in s.countAcc }) return
+        val json = BridgeJson.encodeToString(StoredCounts.serializer(), StoredCounts(linear, linear.map { listOf(it, s.countAcc.getValue(it)) }))
+        val kind = countsKind(s.map, s.countKey ?: return)
+        closeScope.launch {
+            try { library.storeCache(bookId, kind, s.cdDigest, json) } catch (e: CancellationException) { throw e } catch (e: Exception) { failed("storing page counts", e, showIfOpen = false) }
+        }
+    }
 
     /** C-073: the slider is dragged to [fraction]: preview the chapter (contents entry) and page a release lands on. */
     fun previewSeek(fraction: Double) {
@@ -507,6 +575,17 @@ class ReaderController(
     }
 
     /**
+     * C-108 (e): stores the newest reading position now instead of after the writer's wait: the reader is left (another
+     * screen on top) or the app goes to the background. Closing the book stores it too ([close]).
+     */
+    fun flushPosition() {
+        if (session?.last == null) return
+        closeScope.launch {
+            try { positions.await().flush() } catch (e: CancellationException) { throw e } catch (e: Exception) { failed("storing the position", e, showIfOpen = false) }
+        }
+    }
+
+    /**
      * Changes the display settings: clamped, applied at once on the page (live preview, F-075), stored 300 ms after the
      * last change (a slider drag writes once).
      */
@@ -517,7 +596,7 @@ class ReaderController(
         val next = changed.withChoicesFrom(before) // C-105/C-106: the reader's choices survive a later change of default
         _settings.value = next
         totals.scope = next.pageNumbers.screenScope
-        if (next.pageNumbers != before.pageNumbers) session?.let(::requestListPages)
+        if (next.pageNumbers != before.pageNumbers) session?.let { requestListPages(it); resolveCount(it) }
         if (web(before) != web(next)) { bookNumbers.pinHere(); probe.ev("layout_change", ""); reader.send(ToWeb.SetSettings(settings = web())) }
         saveJob?.cancel()
         saveJob = closeScope.launch {
@@ -740,6 +819,7 @@ class ReaderController(
                     s.marks = s.marks - here.map { s.map.cfiToVirtual(it.cfi) }.toSet()
                     publishBookmarks(s, Notice.BookmarkRemoved)
                 } else {
+                    if (bookFile?.unchanged() == false) return@launch // R-008: the book is closing; nothing goes into the old file's data
                     val b = port.add(bookId, s.map.cfiToOriginal(at.cfi), s.map.textToOriginal(TextPos(at.sectionIndex, 0)).spineIndex, at.fraction, chapter)
                     if (session !== s) return@launch
                     s.bookmarkList = s.bookmarkList + b
@@ -900,6 +980,7 @@ class ReaderController(
         val spine = s.map.textToOriginal(TextPos(sel.sectionIndex, 0)).spineIndex
         scope.launch {
             try {
+                if (bookFile?.unchanged() == false) return@launch // R-008, as for a bookmark
                 val a = port.add(bookId, s.map.cfiToOriginal(cfi), spine, annotationText(sel.text), chapter, color, style)
                 if (session !== s) return@launch
                 probe.ev("annotation_added", style)
@@ -1164,6 +1245,7 @@ class ReaderController(
                 if (s.seek == null) s.bookId?.let { id ->
                     val u = PositionWriter.Update(id, s.map.cfiToOriginal(m.cfi), m.fraction, s.map.textToOriginal(TextPos(m.sectionIndex, 0)).spineIndex)
                     s.last = u
+                    bookFile?.let { f -> scope.launch { f.unchanged() } } // C-108 (b): a change closes the book (R-008)
                     positions.await().submit(u)
                 }
                 if (session === s) {
@@ -1177,7 +1259,11 @@ class ReaderController(
                 }
             }
             is FromWeb.PageBookmarks -> if (m.sessionId == s.id) { s.marks = m.cfis.toSet(); publishBookmarks(s) }
-            is FromWeb.PageCounts -> if (m.sessionId == s.id) totals.onCounts(m)
+            is FromWeb.PageCounts -> if (m.sessionId == s.id) { totals.onCounts(m); collectCounts(s, m) }
+            is FromWeb.CountReady -> if (m.sessionId == s.id) {
+                s.countGen = m.gen; s.countKey = m.key; s.countLinear = null; s.countAcc.clear()
+                resolveCount(s)
+            }
             is FromWeb.TextOffsets -> if (m.sessionId == s.id) {
                 val cfis = s.pageRequests.remove(m.id) ?: return
                 val labels = HashMap<String, String>()
@@ -1249,3 +1335,16 @@ private const val STATS_KIND = "section-stats.v1"
  */
 internal fun statsKind(map: PositionMap): String = (map as? ChunkMap)?.takeUnless { it.isIdentity }?.let { "$STATS_KIND@${it.policyKey}" } ?: STATS_KIND
 private val STATS = kotlinx.serialization.builtins.ListSerializer(SectionStat.serializer())
+
+/** C-108 (c): a layout's screen-page counts as stored in `book_cache`: the counted sections and [index, pages] pairs. */
+@kotlinx.serialization.Serializable
+internal data class StoredCounts(val linear: List<Int>, val counts: List<List<Int>>)
+
+private const val COUNTS_KIND = "screen-pages.v1"
+
+/**
+ * The `book_cache` kind of a layout's screen-page counts: the web side's layout [key], under the chunk policy of a chunked
+ * book (M8, as [statsKind]); the row's digest ties it to the file version.
+ */
+internal fun countsKind(map: PositionMap, key: String): String =
+    ((map as? ChunkMap)?.takeUnless { it.isIdentity }?.let { "$COUNTS_KIND@${it.policyKey}" } ?: COUNTS_KIND) + "|" + key

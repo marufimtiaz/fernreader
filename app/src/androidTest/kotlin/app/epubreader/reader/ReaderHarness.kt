@@ -36,6 +36,15 @@ private suspend fun MainActivity.storedSettings() = ReaderSettings.decode((appli
  */
 suspend fun MainActivity.settingsStored() = withTimeout(10_000) { while (storedSettings() != controller.settings.value) delay(20) }
 
+/** C-108 (c): the screen-page counter runs only while screen pages are shown; tests of the counter show them. */
+fun ReaderHarness.screenPages() = sc.onActivity { it.controller.updateSettings { s -> s.copy(pageNumbers = app.epubreader.core.data.PageNumbers.SCREEN_BOOK) } }
+
+/** C-108 (c): forgets the screen-page counts stored for [book], so its next layout is counted (not read back). */
+suspend fun MainActivity.forgetStoredCounts(book: File) {
+    val graph = (application as EpubReaderApp).graph
+    graph.library.knownBookId(SourceRef.File(book.path))?.let { graph.db.libraryDao().deleteCache(it) }
+}
+
 /** Reader events in arrival order for a scenario, with ordered waits (no timing guesses). */
 class ReaderHarness(val sc: ActivityScenario<MainActivity>, scope: CoroutineScope) {
     lateinit var a: MainActivity

@@ -85,7 +85,7 @@ class ScrollStabilityTest {
         ActivityScenario.launch(MainActivity::class.java).use { sc ->
             val h = ReaderHarness(sc, this)
             try {
-                h.ready(); h.openBook(path, title)
+                h.ready(); h.screenPages(); h.openBook(path, title)
                 h.scrolled(); h.still()
                 // "the start": the first contents entry (resuming would start wherever an earlier run left the book)
                 val start = h.tocJump(jump ?: h.a.controller.state.value.toc.first().label).sectionIndex
@@ -142,7 +142,7 @@ class ScrollStabilityTest {
         ActivityScenario.launch(MainActivity::class.java).use { sc ->
             val h = ReaderHarness(sc, this)
             try {
-                h.ready(); h.openBook("/sdcard/Books/epub3-samples/accessible_epub_3.epub", "Accessible")
+                h.ready(); h.screenPages(); h.openBook("/sdcard/Books/epub3-samples/accessible_epub_3.epub", "Accessible")
                 h.scrolled(); h.still()
                 h.contentsJump("2. Building", "forward to chapter 2")
                 repeat(3) { fling(); delay(900) }; h.still() // a jump during the run-out is another case: see the commit
@@ -159,7 +159,7 @@ class ScrollStabilityTest {
         ActivityScenario.launch(MainActivity::class.java).use { sc ->
             val h = ReaderHarness(sc, this)
             try {
-                h.ready(); h.openBook("/sdcard/Books/gutenberg/war-and-peace-epub3.epub", "War and Peace")
+                h.ready(); h.screenPages(); h.openBook("/sdcard/Books/gutenberg/war-and-peace-epub3.epub", "War and Peace")
                 h.scrolled(); h.still()
                 h.contentsJump("BOOK THREE", "forward far")
                 repeat(3) { fling(); delay(900) }; h.still() // a jump during the run-out is another case: see the commit
@@ -175,7 +175,7 @@ class ScrollStabilityTest {
         ActivityScenario.launch(MainActivity::class.java).use { sc ->
             val h = ReaderHarness(sc, this)
             try {
-                h.ready(); h.openBook("/sdcard/Books/epub3-samples/accessible_epub_3.epub", "Accessible")
+                h.ready(); h.screenPages(); h.openBook("/sdcard/Books/epub3-samples/accessible_epub_3.epub", "Accessible")
                 h.scrolled(); h.still()
                 h.contentsJump("1. Introduction", "start")
                 h.contentsJump("About the Book", "to the last entry (the end of the last chapter)")

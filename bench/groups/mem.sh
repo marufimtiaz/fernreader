@@ -31,6 +31,7 @@ if [ "$RELEASE" = 1 ]; then
     for _ in $(seq 1 40); do [ -z "$($A shell "ps -A -o NAME | grep $PKG" | tr -d '\r')" ] && break; sleep 0.5; done
     $A shell appops set "$PKG" MANAGE_EXTERNAL_STORAGE allow
     $A shell am start -W -n "$PKG/$ACT" >/dev/null; sleep 4
+    bench_cmd pageNumbers screen; sleep 1 # C-108 (c): the counter runs only while screen pages are shown
     $A logcat -c; bench_cmd openPath "$H"; peak=0; samples=0; end=$(( $(date +%s) + 30 ))
     while [ "$(date +%s)" -lt "$end" ]; do
       m=$(mb); [[ $m =~ ^[0-9]+$ ]] && [ "$m" -gt 0 ] || continue

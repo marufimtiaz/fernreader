@@ -164,7 +164,7 @@ class ScanOnReturnTest {
             // finished within 2 s of the view opening, and the view used to skip its scan then). The book arrives
             // right after it, while the app is in front (e.g. over USB): no event reaches the app.
             delay(1_000); withTimeout(10_000) { graph.scans.state.first { !it.running } } // the app start scan is done
-            graph.scans.onForeground()
+            graph.scans.onForeground(libraryShown = true)
             // (a scan can be over before a collector sees it running, and an equal result is no new state: no wait on either)
             withTimeoutOrNull(2_000) { graph.scans.state.first { it.running } }
             withTimeout(10_000) { graph.scans.state.first { !it.running } }

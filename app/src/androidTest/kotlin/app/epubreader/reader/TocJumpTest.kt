@@ -70,7 +70,9 @@ class TocJumpTest {
             assertEquals("jumped to $at", emptyList<String>(), moves.map { it.cfi }.filter { it != at.cfi })
             assertEquals(at.tocHref, a.controller.state.value.currentTocHref)
             val library = (a.application as EpubReaderApp).graph.library
-            assertEquals(at.cfi, library.position(library.knownBookId(SourceRef.File(f.path))!!)?.cfi) // nor the stored position
+            sc.onActivity { it.controller.flushPosition() } // C-108 (e): stored at most every 5 s while reading; now at once
+            val id = library.knownBookId(SourceRef.File(f.path))!!
+            withTimeout(3_000) { while (library.position(id)?.cfi != at.cfi) delay(20) } // nor the stored position
         }
     }
 }

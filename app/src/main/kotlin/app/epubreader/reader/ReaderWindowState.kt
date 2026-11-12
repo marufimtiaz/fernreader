@@ -9,7 +9,30 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 
 /** What the activity's window should look like (F-035). */
-data class ReaderWindowState(val barsHidden: Boolean, val keepScreenOn: Boolean, val orientation: Int)
+data class ReaderWindowState(val barsHidden: Boolean, val keepScreenOn: Boolean, val orientation: Int, val refresh: RefreshRate = RefreshRate.ANY)
+
+/**
+ * C-108 (d): the refresh rate the window asks the system for. ANY: no request (the system decides). READING: 60 Hz, or the
+ * panel's lowest rate if that is higher (a still page does not need 90 or 120 Hz on a fixed-mode panel). LOWEST: the
+ * panel's lowest rate (C-107, Battery Saver).
+ */
+enum class RefreshRate { ANY, READING, LOWEST }
+
+/**
+ * The rate to put in the window's `preferredRefreshRate` for [want], from the panel's [rates] at the current resolution
+ * (the system matches a requested rate against those modes, so it must be one of them). 0 = no request. READING without a
+ * 60 Hz mode takes the lowest rate above 60.
+ */
+fun preferredRate(want: RefreshRate, rates: List<Float>): Float {
+    if (rates.isEmpty()) return 0f
+    return when (want) {
+        RefreshRate.ANY -> 0f
+        RefreshRate.LOWEST -> rates.min()
+        RefreshRate.READING -> rates.filter { it >= READING_HZ - 0.5f }.minOrNull() ?: rates.max()
+    }
+}
+
+private const val READING_HZ = 60f
 
 /**
  * The part of the reader state the window depends on. A page turn (location, chapter, marker) changes none of it, so
@@ -34,17 +57,25 @@ data class ReaderWindowInputs(
  * Screen behaviour from (route, reader state, settings). Only the reader route changes anything; the library follows
  * the system. Fullscreen hides the system bars while the controls are hidden and shows them with the controls (the
  * page is inset by a stable amount, so neither reflows it), while the user's swipe has them in (C-104) and on an error screen. Keep-screen-on needs a book on
- * screen. An orientation lock follows the sensor within the locked orientation (either way up).
+ * screen. An orientation lock follows the sensor within the locked orientation (either way up) while the phone's
+ * auto-rotate is on; with it off the system holds the locked orientation without the accelerometer (C-108 g: the SENSOR_
+ * variants kept the system's rotation sensor on even then). A shown book asks for the reading refresh rate, or the
+ * lowest with [lowestRefresh] (C-107); nothing else asks (C-108 d).
  */
-fun readerWindowState(inReader: Boolean, r: ReaderWindowInputs, s: ReaderSettings): ReaderWindowState =
+fun readerWindowState(inReader: Boolean, r: ReaderWindowInputs, s: ReaderSettings, lowestRefresh: Boolean = false): ReaderWindowState =
     if (!inReader) ReaderWindowState(false, false, ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED)
     else ReaderWindowState(
         barsHidden = s.fullscreen && !r.chromeVisible && !r.barsRevealed && !r.error,
         keepScreenOn = s.keepScreenOn && r.bookShown,
         orientation = when (s.orientation) {
             OrientationLock.SYSTEM -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-            OrientationLock.PORTRAIT -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
-            OrientationLock.LANDSCAPE -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            OrientationLock.PORTRAIT -> ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
+            OrientationLock.LANDSCAPE -> ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE
+        },
+        refresh = when {
+            !r.bookShown -> RefreshRate.ANY
+            lowestRefresh -> RefreshRate.LOWEST
+            else -> RefreshRate.READING
         },
     )
 
@@ -78,6 +109,11 @@ class BarsRevealWatch {
         if (!hidden && last != true) ownShowPending = true
         hiddenWanted = hidden
     }
+    /**
+     * C-108 (h): the activity stopped. The bars' state on its return is not compared with the state before: the system
+     * shows them while the app is away, and that is no swipe.
+     */
+    fun away() { last = null; ownShowPending = false }
     fun seen(visible: Boolean, focused: Boolean): Boolean {
         val was = last
         last = visible

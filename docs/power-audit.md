@@ -267,3 +267,58 @@ adb shell "for t in /proc/$p/task/*; do echo \$(cat \$t/comm) \$(grep voluntary_
 paste cs0.txt cs1.txt
 ```
 
+
+## After C-108
+
+C-108 (a)–(h) on `v1.2-c108`, measured against its branch point `ef4269e` (v1.2-dev before C-105/C-106/C-109, so the
+same defaults: Light, keep-screen-on, Book pages). Both builds ran `tools/power/run.sh` (scenarios a0–d, e and the debug
+build's io pass, `SCENARIOS="e io"`) one after the other in one session on the emulator (`Medium_Phone`, API 37, host
+GPU, 60 Hz only). Host CPU idle before each run: 86–94 % (vmstat, 5 s samples). CPU is in ticks of 10 ms: 0.02 s is two ticks.
+
+| Scenario | Length | App CPU before → after | Renderer CPU before → after | Frames before → after | Notes |
+|----------|--------|-----------------------|-----------------------------|-----------------------|-------|
+| a0 first open of Moby-Dick, untouched | 60 s | 2.00 → 1.52 s | 2.06 → 0.57 s | 90 → 84 | (c) Book pages: no screen-page count (before: exact total 878 counted) |
+| **(a) still reader page** | 60 s | **0.34 → 0.02 s** | 0.02 → 0.00 s | 0 → 0 | (a) no ticker, (b) no file poll |
+| (b) 20 turns, one per 3 s | 67 s | 5.95 → 5.45 s | 2.25 → 2.14 s | 241 → 245 | the turns themselves: unchanged |
+| (b) same, debug build: bytes written to storage | 67 s | — | — | — | (e) 324 KB → 236 KB: one position write per 5 s instead of per turn |
+| (c) library, first 60 s after Back | 60 s | 1.37 → 1.09 s | 0.01 → 0.02 s | 29 → 27 | one scan both times (34 / 40 ms walk, 60 files) |
+| **(c) library idle** | 60 s | **0.22 → 0.02 s** | 0.00 → 0.01 s | 0 → 0 | (a) |
+| **(d) background after reading (Home)** | 180 s | **0.40 → 0.15 s** | 0.07 → 0.09 s | — | no wakelocks, alarms or jobs either time |
+| (e) back to the reader from Home | 30 s | 1.04 → 0.91 s | 0.21 → 0.17 s | 99 → 101 | (f) no scan on the return (before: one, 33 ms walk); (h) below |
+| io-a still page, debug build: bytes written | 60 s | — | — | — | 20 KB → 0 KB (the 20 KB before was ART's profile, as in Part 2) |
+
+Per thread, C-108 build, still reader page, 60 s (`/proc/<pid>/task/*`, benchmark build): `DefaultExecutor` (the
+`sample` ticker, T1) and `file-watch` (the 1 s poll, T2) no longer wake at all; `DefaultDispatcher` woke 4 times in 60 s
+(before: 356 in 20 s), which fits kotlinx's idle workers timing out, not app code. What is left is WebView's in-process
+Chromium (`Chrome_IOThread` 99 wakeups, 0.02 s CPU) and 77 main-thread wakeups (0.01 s), about the 1.7/s the main thread
+had before; these were not traced further. The (a) target (no wakeups from app code, app CPU under 0.02 s, 0 frames):
+0 frames and no Kotlin timer met; the process CPU, 0.02 s in this run, sits at the limit, and all of it is WebView's
+threads.
+
+Library idle, 60 s: main thread 38 wakeups, `DefaultDispatcher` 5, CPU 0.02 s.
+
+Per item:
+
+- (a) T1: `libraryLive` reads at once on a find, then at most every 150 ms, and runs no timer otherwise
+  (`LibraryLiveTest`: 0 dispatches in 1 s with nothing changing; 40 before).
+- (b) T2: `FileWatch` keeps inotify and checks the file on a return to the foreground, on each new location, and before a
+  bookmark or highlight is added. There is no timer.
+- (c) C1: with Book pages, nothing is counted (a0: renderer 2.06 → 0.57 s). With screen pages, the counts are stored in
+  `book_cache` per book file and layout key, and a reopen with the same layout reads them back with no layout pass
+  (`ScreenPageCountTest`). The War and Peace scenarios (a1–a3) were not rerun: with Book pages they count nothing now.
+- (d) D3: the reader window asks for 60 Hz while a book is shown (`dumpsys display`: `frameRateOverride {uid=… frameRateHz=60.000004}`
+  while reading, none on the library). The emulator only has 60 Hz, so no panel saving can be
+  seen here; a phone with a fixed 90/120 Hz mode is needed (Part 3, "Refresh rate").
+- (e) W1: a position write at most every 5 s while reading; written at once on leaving the reader, on going to the
+  background and on close. At one turn per 30–60 s nothing changes: each turn is still one write.
+- (f) S1: a return to the foreground scans only when the library or a folder view is showing.
+- (g) O1: `USER_PORTRAIT`/`USER_LANDSCAPE`. Not measured: the sensor's cost needs a phone.
+- (h) Cause of the 145 frames: on a return from Home, the reader's first frame saw the bars that the system had shown
+  while the app was away. `BarsRevealWatch` took that for the user's swipe (C-104), so the reader showed the bars for 3 s
+  and then hid them: two insets animations. A trace of the C-108 build before the fix: 144 frames, the app asks to show
+  the bars 0.25 s after the return and to hide them 3 s later. After the fix: 103 frames and no show or hide request. It
+  does not happen on every return: in the same-session runs above the base drew 99 frames (no false reveal that time).
+  The frames left (about 100 over 1.5 s) are the system's own hide animation of the bars when the reader gets them back
+  from the launcher (`InsetsAnimation: statusBars navigationBars`, 1.5 s, 85 `insets_animation` steps in `atrace`). It
+  runs on the app's main thread, one redraw per step, because Compose registers WindowInsets animation callbacks, which
+  C-103/C-104's bar tracking and the screens' insets padding need. It is a needed one-off per return and was left as it is.

@@ -49,10 +49,36 @@ class ReaderWindowStateTest {
         assertTrue(state(chrome = true, s = defaults.copy(keepScreenOn = true)).keepScreenOn)
     }
 
-    /** M7 (review): a lock follows the sensor within the locked orientation, so the page is never upside down. */
-    @Test fun orientation_lock_maps_to_the_sensor_variant_of_the_requested_orientation() {
-        assertEquals(ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT, state(s = defaults.copy(orientation = OrientationLock.PORTRAIT)).orientation)
-        assertEquals(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE, state(s = defaults.copy(orientation = OrientationLock.LANDSCAPE)).orientation)
+    /** C-108 (d): the reader asks for the reading rate while a book is shown; elsewhere the app does not ask. */
+    @Test fun a_shown_book_asks_for_the_reading_rate_and_nothing_else_does() {
+        assertEquals(RefreshRate.READING, state().refresh)
+        assertEquals(RefreshRate.READING, state(chrome = true).refresh)
+        assertEquals(RefreshRate.ANY, state(inReader = false).refresh)
+        assertEquals(RefreshRate.ANY, state(ui = ReaderUiState()).refresh) // no book shown yet
+        assertEquals(RefreshRate.LOWEST, readerWindowState(true, ReaderWindowInputs.of(reading), defaults, lowestRefresh = true).refresh)
+        assertEquals(RefreshRate.ANY, readerWindowState(false, ReaderWindowInputs.of(reading), defaults, lowestRefresh = true).refresh)
+    }
+
+    /** C-108 (d): 60 Hz, or the panel's lowest rate if that is higher; C-107's lowest is the panel's lowest. 0 = no request. */
+    @Test fun the_requested_rate_comes_from_the_panel_s_rates() {
+        assertEquals(0f, preferredRate(RefreshRate.ANY, listOf(60f, 120f)))
+        assertEquals(60f, preferredRate(RefreshRate.READING, listOf(120f, 60f, 90f)))
+        assertEquals(60.000004f, preferredRate(RefreshRate.READING, listOf(120.00001f, 60.000004f)))
+        assertEquals(90f, preferredRate(RefreshRate.READING, listOf(90f, 120f))) // lowest is higher than 60
+        assertEquals(60f, preferredRate(RefreshRate.READING, listOf(30f, 60f, 120f))) // 60, not the lowest
+        assertEquals(30f, preferredRate(RefreshRate.LOWEST, listOf(30f, 60f, 120f)))
+        assertEquals(60f, preferredRate(RefreshRate.READING, listOf(60f)))
+        assertEquals(90f, preferredRate(RefreshRate.READING, listOf(48f, 90f, 120f))) // no 60: the next rate above it
+        assertEquals(0f, preferredRate(RefreshRate.READING, emptyList()))
+    }
+
+    /**
+     * M7 (review): with auto-rotate on, a lock follows the sensor within the locked orientation, so the page is never upside
+     * down. C-108 (g): the USER variants, so with auto-rotate off the system does not listen to the accelerometer for it.
+     */
+    @Test fun orientation_lock_maps_to_the_user_variant_of_the_requested_orientation() {
+        assertEquals(ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT, state(s = defaults.copy(orientation = OrientationLock.PORTRAIT)).orientation)
+        assertEquals(ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE, state(s = defaults.copy(orientation = OrientationLock.LANDSCAPE)).orientation)
         assertEquals(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED, state(s = defaults.copy(orientation = OrientationLock.SYSTEM)).orientation)
     }
 
@@ -114,6 +140,21 @@ class ReaderWindowStateTest {
         w.requested(hidden = true)
         w.seen(visible = false, focused = true)
         assertFalse("another window on top", w.seen(visible = true, focused = false))
+    }
+
+    /**
+     * C-108 (h): the system shows the bars while the app is away (Home, recents) and the reader's first frame back still
+     * sees them shown: that is no swipe (it showed the bars for 3 s and redrew ~145 frames on every return).
+     */
+    @Test fun bars_seen_shown_on_a_return_are_no_reveal() {
+        val w = BarsRevealWatch()
+        w.requested(hidden = true)
+        w.seen(visible = false, focused = true)
+        w.away() // the activity stopped
+        w.requested(hidden = true) // the resume's reapply
+        assertFalse("shown on the return", w.seen(visible = true, focused = true))
+        w.seen(visible = false, focused = true) // the system applies the reader's hidden bars
+        assertTrue("a later swipe is the user's", w.seen(visible = true, focused = true))
     }
 
     /** C-103: the app shows the bars and hides them again before the system reports them shown: still the app's show. */

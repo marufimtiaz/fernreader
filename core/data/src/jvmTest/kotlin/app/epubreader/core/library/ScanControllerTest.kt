@@ -44,18 +44,31 @@ class ScanControllerTest {
         assertEquals(3, runs)
     }
 
-    /** C-075: every return to the foreground scans, even right after a scan; one that arrives mid-scan runs after it. */
-    @Test fun foreground_always_scans_and_mid_scan_queues_one_more() = runTest {
+    /**
+     * C-075: every return to the foreground onto the library or one of its views scans, even right after a scan; one that
+     * arrives mid-scan runs after it.
+     */
+    @Test fun foreground_on_the_library_always_scans_and_mid_scan_queues_one_more() = runTest {
         val c = ScanController(::fakeScan, backgroundScope, access = { true })
         c.onAppStart(); runCurrent()
-        c.onForeground(); runCurrent()
+        c.onForeground(libraryShown = true); runCurrent()
         assertEquals(2, runs)
         gate = CompletableDeferred()
-        c.onForeground(); runCurrent()
+        c.onForeground(libraryShown = true); runCurrent()
         assertTrue(c.state.value.running)
-        c.onForeground(); c.onViewShown()
+        c.onForeground(libraryShown = true); c.onViewShown()
         gate!!.complete(Unit); runCurrent()
         assertEquals(4, runs) // the walk may have passed the new folder already: one more scan, not none
+    }
+
+    /** C-108 (f): a return to the foreground onto the reader (or any screen but the library's) does not scan. */
+    @Test fun foreground_elsewhere_does_not_scan() = runTest {
+        val c = ScanController(::fakeScan, backgroundScope, access = { true })
+        c.onAppStart(); runCurrent()
+        c.onForeground(libraryShown = false); runCurrent()
+        assertEquals(1, runs)
+        c.onViewShown(); runCurrent() // back to the library from the reader: that scans
+        assertEquals(2, runs)
     }
 
     /** P-002: resume and view scans start after [resumeDelayMs] (off the resumed screen's first frame); others at once. */
@@ -63,7 +76,7 @@ class ScanControllerTest {
         val c = ScanController(::fakeScan, backgroundScope, access = { true }, resumeDelayMs = 300)
         c.onAppStart(); runCurrent()
         assertEquals(1, runs) // app start: at once
-        c.onForeground(); runCurrent()
+        c.onForeground(libraryShown = true); runCurrent()
         assertEquals(1, runs)
         advanceTimeBy(299); runCurrent()
         assertEquals(1, runs)
@@ -83,7 +96,7 @@ class ScanControllerTest {
         val c = ScanController({ _, on -> runs++; gate?.await(); on(ScanEvent.BookAdded("b", "/n.epub")); found.await(); on(done); done },
             backgroundScope, access = { true })
         gate = CompletableDeferred()
-        c.onForeground(); runCurrent()
+        c.onForeground(libraryShown = true); runCurrent()
         assertTrue(c.state.value.running); assertFalse(c.state.value.showsProgress)
         gate!!.complete(Unit); runCurrent()
         assertTrue(c.state.value.showsProgress) // a book was found: books appear as they are found, with progress
@@ -96,7 +109,7 @@ class ScanControllerTest {
         val c = ScanController(::fakeScan, backgroundScope, access = { true })
         c.onAppStart(); runCurrent()
         assertFalse(c.state.value.showsProgress)
-        c.onForeground(); c.rescan() // one follow-up, and it is the manual one
+        c.onForeground(libraryShown = true); c.rescan() // one follow-up, and it is the manual one
         gate!!.complete(Unit); gate = CompletableDeferred(); runCurrent()
         assertEquals(2, runs); assertTrue(c.state.value.showsProgress)
         gate!!.complete(Unit); runCurrent()
@@ -105,7 +118,7 @@ class ScanControllerTest {
 
     @Test fun no_access_no_scan() = runTest {
         val c = ScanController(::fakeScan, backgroundScope, access = { false })
-        c.onAppStart(); c.rescan(); c.onForeground(); c.onViewShown(); runCurrent()
+        c.onAppStart(); c.rescan(); c.onForeground(libraryShown = true); c.onViewShown(); runCurrent()
         assertEquals(0, runs)
     }
 

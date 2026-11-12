@@ -7,11 +7,11 @@ import android.os.Looper
 import android.system.ErrnoException
 import android.system.Os
 import java.io.File
+import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
-import java.util.concurrent.ScheduledExecutorService
-import java.util.concurrent.ScheduledFuture
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.withContext
 
 /**
  * R-008: tells the reader when the open book's file is deleted, moved away or rewritten. The open descriptor keeps
@@ -23,12 +23,14 @@ import java.util.concurrent.atomic.AtomicBoolean
  *
  * Shared storage (/storage/emulated, FUSE) delivers no inotify events for changes made through FUSE, which is how every
  * app (a file manager, a downloader) changes it: there a delete or replace went unnoticed (M9, R-008). So the path is
- * also checked once a second on a background thread: gone, another file (inode), or rewritten (size or mtime).
+ * also checked on demand ([checkNow], [unchanged]), on a background thread: gone, another file (inode), or rewritten
+ * (size or mtime). C-108 (b): when the app returns to the foreground and before a write that depends on the file, not by
+ * a timer (a 1 s poll woke a thread for as long as a book was open).
  */
 class FileWatch(private val path: String, private val onGone: () -> Unit) {
     private val main = Handler(Looper.getMainLooper())
     private val mask = FileObserver.DELETE_SELF or FileObserver.MOVE_SELF or FileObserver.CLOSE_WRITE or FileObserver.ATTRIB
-    /** Set once by whichever notices first (inotify thread, poll thread, or stop()). */
+    /** Set once by whichever notices first (inotify thread, a check, or stop()). */
     private val fired = AtomicBoolean(false)
     @Volatile private var stopped = false
     private val observer: FileObserver =
@@ -49,26 +51,26 @@ class FileWatch(private val path: String, private val onGone: () -> Unit) {
     private fun stampOf(p: String): Stamp? = try {
         Os.stat(p).let { Stamp(it.st_ino, it.st_size, it.st_mtime) }
     } catch (e: ErrnoException) { null }
-    private val stamp = stampOf(path) // one stat on the caller's thread: the inode for ATTRIB and the poll's baseline
-    @Volatile private var poll: ScheduledFuture<*>? = null
-
+    private val stamp = stampOf(path) // one stat on the caller's thread: the inode for ATTRIB and the checks' baseline
     private fun check() { if (!fired.get() && stampOf(path) != stamp) gone() }
+
+    /** Checks the file now, in the background; a change reaches [onGone] as an inotify event would. */
+    fun checkNow() { if (!fired.get()) CHECKER.execute(::check) }
+
+    /** Checks the file now and says whether it is still the one opened (false once a change was seen, or after stop()). */
+    suspend fun unchanged(): Boolean = withContext(CHECKS) { check(); !fired.get() }
 
     /** A callback posted just before stop() must not run after it: it would close the book opened next. */
     private fun gone() {
         if (!fired.compareAndSet(false, true)) return
-        poll?.cancel(false)
         main.post { if (!stopped) onGone() }
     }
-    fun start() = apply {
-        observer.startWatching()
-        poll = POLLER.scheduleWithFixedDelay(::check, POLL_MS, POLL_MS, TimeUnit.MILLISECONDS)
-    }
-    fun stop() { stopped = true; fired.set(true); observer.stopWatching(); poll?.cancel(false) }
+    fun start() = apply { observer.startWatching() }
+    fun stop() { stopped = true; fired.set(true); observer.stopWatching() }
 
     private companion object {
-        const val POLL_MS = 1_000L
-        /** One daemon thread for all watches (one book is open at a time). */
-        val POLLER: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "file-watch").apply { isDaemon = true } }
+        /** One daemon thread for all watches (one book is open at a time); it sleeps until a check is asked for. */
+        val CHECKER: ExecutorService = Executors.newSingleThreadExecutor { r -> Thread(r, "file-watch").apply { isDaemon = true } }
+        val CHECKS = CHECKER.asCoroutineDispatcher()
     }
 }

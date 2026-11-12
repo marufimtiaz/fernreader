@@ -25,6 +25,7 @@ import app.epubreader.reader.BarsVisibility
 import app.epubreader.reader.ReaderWindowInputs
 import app.epubreader.reader.WindowApplier
 import app.epubreader.reader.WindowLook
+import app.epubreader.reader.preferredRate
 import app.epubreader.reader.readerWindowState
 import app.epubreader.reader.rememberReaderShown
 import android.view.WindowManager
@@ -178,6 +179,7 @@ class MainActivity : ComponentActivity() {
             annotations = graph.annotations,
             textActions = textActions,
             screenBrightness = app.epubreader.reader.SystemBrightness(contentResolver), // C-109
+            bookFile = { watch?.unchanged() ?: true },
             closeScope = graph.appScope, // onDestroy's close-out must not run on the already-cancelled lifecycleScope
         )
         // F-060: our selection menu items act on the selection the controller last heard of.
@@ -240,6 +242,8 @@ class MainActivity : ComponentActivity() {
             androidx.compose.runtime.LaunchedEffect(mode) { withContext(Dispatchers.IO) { app.epubreader.settings.AppThemeCache.write(this@MainActivity, mode) } }
             val dateFormat = androidx.compose.runtime.remember { java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT) } // bookmark dates (F-041)
             val inReader = nav.top == Route.Reader
+            // C-108 (e): a screen over the reader (settings, details) stores the newest position at once.
+            androidx.compose.runtime.LaunchedEffect(inReader) { if (!inReader) controller.flushPosition() }
             // P-015: the reader's window (bars hidden: a system insets animation that redraws every frame) is applied one
             // frame after the reader's first frame, never with it. Applied with it, the next frame's draw waits for the
             // render thread to finish the first one (its first WebView draw, 100-300 ms on the emulator), and the main
@@ -287,6 +291,11 @@ class MainActivity : ComponentActivity() {
             BenchCommands.register("fontStep") { d -> controller.updateSettings { it.stepFont(d.trim().toIntOrNull() ?: 1) } }
             BenchCommands.register("fontScale") { v -> v.trim().toDoubleOrNull()?.let { f -> controller.updateSettings { it.copy(fontScale = f) } } }
             BenchCommands.register("resetSettings") { controller.updateSettings { app.epubreader.core.data.ReaderSettings() } }
+            // C-108 (c): the screen-page counter runs only while screen pages are shown (`pageNumbers screen`; `book` = default)
+            BenchCommands.register("pageNumbers") { v ->
+                val p = if (v.trim() == "screen") app.epubreader.core.data.PageNumbers.SCREEN_BOOK else app.epubreader.core.data.PageNumbers.BOOK_PAGES
+                controller.updateSettings { it.copy(pageNumbers = p) }
+            }
             // C-079: reading mode for the scroll-mode fling checks (paged | scrolled | auto)
             BenchCommands.register("flow") { f -> runCatching { app.epubreader.core.data.Flow.valueOf(f.trim().uppercase()) }.getOrNull()?.let { v -> controller.updateSettings { it.copy(flow = v) } } }
             BenchCommands.register("display") { controller.showSheet(app.epubreader.core.data.ReaderSheetTab.DISPLAY) }
@@ -387,7 +396,12 @@ class MainActivity : ComponentActivity() {
     private fun applyReaderWindow(look: WindowLook) {
         windowApplies++
         val win = look.win
-        if (window.attributes.screenBrightness != look.brightness) window.attributes = window.attributes.apply { screenBrightness = look.brightness }
+        // C-108 (d): the reading refresh rate while a book is shown, no request elsewhere. One attributes change for both.
+        val rate = preferredRate(win.refresh, panelRates())
+        val attrs = window.attributes
+        if (attrs.screenBrightness != look.brightness || attrs.preferredRefreshRate != rate) {
+            window.attributes = attrs.apply { screenBrightness = look.brightness; preferredRefreshRate = rate }
+        }
         WindowCompat.getInsetsController(window, window.decorView).apply {
             isAppearanceLightStatusBars = look.lightBars
             isAppearanceLightNavigationBars = look.lightBars
@@ -402,6 +416,14 @@ class MainActivity : ComponentActivity() {
         else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         // Only on a change, so the bench `orient` command keeps winning until the lock or the route changes.
         if (win.orientation != appliedOrientation) { appliedOrientation = win.orientation; requestedOrientation = win.orientation }
+    }
+
+    /** The panel's refresh rates at the current resolution (the modes a requested rate is matched against). */
+    private fun panelRates(): List<Float> {
+        @Suppress("DEPRECATION")
+        val d = (if (android.os.Build.VERSION.SDK_INT >= 30) display else windowManager.defaultDisplay) ?: return emptyList()
+        val now = d.mode
+        return d.supportedModes.filter { it.physicalWidth == now.physicalWidth && it.physicalHeight == now.physicalHeight }.map { it.refreshRate }
     }
 
     fun openBook(ref: SourceRef) {
@@ -547,10 +569,14 @@ class MainActivity : ComponentActivity() {
         if (nav.top == Route.Reader) windowLook.reapply()
         onAccessMaybeGranted()
         library.checkResume() // C-092: a file may have been deleted while the app was away
-        // F-012/C-075: back in the foreground (on any screen) → incremental scan. The first resume is the app start.
-        // It used to run only when the library was on top and was not repeated when the library came back into view
-        // (Back from the reader or settings), so a book copied meanwhile stayed missing until a manual rescan.
-        if (resumedOnce) { Probe.ev("app_foreground"); (application as EpubReaderApp).graph.scans.onForeground() }
+        // F-012/C-075: back in the foreground onto the library or a folder view → incremental scan. The first resume is the
+        // app start. C-108 (f): a return to the reader (or another screen) does not scan; the library scans when it comes
+        // back into view (Back from the reader or settings, onLibraryShown).
+        if (resumedOnce) {
+            Probe.ev("app_foreground")
+            watch?.checkNow() // R-008 / C-108 (b): the open book may have changed while the app was away
+            (application as EpubReaderApp).graph.scans.onForeground(libraryShown = nav.top == Route.Library)
+        }
         resumedOnce = true
     }
 
@@ -561,9 +587,11 @@ class MainActivity : ComponentActivity() {
         onAccessGranted()
     }
 
-    /** R-009: the process may be killed in the background without onDestroy, so a note being typed is stored now. */
+    /** R-009: the process may be killed in the background without onDestroy, so a note being typed (and the position) is stored now. */
     override fun onStop() {
+        barsReveal.away() // C-108 (h): the bars shown on the return are the system's, not the user's swipe
         controller.flushNote()
+        controller.flushPosition() // C-108 (e): positions are otherwise written at most every 5 s
         super.onStop()
     }
 

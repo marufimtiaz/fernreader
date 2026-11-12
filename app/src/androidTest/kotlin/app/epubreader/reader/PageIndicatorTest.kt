@@ -24,10 +24,11 @@ class PageIndicatorTest {
         ActivityScenario.launch(MainActivity::class.java).use { sc ->
             val h = ReaderHarness(sc, this)
             try {
-                h.ready(); h.open(wp)
+                h.ready(); h.screenPages(); h.open(wp)
                 h.tocJump("BOOK ONE: 1805")
                 withTimeout(15_000) { while (h.a.controller.sectionStats == null) delay(50) } // first open of the book: extraction
                 withTimeout(15_000) { h.a.controller.page.first { it.exact } } // the first layout counted
+                h.a.forgetStoredCounts(wp) // the next layout is counted, as on its first use, not read back (C-108 c)
                 val seen = mutableListOf<PageIndicator>()
                 val watch = launch(start = CoroutineStart.UNDISPATCHED) { h.a.controller.page.collect { seen += it } }
                 sc.onActivity { it.controller.updateSettings { s -> s.stepFont(+1) } }

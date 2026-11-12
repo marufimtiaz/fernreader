@@ -10,9 +10,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
- * When scans run (F-003, F-012, C-075): a full scan right after access is granted, an incremental one on app start,
- * on every return to the foreground and whenever the library or one of its views becomes visible (even right after
- * another scan: a book can arrive meanwhile while the app is in front, e.g. over USB), and a manual rescan. One scan
+ * When scans run (F-003, F-012, C-075, C-108 f): a full scan right after access is granted, an incremental one on app
+ * start, on a return to the foreground onto the library or one of its views (not onto the reader or another screen), and
+ * whenever the library or one of its views becomes visible (even right after another scan: a book can arrive meanwhile while the app is in front, e.g. over USB), and a manual rescan. One scan
  * at a time; requests while one runs collapse into a single follow-up scan (the running walk may already have passed
  * a new folder), so a burst of view changes costs at most two scans. Automatic scans are quiet: no progress unless
  * they find something ([ScanState.showsProgress]).
@@ -55,8 +55,11 @@ class ScanController(
     fun onAccessGranted() = request(quiet = false)
     fun onAppStart() { started = true; request(quiet = true) }
     fun rescan() = request(quiet = false)
-    /** Back from another app (recents, launcher), on any screen. */
-    fun onForeground() { deferPending = true; request(quiet = true) }
+    /** Back from another app (recents, launcher); scans only if the library or one of its views is showing (C-108 f). */
+    fun onForeground(libraryShown: Boolean) {
+        if (!libraryShown) return
+        deferPending = true; request(quiet = true)
+    }
     /** The library, a collection, the folder list or a folder came into view. */
     fun onViewShown() {
         if (started) { deferPending = true; request(quiet = true) }

@@ -45,8 +45,8 @@ class PositionFallbackTest {
 
             val graph = (a.application as EpubReaderApp).graph
             val bookId = graph.library.knownBookId(ref)!!
-            withTimeout(3_000) { while (graph.library.position(bookId)?.cfi != inChapter.cfi) delay(20) }
             sc.onActivity { it.goBack() }
+            withTimeout(3_000) { while (graph.library.position(bookId)?.cfi != inChapter.cfi) delay(20) } // stored on leaving (C-108 e)
             // Another book in between, so the next open is a cold one (no warm view kept at the old place).
             next = async(start = CoroutineStart.UNDISPATCHED) { relocates.first() }
             sc.onActivity { it.openBook(SourceRef.File(other.path)) }

@@ -9,7 +9,9 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
-import kotlinx.coroutines.flow.sample
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.transform
+import kotlinx.coroutines.delay
 
 data class OpenedBookInfo(val identityKey: String, val title: String, val authors: List<String>, val source: SourceRef, val size: Long)
 data class OpenRecord(val bookId: String, val position: ReadingPositionEntity?)
@@ -97,14 +99,18 @@ class LibraryRepository(
     fun library(): Flow<List<LibraryBook>> = db.libraryDao().library().map { rows -> rows.map(::toBook) }
 
     /**
-     * [library] plus a fresh read each time [added] changes (at most every [everyMs]). During a scan the workers hold
-     * the database's writer connection, and Room's change tracking needs it too, so the plain flow only updates when
-     * the scan ends; the extra reads use a reader connection, so books appear as they are found (F-012, P-050).
+     * [library] plus a fresh read each time [added] changes (at once, then at most every [everyMs]; the last change is
+     * always read). During a scan the workers hold the database's writer connection, and Room's change tracking needs it
+     * too, so the plain flow only updates when the scan ends; the extra reads use a reader connection, so books appear
+     * as they are found (F-012, P-050). C-108 (a): no timer runs while nothing changes (`sample` ticks for as long as it
+     * is collected, the whole life of the activity).
      */
-    @OptIn(kotlinx.coroutines.FlowPreview::class)
     fun libraryLive(added: Flow<Int>, everyMs: Long = 150): Flow<List<LibraryBook>> = merge(
         library(),
-        added.distinctUntilChanged().filter { it > 0 }.sample(everyMs).map { db.libraryDao().librarySnapshot().map(::toBook) },
+        added.distinctUntilChanged().filter { it > 0 }.conflate().transform {
+            emit(db.libraryDao().librarySnapshot().map(::toBook))
+            delay(everyMs) // only after a read: later changes meanwhile conflate into one
+        },
     )
 
     private fun toBook(it: LibraryRow) = LibraryBook(
