@@ -57,6 +57,17 @@ class EdgeSwipeTest {
         assertEquals(2, at, "24.7 dp in, 55.3 up")
     }
 
+    /**
+     * C-102: the user's swipe as measured on the phone (EdgeContentsTest replays it): from 8 dp in, 113 dp left and 240 dp
+     * up over 300 ms (0.47 left per unit down), every 8 ms at an even speed. No step of it is at 0.6; it counts 24 dp in.
+     */
+    @Test fun the_users_swipe_counts_once_24_dp_in_and_not_before() {
+        val path = (0..300 step 8).map { ms -> 8f + 113f * ms / 300 to 600f - 240f * ms / 300 }
+        val w = SidewaysWatch(path[0].first, path[0].second)
+        val at = path.drop(1).indexOfFirst { (x, y) -> w.sideways(x, y) } + 1
+        assertEquals(8, at, "64 ms: 24.1 dp in, 51.2 up")
+    }
+
     @Test fun not_before_24_dp_in() {
         assertFalse(SidewaysWatch(0f, 300f).sideways(23f, 350f))
         assertTrue(SidewaysWatch(0f, 300f).sideways(24f, 350f))

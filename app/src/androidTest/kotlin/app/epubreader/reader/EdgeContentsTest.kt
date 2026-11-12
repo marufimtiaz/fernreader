@@ -243,11 +243,15 @@ class EdgeContentsTest {
 
     @Test fun a_flick_opens_it() = run { h ->
         val start = h.midChapter()
+        // The four events arrive at once, so the hold may be set and let go between two looks at the controller (a StateFlow
+        // keeps the last value only): what shows that the app took it is the page's cancel. The finger never got a third in.
         val holds = h.holdsDuring(this) {
-            flick(strip, w * 8 / 10)
-            h.awaitOpen()
+            h.touchesDuring {
+                flick(strip, w * 8 / 10)
+                h.awaitOpen()
+            }.takenFromThePage()
         }
-        assertTrue("held, under a third: $holds", holds.isNotEmpty() && holds.max() < 0.33f)
+        assertTrue("held, under a third: $holds", holds.all { it < 0.33f })
         assertEquals(start, h.pos())
     }
 
@@ -317,7 +321,8 @@ class EdgeContentsTest {
         val top0 = scrollTop()
         val seen = touchesDuring { scrollThenSidewaysWith(Finger(strip, hgt * 3 / 4), top0) }
         seen.takenFromThePage()
-        assertTrue("the page had the scroll's moves: $seen", seen.count { it == "move" } >= 10)
+        // Chromium passes a native scroll's touchmoves on to the page at a throttled rate; the scroll itself is measured above.
+        assertTrue("the page had the scroll's moves: $seen", seen.count { it == "move" } >= 3)
     }
     private suspend fun ReaderHarness.scrollThenSidewaysWith(f: Finger, top0: Double) {
         f.move(strip, hgt / 3, steps = 24)
@@ -519,12 +524,24 @@ class EdgeContentsTest {
      */
     @Test fun a_steep_swipe_recorded_on_the_phone_opens_it() = run(nav = GESTURAL) { h ->
         val start = h.midChapter()
-        val d = h.a.resources.displayMetrics.density
         val path = listOf(
             0 to (8.4f to 646.9f), 11 to (18.9f to 623.6f), 20 to (33.1f to 591.6f), 31 to (48f to 559.3f), 43 to (60f to 536.4f),
             53 to (72.7f to 512f), 59 to (86.2f to 488f), 69 to (96f to 462.5f), 80 to (108.4f to 434.2f), 91 to (121.1f to 406.5f),
             103 to (128.7f to 393.1f), 114 to (140.7f to 371.3f), 122 to (145.1f to 365.8f),
         )
+        val holds = h.holdsDuring(this) { h.touchesDuring { replay(h, path, upMs = 589) }.takenFromThePage(); h.awaitOpen() }
+        assertTrue("the panel followed the finger: $holds", holds.isNotEmpty())
+        assertEquals(Route.Reader, h.a.nav.top)
+        assertEquals(start, h.pos())
+    }
+
+    /**
+     * Replays [path] (ms after the touch-down to where the finger was: dp from the right edge, dp from the top) with a move
+     * every 8 ms between the points, as a phone's touch screen reports them, and lifts at [upMs] where it last was. An
+     * [upMs] at the last point's time lifts there while still moving, as a finger does at the end of a flick.
+     */
+    private suspend fun replay(h: ReaderHarness, path: List<Pair<Int, Pair<Float, Float>>>, upMs: Int) = withContext(Dispatchers.IO) {
+        val d = h.a.resources.displayMetrics.density
         val down = SystemClock.uptimeMillis() + 20
         fun send(action: Int, ms: Int, inDp: Float, yDp: Float) {
             while (SystemClock.uptimeMillis() < down + ms) Thread.sleep(1)
@@ -532,25 +549,81 @@ class EdgeContentsTest {
             check(inst.uiAutomation.injectInputEvent(e, false)) { "injection refused: $e" }
             e.recycle()
         }
-        // Every 8 ms between the recorded points, as a phone's touch screen reports them.
-        val holds = h.holdsDuring(this) { h.touchesDuring { withContext(Dispatchers.IO) {
-            send(MotionEvent.ACTION_DOWN, 0, path[0].second.first, path[0].second.second)
-            for ((a, b) in path.zipWithNext()) {
-                var ms = a.first + 8
-                while (ms < b.first) {
-                    val f = (ms - a.first).toFloat() / (b.first - a.first)
-                    send(MotionEvent.ACTION_MOVE, ms, a.second.first + (b.second.first - a.second.first) * f, a.second.second + (b.second.second - a.second.second) * f)
-                    ms += 8
-                }
-                send(MotionEvent.ACTION_MOVE, b.first, b.second.first, b.second.second)
+        send(MotionEvent.ACTION_DOWN, 0, path[0].second.first, path[0].second.second)
+        for ((a, b) in path.zipWithNext()) {
+            var ms = a.first + 8
+            while (ms < b.first) {
+                val f = (ms - a.first).toFloat() / (b.first - a.first)
+                send(MotionEvent.ACTION_MOVE, ms, a.second.first + (b.second.first - a.second.first) * f, a.second.second + (b.second.second - a.second.second) * f)
+                ms += 8
             }
-            val (inDp, yDp) = path.last().second
-            send(MotionEvent.ACTION_UP, 589, inDp, yDp)
-        } }.takenFromThePage(); h.awaitOpen() }
-        assertTrue("the panel followed the finger: $holds", holds.isNotEmpty())
-        assertEquals(Route.Reader, h.a.nav.top)
-        assertEquals(start, h.pos())
+            if (b !== path.last() || upMs > b.first) send(MotionEvent.ACTION_MOVE, b.first, b.second.first, b.second.second)
+        }
+        val (inDp, yDp) = path.last().second
+        send(MotionEvent.ACTION_UP, upMs, inDp, yDp)
     }
+
+    /**
+     * C-101, C-102: the user's swipe on the phone as measured there: from about 8 dp in from the right edge, about 113 dp
+     * left and 240 dp up in about 300 ms (0.47 left per unit down), lifted while moving. Built from those numbers at an even
+     * speed (the recording itself is gone); no 20 dp step of it is at the step rule's 0.6, so the angle from the touch-down
+     * takes it, 24 dp in. Short of a third of the width, it opens as a flick (about 0.38 dp/ms).
+     */
+    private fun ReaderHarness.usersSwipe(): List<Pair<Int, Pair<Float, Float>>> {
+        val d = a.resources.displayMetrics.density
+        val top = hgt / d * 0.7f
+        return listOf(0, 300).map { ms -> ms to (8f + 113f * ms / 300 to top - 240f * ms / 300) }
+    }
+    private suspend fun ReaderHarness.usersSwipeOpensIt(scope: CoroutineScope) {
+        val start = midChapter()
+        val holds = holdsDuring(scope) {
+            touchesDuring { replay(this, usersSwipe(), upMs = 300) }.takenFromThePage()
+            awaitOpen()
+        }
+        assertTrue("the panel followed the finger: $holds", holds.isNotEmpty())
+        assertEquals(Route.Reader, a.nav.top)
+        assertEquals(start, pos())
+    }
+
+    @Test fun the_users_swipe_from_the_phone_opens_it_fullscreen_on_gesture_navigation() = run(nav = GESTURAL) { h -> h.usersSwipeOpensIt(this) }
+
+    @Test fun the_users_swipe_from_the_phone_opens_it_on_button_navigation() = run { h -> h.usersSwipeOpensIt(this) }
+
+    // ---- C-102: the app's recogniser, in the WebView's parent, takes a gesture the page already has ----
+
+    /**
+     * The page has the touch first: its down and the moves of a straight 40 dp downward start (no sideways part yet, so
+     * the app leaves it alone). Then the finger goes left: the app takes it there, the page gets a cancel and nothing after
+     * it, the panel follows and opens, and the page turned nothing.
+     */
+    private suspend fun ReaderHarness.takenFromThePageMidGesture(scope: CoroutineScope) {
+        val start = midChapter()
+        val d = a.resources.displayMetrics.density
+        val moved = relocatesDuring(scope) {
+            val seen = touchesDuring {
+                val f = Finger(strip, hgt / 3)
+                f.move(strip, hgt / 3 + (40 * d).toInt(), steps = 10)
+                delay(250)
+                assertNull("the app hasn't taken it yet", held)
+                f.move(w / 2, f.y + 8, steps = 16)
+                delay(250)
+                assertHeld(this)
+                f.up()
+            }
+            seen.takenFromThePage()
+            val before = seen.subList(0, seen.size - 1)
+            assertTrue("the page had the moves before the app took it: $seen", before.count { it == "move" } >= 5)
+            awaitOpen()
+        }
+        assertEquals(Route.Reader, a.nav.top)
+        assertEquals(start, pos())
+        assertEquals(emptyList<FromWeb.Relocate>(), moved)
+    }
+
+    @Test fun the_app_takes_a_gesture_the_page_had_on_button_navigation() = run { h -> h.takenFromThePageMidGesture(this) }
+
+    /** Fullscreen (the bars hidden): the system has no Back gesture there, so the whole gesture reaches the app. */
+    @Test fun the_app_takes_a_gesture_the_page_had_on_gesture_navigation_with_the_bars_hidden() = run(nav = GESTURAL) { h -> h.takenFromThePageMidGesture(this) }
 
     /** With the bars hidden (Fullscreen, the default) the system has no Back gesture, so a straight swipe reaches the page. */
     @Test fun with_the_bars_hidden_a_straight_swipe_opens_it_on_gesture_navigation_too() = run(nav = GESTURAL) { h ->
