@@ -25,6 +25,11 @@ export type WebSettings = {
    * under). Pages stay below it; Scroll runs to the top of the screen and only its resting positions keep it. Optional (older apps: 0).
    */
   topInset?: number
+  /**
+   * C-110 Extra dim: the page's lit pixels at this fraction of their level (the app sends 0.7 .. 0.15 while on); absent
+   * or 1 = off. Paint only, never layout: see [pagePaper]. Optional (older apps: off).
+   */
+  dim?: number
 }
 
 export const DEFAULT_SETTINGS: WebSettings = {
@@ -38,6 +43,39 @@ export const THEMES: Record<WebSettings['theme'], { bg: string; fg: string; link
   dark: { bg: '#212427', fg: '#DAD6CE', link: '#8CC7B4', rule: '#3A3E42', dark: true },
   black: { bg: '#000000', fg: '#C4C0B8', link: '#7FB8A6', rule: '#2A2A2A', dark: true },
   warm: { bg: '#F4E9D3', fg: '#3A2E21', link: '#7A4E1E', rule: '#D9C7A6', dark: false },
+}
+
+/** C-110: the strongest Extra dim (the page's lit pixels at 15 % of their level). */
+export const DIM_MIN = 0.15
+
+/** C-110: the page's dim factor for [dim]: 1 (off) when absent or 1 and above, else at least [DIM_MIN]. */
+export function dimFactor(dim: number | undefined): number {
+  if (dim == null || Number.isNaN(dim) || dim >= 1) return 1
+  return Math.max(DIM_MIN, dim)
+}
+
+/** C-110: [hex] (#rrggbb) with each sRGB channel times [f], as the brightness() filter scales the page; black stays black. */
+export function dimColor(hex: string, f: number): string {
+  if (f >= 1 || !/^#[0-9a-f]{6}$/i.test(hex)) return hex
+  const ch = (i: number) => Math.round(parseInt(hex.slice(i, i + 2), 16) * f).toString(16).padStart(2, '0')
+  return `#${ch(1)}${ch(3)}${ch(5)}`
+}
+
+/** C-110: the filter on the page's content frames: none when off (no filter at all, nothing to composite). */
+export function dimFilter(f: number): string {
+  return f >= 1 ? 'none' : `brightness(${f})`
+}
+
+/**
+ * C-110: what the host page paints for [theme] dimmed by [f]. The paper (the host's background, behind transparent
+ * section documents) and the page's own controls take the theme colours scaled in sRGB; the section frames and their
+ * highlight layers (foliate's `filter` part) take [filter], brightness(f), which multiplies the same sRGB channels, so
+ * text, images and paper dim alike and black stays black. Both are paint-only: nothing relayouts, and the filter sits
+ * inside the page scroller, so it is applied when the page is rasterised, not on every frame of a turn.
+ */
+export function pagePaper(theme: WebSettings['theme'], f: number): { bg: string; fg: string; rule: string; filter: string } {
+  const t = THEMES[theme]
+  return { bg: t ? dimColor(t.bg, f) : '', fg: t ? dimColor(t.fg, f) : '', rule: t ? dimColor(t.rule, f) : '', filter: dimFilter(f) }
 }
 
 /** Bundled SIL OFL 1.1 faces (served from assets/reader/fonts). */

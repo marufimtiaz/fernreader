@@ -66,7 +66,7 @@ class ProtocolFixtureTest {
             "goToOffset" to ToWeb.GoToOffset(sectionIndex = 3, offset = 5400),
             "countPages" to ToWeb.CountPages(sessionId = "s-1", gen = 3, run = true),
             "textOffsets" to ToWeb.TextOffsets(sessionId = "s-1", id = 2, cfis = listOf("epubcfi(/6/4!/4/2/1:10)", "epubcfi(/6/99!/4)")),
-            "setSettings" to ToWeb.SetSettings(settings = WebSettings(1.4, "literata", 1.8, 3, "justify", "warm", "scrolled", "rtl", "none", "one-at-a-time", 28)),
+            "setSettings" to ToWeb.SetSettings(settings = WebSettings(1.4, "literata", 1.8, 3, "justify", "warm", "scrolled", "rtl", "none", "one-at-a-time", 28, 0.5)),
             "openContinued" to ToWeb.Open(sessionId = "s-1", position = null, texts = WebTexts("Missing."), continued = listOf(3, 4, 5)),
             "openChapterTexts" to ToWeb.Open(sessionId = "s-1", position = null, texts = WebTexts("Missing.", "Next: {title}", "Previous: {title}", "Next chapter", "Previous chapter")),
         )

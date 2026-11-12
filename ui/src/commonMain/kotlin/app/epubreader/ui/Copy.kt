@@ -2,6 +2,7 @@ package app.epubreader.ui
 
 import app.epubreader.reader.OpenFailure
 import app.epubreader.reader.ReaderError
+import kotlin.math.roundToInt
 
 /** All user-facing text (our own wording). Moves to Compose resources when the app is translated. */
 object Copy {
@@ -263,6 +264,10 @@ object Copy {
     const val scopeChapter = "This chapter"
     const val brightness = "Brightness"
     const val followSystem = "System"
+    /** C-110: the page dimmed below the screen's lowest brightness. */
+    const val extraDim = "Extra dim"
+    const val extraDimSlider = "Extra dim level"
+    fun extraDimLevel(level: Double) = "${(level * 100).roundToInt()} %"
     fun themeName(id: app.epubreader.core.data.ReadingThemeId) = when (id) {
         app.epubreader.core.data.ReadingThemeId.SYSTEM -> "System"
         app.epubreader.core.data.ReadingThemeId.LIGHT -> "Light"

@@ -92,6 +92,13 @@ data class ReaderSettings(
     val scrollChapters: ScrollChapters = ScrollChapters.CONTINUOUS,
     /** C-095: the sheet's last tab, where it opens next; stored values without it decode to DISPLAY. */
     val sheetTab: ReaderSheetTab = ReaderSheetTab.DISPLAY,
+    /** C-110 "Extra dim": the book page dimmed below the screen's brightness; off by default. */
+    val extraDim: Boolean = false,
+    /**
+     * C-110: how far Extra dim goes, the page's lit pixels at this fraction of their level: [DIM_LIGHT] (light dimming)
+     * down to [DIM_STRONG] (strong). Kept while Extra dim is off, so switching it on again returns to it.
+     */
+    val extraDimLevel: Double = DIM_DEFAULT,
     /**
      * C-105/C-106: the fields the reader has set (their JSON names). They are stored even when equal to today's
      * default, so a later change of default keeps the reader's choice. See [withChoicesFrom].
@@ -105,6 +112,7 @@ data class ReaderSettings(
         marginPercent = marginPercent.coerceIn(0, 10),
         brightness = brightness?.let { if (it.isNaN()) null else (it.coerceIn(MIN_BRIGHTNESS, 1.0) * 10_000).roundToInt() / 10_000.0 },
         highlightColor = highlightColor.takeIf { it in HighlightColors.ALL } ?: HighlightColors.YELLOW,
+        extraDimLevel = if (extraDimLevel.isNaN()) DIM_DEFAULT else (extraDimLevel.coerceIn(DIM_STRONG, DIM_LIGHT) * 100).roundToInt() / 100.0,
     )
 
     /** C-107: Battery Saver applies to the reader: the phone is in power save mode and the reader follows it. */
@@ -116,6 +124,9 @@ data class ReaderSettings(
      */
     fun effective(powerSave: Boolean): ReaderSettings =
         if (batterySaving(powerSave)) copy(theme = ReadingThemeId.BLACK, pageAnimation = PageAnimation.NONE) else this
+
+    /** C-110: the page's dim factor the reader page applies: [extraDimLevel] while [extraDim] is on, else 1 (none). */
+    val pageDim: Double get() = if (extraDim) extraDimLevel else 1.0
 
     /** F-070: one 10 % step up or down, staying within 80 %..260 %. */
     fun stepFont(delta: Int): ReaderSettings = copy(fontScale = fontScale + delta * 0.1).clamped()
@@ -148,6 +159,10 @@ data class ReaderSettings(
          * as 0/255 (off on some panels). 0.004 x 255 = 1.
          */
         const val MIN_BRIGHTNESS = 0.004
+        /** C-110: Extra dim's range (the page's lit pixels at 70 % .. 15 % of their level) and its first level. */
+        const val DIM_LIGHT = 0.7
+        const val DIM_STRONG = 0.15
+        const val DIM_DEFAULT = 0.5
 
         private const val CHOSEN = "chosen"
         private val Full = Json { encodeDefaults = true }
@@ -189,6 +204,8 @@ data class ReaderSettings(
                 highlightColor = str("highlightColor") ?: d.highlightColor,
                 scrollChapters = enum("scrollChapters", ScrollChapters.entries.toTypedArray(), d.scrollChapters),
                 sheetTab = enum("sheetTab", ReaderSheetTab.entries.toTypedArray(), d.sheetTab),
+                extraDim = bool("extraDim", d.extraDim),
+                extraDimLevel = num("extraDimLevel") ?: d.extraDimLevel,
                 chosen = runCatching { o[CHOSEN]?.jsonArray?.mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content }?.toSet() }
                     .getOrNull() ?: emptySet(),
             ).clamped()

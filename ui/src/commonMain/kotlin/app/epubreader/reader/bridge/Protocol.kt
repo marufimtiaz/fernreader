@@ -88,6 +88,8 @@ import kotlinx.serialization.json.Json
     /** F-032: "slide" | "none". */ val pageAnimation: String = "slide",
     /** C-085, scrolled flow: "continuous" | "one-at-a-time" (stop at each chapter's end). */ val chapters: String = "continuous",
     /** C-099: CSS px at the top of the page kept free of text at rest (fullscreen: the display cutout). */ val topInset: Int = 0,
+    /** C-110 Extra dim: the page's lit pixels at this fraction of their level (0.7 .. 0.15); 1 = off. Paint only. */
+    val dim: Double = 1.0,
 )
 
 /**
