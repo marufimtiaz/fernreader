@@ -2,6 +2,7 @@ package app.epubreader.core.data
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class ReaderSettingsTest {
     @Test fun numbers_are_clamped_and_rounded_to_their_step() {
@@ -55,7 +56,7 @@ class ReaderSettingsTest {
         assertEquals(VolumeKeys.OFF, d.volumeKeys)
         assertEquals(PageAnimation.SLIDE, d.pageAnimation)
         assertEquals(true, d.fullscreen)
-        assertEquals(true, d.keepScreenOn)
+        assertEquals(false, d.keepScreenOn) // C-106
         assertEquals(OrientationLock.SYSTEM, d.orientation)
         assertEquals(true, d.confirmExternalLinks)
     }
@@ -63,7 +64,7 @@ class ReaderSettingsTest {
     @Test fun m6_round_trip() {
         val s = ReaderSettings(
             swipeDirection = SwipeDirection.RTL, tapZones = true, volumeKeys = VolumeKeys.REVERSED, pageAnimation = PageAnimation.NONE,
-            fullscreen = false, keepScreenOn = false, orientation = OrientationLock.LANDSCAPE, confirmExternalLinks = false,
+            fullscreen = false, keepScreenOn = true, orientation = OrientationLock.LANDSCAPE, confirmExternalLinks = false,
         )
         assertEquals(s, ReaderSettings.decode(s.encode()))
     }
@@ -116,5 +117,59 @@ class ReaderSettingsTest {
         assertEquals(ScrollChapters.CONTINUOUS, ReaderSettings.decode(old).scrollChapters)
         assertEquals(ScrollChapters.CONTINUOUS, ReaderSettings.decode("""{"scrollChapters":"SIDEWAYS"}""").scrollChapters)
         assertEquals(ScrollChapters.CONTINUOUS, ReaderSettings.decode("""{"scrollChapters":1}""").scrollChapters)
+    }
+
+    /** C-105/C-106: the new defaults. */
+    @Test fun c105_c106_defaults() {
+        assertEquals(ReadingThemeId.SYSTEM, ReaderSettings().theme)
+        assertEquals(false, ReaderSettings().keepScreenOn)
+        assertEquals(ReadingThemeId.LIGHT, ReadingThemeId.SYSTEM.resolve(systemDark = false))
+        assertEquals(ReadingThemeId.BLACK, ReadingThemeId.SYSTEM.resolve(systemDark = true))
+        assertEquals(ReadingThemeId.WARM, ReadingThemeId.WARM.resolve(systemDark = true))
+        assertEquals(ReadingThemeId.LIGHT, ReadingThemeId.LIGHT.resolve(systemDark = true))
+    }
+
+    /**
+     * C-105/C-106 migration. Settings stored before them hold only what differed from the old defaults (Light,
+     * keep-screen-on on): a theme or keep-screen-on missing from them was never changed and moves to the new default;
+     * one they hold was chosen and is kept.
+     */
+    @Test fun c105_c106_settings_stored_before_move_to_the_new_defaults_unless_chosen() {
+        val untouched = ReaderSettings.decode("""{"fontScale":1.2,"flow":"AUTO"}""")
+        assertEquals(ReadingThemeId.SYSTEM, untouched.theme)
+        assertEquals(false, untouched.keepScreenOn)
+        assertEquals(1.2, untouched.fontScale)
+        assertEquals(ReadingThemeId.SYSTEM, ReaderSettings.decode("{}").theme)
+        val chosen = ReaderSettings.decode("""{"theme":"WARM","keepScreenOn":false}""")
+        assertEquals(ReadingThemeId.WARM, chosen.theme)
+        assertEquals(false, chosen.keepScreenOn)
+        for (t in listOf("LIGHT", "DARK", "BLACK")) assertEquals(t, ReaderSettings.decode("""{"theme":"$t"}""").theme.name)
+        assertEquals(true, ReaderSettings.decode("""{"keepScreenOn":true}""").keepScreenOn)
+    }
+
+    /** From now on a choice equal to today's default is stored too, so a later change of default keeps it. */
+    @Test fun chosen_values_are_stored_even_when_equal_to_the_default() {
+        val d = ReaderSettings()
+        assertEquals("{}", d.encode()) // nothing chosen: nothing stored, every field follows the defaults
+        // The reader picks Light, then System again, and turns keep-screen-on on and off again.
+        val s = d.copy(theme = ReadingThemeId.LIGHT).withChoicesFrom(d)
+            .let { it.copy(theme = ReadingThemeId.SYSTEM).withChoicesFrom(it) }
+            .let { it.copy(keepScreenOn = true).withChoicesFrom(it) }
+            .let { it.copy(keepScreenOn = false).withChoicesFrom(it) }
+        assertEquals(setOf("theme", "keepScreenOn"), s.chosen)
+        val json = s.encode()
+        assertTrue("\"theme\":\"SYSTEM\"" in json, json)
+        assertTrue("\"keepScreenOn\":false" in json, json)
+        assertEquals(s, ReaderSettings.decode(json))
+        // Fields the reader did not touch stay out, so they follow a later change of default.
+        assertTrue("fullscreen" !in json && "flow" !in json, json)
+    }
+
+    @Test fun choices_accumulate_and_bad_chosen_values_are_ignored() {
+        val a = ReaderSettings(chosen = setOf("theme"))
+        assertEquals(setOf("theme", "flow"), a.copy(flow = Flow.SCROLLED).withChoicesFrom(a).chosen)
+        assertEquals(a, a.copy().withChoicesFrom(a))
+        assertEquals(emptySet(), ReaderSettings.decode("""{"chosen":"theme"}""").chosen)
+        assertEquals(setOf("flow"), ReaderSettings.decode("""{"chosen":["flow",3,null]}""").chosen)
     }
 }

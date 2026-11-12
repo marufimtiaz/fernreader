@@ -225,9 +225,11 @@ class MainActivity : ComponentActivity() {
         // the root below nor touches the window (I2, P-026).
         val windowInputs = controller.state.map(ReaderWindowInputs::of)
             .stateIn(lifecycleScope, SharingStarted.Eagerly, ReaderWindowInputs.of(controller.state.value))
+        controller.setSystemDark(resources.configuration.systemDark()) // C-105: before the first open, so no light flash
         setContent {
             val rs by controller.settings.collectAsState()
-            val theme = ReadingTheme.of(rs.theme)
+            val systemDark by controller.systemDark.collectAsState()
+            val theme = ReadingTheme.of(rs.theme, systemDark)
             val mode by graph.prefs.theme.collectAsState()
             val dark = when (mode) {
                 app.epubreader.settings.AppThemeMode.SYSTEM -> isSystemInDarkTheme()
@@ -522,8 +524,12 @@ class MainActivity : ComponentActivity() {
         (code == android.view.KeyEvent.KEYCODE_VOLUME_DOWN || code == android.view.KeyEvent.KEYCODE_VOLUME_UP) && nav.top == Route.Reader &&
             controller.onVolumeKey(volumeDown = code == android.view.KeyEvent.KEYCODE_VOLUME_DOWN, press = press)
 
+    private fun android.content.res.Configuration.systemDark() =
+        uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK == android.content.res.Configuration.UI_MODE_NIGHT_YES
+
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
         super.onConfigurationChanged(newConfig)
+        controller.setSystemDark(newConfig.systemDark()) // C-105: the System theme switches live
         Probe.ev("config_changed", "orientation=${newConfig.orientation}") // P-022 starts here
     }
 

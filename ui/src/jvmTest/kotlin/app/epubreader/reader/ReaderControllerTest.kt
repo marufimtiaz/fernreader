@@ -236,6 +236,36 @@ class ReaderControllerTest {
         assertTrue(reader.sent.isEmpty()) // paged stays paged in landscape
     }
 
+    /** C-105: the System theme sends Light or Black as the phone's dark mode says, and switches live. */
+    @Test fun system_theme_follows_dark_mode_live() = runTest(dispatcher) {
+        val c = controller()
+        c.setSystemDark(true)
+        c.open(ref); advanceUntilIdle()
+        assertEquals("black", reader.sent.filterIsInstance<ToWeb.Open>().single().settings.theme) // the first open already dark
+        reader.sent.clear()
+        c.setSystemDark(false)
+        assertEquals("light", (reader.sent.single() as ToWeb.SetSettings).settings.theme)
+        reader.sent.clear()
+        c.setSystemDark(false)
+        assertTrue(reader.sent.isEmpty()) // nothing changed
+        c.updateSettings { it.copy(theme = ReadingThemeId.WARM) }; reader.sent.clear()
+        c.setSystemDark(true)
+        assertTrue(reader.sent.isEmpty()) // a chosen theme ignores the phone's mode
+        assertEquals(true, c.systemDark.value)
+    }
+
+    /** C-105/C-106: a choice made in the reader is stored, even one equal to today's default. */
+    @Test fun choices_are_stored_with_their_names() = runTest(dispatcher) {
+        val c = controller()
+        c.updateSettings { it.copy(theme = ReadingThemeId.LIGHT) }
+        c.updateSettings { it.copy(theme = ReadingThemeId.SYSTEM) }
+        advanceUntilIdle()
+        val stored = ReaderSettings.decode(settings.map[ReaderSettings.KEY])
+        assertEquals(ReadingThemeId.SYSTEM, stored.theme)
+        assertEquals(setOf("theme"), stored.chosen)
+        assertTrue("\"theme\":\"SYSTEM\"" in settings.map[ReaderSettings.KEY]!!)
+    }
+
     /** C-099: the cutout's band goes to the web side with the settings, live, and with every later settings message. */
     @Test fun the_top_inset_goes_with_the_settings() = runTest(dispatcher) {
         val c = controller()

@@ -41,7 +41,7 @@ class SettingsEntriesTest {
 
     @Test fun items_show_the_current_values() {
         reader = ReaderSettings(pageNumbers = PageNumbers.SCREEN_CHAPTER, pageAnimation = PageAnimation.NONE, swipeDirection = SwipeDirection.RTL,
-            tapZones = true, volumeKeys = VolumeKeys.REVERSED, fullscreen = false, keepScreenOn = false, orientation = OrientationLock.LANDSCAPE,
+            tapZones = true, volumeKeys = VolumeKeys.REVERSED, fullscreen = false, keepScreenOn = true, orientation = OrientationLock.LANDSCAPE,
             confirmExternalLinks = false)
         assertEquals("SCREEN_CHAPTER", choice("reader.pageScope").selected)
         assertEquals("NONE", choice("reader.pageAnimation").selected)
@@ -50,7 +50,7 @@ class SettingsEntriesTest {
         assertEquals("REVERSED", choice("reader.volumeKeys").selected)
         assertEquals(Copy.volumeSummary(VolumeKeys.REVERSED), choice("reader.volumeKeys").summary) // C-005: which key does what
         assertEquals(false, toggle("reader.fullscreen").checked)
-        assertEquals(false, toggle("reader.keepScreenOn").checked)
+        assertEquals(true, toggle("reader.keepScreenOn").checked)
         assertEquals("LANDSCAPE", choice("reader.orientation").selected)
         assertEquals(false, toggle("reader.confirmLinks").checked)
         assertEquals(Copy.tapZones, toggle("reader.tapZones").title)
@@ -69,7 +69,7 @@ class SettingsEntriesTest {
         choice("reader.pageAnimation").onSelect("NONE"); assertEquals(PageAnimation.NONE, reader.pageAnimation)
         choice("reader.swipeDirection").onSelect("LTR"); assertEquals(SwipeDirection.LTR, reader.swipeDirection)
         toggle("reader.fullscreen").onChange(false); assertEquals(false, reader.fullscreen)
-        toggle("reader.keepScreenOn").onChange(false); assertEquals(false, reader.keepScreenOn)
+        toggle("reader.keepScreenOn").onChange(true); assertEquals(true, reader.keepScreenOn)
         choice("reader.orientation").onSelect("PORTRAIT"); assertEquals(OrientationLock.PORTRAIT, reader.orientation)
         toggle("reader.confirmLinks").onChange(false); assertEquals(false, reader.confirmExternalLinks)
         choice("reader.pageScope").onSelect("SCREEN_BOOK"); assertEquals(PageNumbers.SCREEN_BOOK, reader.pageNumbers)

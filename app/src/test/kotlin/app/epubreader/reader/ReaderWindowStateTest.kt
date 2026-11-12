@@ -15,9 +15,9 @@ class ReaderWindowStateTest {
     private fun state(inReader: Boolean = true, ui: ReaderUiState = reading, chrome: Boolean = false, s: ReaderSettings = defaults) =
         readerWindowState(inReader, ReaderWindowInputs.of(ui.copy(chromeVisible = chrome)), s)
 
-    @Test fun defaults_in_the_reader_hide_bars_keep_screen_on_follow_system() {
+    @Test fun defaults_in_the_reader_hide_bars_let_the_screen_time_out_follow_system() {
         val w = state()
-        assertTrue(w.barsHidden); assertTrue(w.keepScreenOn)
+        assertTrue(w.barsHidden); assertFalse(w.keepScreenOn) // C-106: keep-screen-on is off by default
         assertEquals(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED, w.orientation)
     }
 
@@ -46,7 +46,7 @@ class ReaderWindowStateTest {
     @Test fun keep_screen_on_needs_an_open_book_and_the_setting() {
         assertFalse(state(ui = ReaderUiState()).keepScreenOn)
         assertFalse(state(s = defaults.copy(keepScreenOn = false)).keepScreenOn)
-        assertTrue(state(chrome = true).keepScreenOn)
+        assertTrue(state(chrome = true, s = defaults.copy(keepScreenOn = true)).keepScreenOn)
     }
 
     /** M7 (review): a lock follows the sensor within the locked orientation, so the page is never upside down. */
@@ -59,14 +59,14 @@ class ReaderWindowStateTest {
     /** M6 (review): an error screen (open failure, R-008) lets the screen time out and shows the bars. */
     @Test fun error_screens_show_the_bars_and_let_the_screen_time_out() {
         for (err in listOf<ReaderError>(ReaderError.Open(OpenFailure.NO_ACCESS), ReaderError.FileChanged, ReaderError.Engine("x", "y"))) {
-            val w = state(ui = reading.copy(error = err))
+            val w = state(ui = reading.copy(error = err), s = defaults.copy(keepScreenOn = true))
             assertFalse("$err: keep-screen-on", w.keepScreenOn)
             assertFalse("$err: bars", w.barsHidden)
         }
     }
 
     @Test fun keep_screen_on_waits_until_the_book_is_shown() {
-        assertFalse(state(ui = reading.copy(loading = true)).keepScreenOn)
+        assertFalse(state(ui = reading.copy(loading = true), s = defaults.copy(keepScreenOn = true)).keepScreenOn)
     }
 
     /** I2 (review): a page turn (new location, chapter, marker) changes nothing the window depends on. */

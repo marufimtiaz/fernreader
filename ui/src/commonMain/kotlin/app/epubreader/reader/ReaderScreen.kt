@@ -67,13 +67,14 @@ fun ReaderScreen(
 ) {
     val s by c.state.collectAsState()
     val settings by c.settings.collectAsState()
+    val systemDark by c.systemDark.collectAsState() // C-105: the System theme follows the phone's dark mode
     val page by c.shownPage.collectAsState() // C-083: book or screen pages, as the setting says
     val bookPages by c.bookPagesInUse.collectAsState() // the setting, unless the book has none (fixed-layout, unreadable)
     val preview by c.seekPreview.collectAsState()
     var bookInfo by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { withFrameNanos { }; probe.ev("reader_frame", "") }
     // F-074: the reader's own surfaces (loading screen, bars, panels) follow the reading theme, not the app theme.
-    MaterialTheme(colorScheme = ReadingTheme.of(settings.theme).colorScheme()) {
+    MaterialTheme(colorScheme = ReadingTheme.of(settings.theme, systemDark).colorScheme()) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val landscape = maxWidth > maxHeight
         LaunchedEffect(landscape) { c.setLandscape(landscape) } // C-004: AUTO flow follows the orientation

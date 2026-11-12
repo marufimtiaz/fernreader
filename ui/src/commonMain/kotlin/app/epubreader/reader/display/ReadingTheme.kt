@@ -9,7 +9,7 @@ import app.epubreader.core.data.ReadingThemeId
 /**
  * Reading themes (F-074), our own palette. The page colours are mirrored in reader-web/src/reader/styles.ts
  * (ReadingThemeTest checks they agree). The reader chrome and the display panel use [colorScheme], so the panel
- * follows the active theme.
+ * follows the active theme. System (C-105) has no colours of its own: [of] resolves it to Light or Black.
  */
 data class ReadingTheme(
     val id: ReadingThemeId,
@@ -40,8 +40,9 @@ data class ReadingTheme(
         val Black = ReadingTheme(ReadingThemeId.BLACK, Color(0xFF000000), Color(0xFFC4C0B8), Color(0xFF7FB8A6), false, Color(0xFF0E0E0E), Color(0xFF1C1C1C))
         val Warm = ReadingTheme(ReadingThemeId.WARM, Color(0xFFF4E9D3), Color(0xFF3A2E21), Color(0xFF7A4E1E), true, Color(0xFFECDFC4), Color(0xFFE2D2B2))
 
-        fun of(id: ReadingThemeId) = when (id) {
-            ReadingThemeId.LIGHT -> Light
+        /** The theme the page shows for [id]; System (C-105) is Light or Black as the phone's dark mode says. */
+        fun of(id: ReadingThemeId, systemDark: Boolean): ReadingTheme = when (id.resolve(systemDark)) {
+            ReadingThemeId.SYSTEM, ReadingThemeId.LIGHT -> Light
             ReadingThemeId.DARK -> Dark
             ReadingThemeId.BLACK -> Black
             ReadingThemeId.WARM -> Warm

@@ -69,7 +69,8 @@ fun goBack(g: DevGraph) {
 @Composable
 private fun ReaderPlaceholder(g: DevGraph) {
     val settings by g.reader.settings.collectAsState()
-    val theme = ReadingTheme.of(settings.theme)
+    val systemDark by g.reader.systemDark.collectAsState()
+    val theme = ReadingTheme.of(settings.theme, systemDark)
     Box(Modifier.fillMaxSize().background(theme.background).clickable { g.tapPage() }, contentAlignment = Alignment.Center) {
         Text("Reader surface: run `npm run dev` in reader-web", color = theme.text)
     }

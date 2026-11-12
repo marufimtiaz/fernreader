@@ -2,6 +2,7 @@ package app.epubreader.reader.display
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -103,22 +105,26 @@ internal fun Label(text: String, modifier: Modifier = Modifier) =
 @Composable
 private fun ThemeRow(current: ReadingThemeId, onPick: (ReadingThemeId) -> Unit) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-        for (id in ReadingThemeId.entries) {
-            val t = ReadingTheme.of(id)
+        for (id in ReadingThemeId.entries) { // C-105: System first, then the four themes
             val selected = id == current
             Column(
                 Modifier.clip(RoundedCornerShape(12.dp)).clickable(role = Role.RadioButton) { onPick(id) }
-                    .semantics { this.selected = selected }.padding(6.dp),
+                    .semantics { this.selected = selected }.padding(4.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Box(
                     Modifier.size(52.dp).clip(CircleShape)
-                        .border(BorderStroke(if (selected) 3.dp else 1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline), CircleShape)
-                        .then(Modifier.padding(0.dp)),
+                        .border(BorderStroke(if (selected) 3.dp else 1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline), CircleShape),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Surface(Modifier.size(if (selected) 46.dp else 50.dp), shape = CircleShape, color = t.background) {
-                        Box(contentAlignment = Alignment.Center) { Text("Aa", color = t.text, fontSize = 17.sp, fontWeight = FontWeight.Medium) }
+                    Box(Modifier.size(if (selected) 46.dp else 50.dp).clip(CircleShape)) {
+                        if (id == ReadingThemeId.SYSTEM) {
+                            // Light and Black side by side: the two themes System shows.
+                            Row(Modifier.matchParentSize()) {
+                                Swatch(ReadingTheme.Light, "A", Modifier.weight(1f), Alignment.CenterEnd)
+                                Swatch(ReadingTheme.Black, "a", Modifier.weight(1f), Alignment.CenterStart)
+                            }
+                        } else Swatch(ReadingTheme.of(id, systemDark = false), "Aa", Modifier.matchParentSize(), Alignment.Center)
                     }
                 }
                 Text(Copy.themeName(id), Modifier.padding(top = 4.dp), style = MaterialTheme.typography.labelMedium,
@@ -127,6 +133,12 @@ private fun ThemeRow(current: ReadingThemeId, onPick: (ReadingThemeId) -> Unit) 
         }
     }
 }
+
+@Composable
+private fun Swatch(t: ReadingTheme, text: String, modifier: Modifier, align: Alignment) =
+    Box(modifier.fillMaxHeight().background(t.background), contentAlignment = align) {
+        Text(text, color = t.text, fontSize = 17.sp, fontWeight = FontWeight.Medium)
+    }
 
 @Composable
 private fun TextSizeRow(scale: Double, onStep: (Int) -> Unit) {

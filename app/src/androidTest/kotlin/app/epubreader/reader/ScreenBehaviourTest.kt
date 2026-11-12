@@ -50,7 +50,13 @@ class ScreenBehaviourTest {
         }
     }
 
-    @Test fun keep_screen_on_in_the_reader_only() = withReader(null) { sc, _ ->
+    /** C-106: off by default, so the phone's own screen timeout applies. */
+    @Test fun keep_screen_on_is_off_by_default() = withReader(null) { sc, _ ->
+        Thread.sleep(500) // the window in which it must not be set: fixed
+        assertFalse(sc.keepOn())
+    }
+
+    @Test fun keep_screen_on_in_the_reader_only() = withReader(ReaderSettings(keepScreenOn = true)) { sc, _ ->
         eventually("flag set in the reader", true) { sc.keepOn() }
         sc.onActivity { it.goBack() }
         eventually("route", Route.Library) { sc.read { it.nav.top } }
@@ -81,7 +87,7 @@ class ScreenBehaviourTest {
     }
 
     /** I2 (review): page turns do not touch the window (no flags, insets or attributes set, so no relayout per turn). */
-    @Test fun page_turns_do_not_reapply_the_window() = withReader(null) { sc, h ->
+    @Test fun page_turns_do_not_reapply_the_window() = withReader(ReaderSettings(keepScreenOn = true)) { sc, h -> // the flag shows the open applied the window
         eventually("flag set in the reader", true) { sc.keepOn() }
         Thread.sleep(500) // the applies of the open are over: none signals its end
         val before = sc.read { it.windowApplies }
