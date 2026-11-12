@@ -1,6 +1,8 @@
 package app.epubreader.reader
 
 import android.content.pm.ActivityInfo
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.areStatusBarsVisible
 import app.epubreader.core.data.OrientationLock
 import app.epubreader.core.data.ReaderSettings
 import androidx.compose.runtime.getValue
@@ -59,6 +61,32 @@ class WindowApplier(private val apply: (WindowLook) -> Unit) {
 }
 
 /**
+ * C-103: the system bars come back over the fullscreen reader only when the user swipes them in from the top or bottom
+ * edge (the window keeps the default behaviour, so the system's Back gesture stays on both edges). Told what the app asks
+ * of the bars ([requested]) and each change of their visibility ([seen]), it says when the user did that: hidden to shown
+ * while the app wants them hidden, with the window focused (another window on top may show the bars too). A show the app
+ * asked for and the system hasn't reported yet is the app's, even if the app asked to hide them again meanwhile. The
+ * activity then shows the reader's controls with the bars, so the two hide again together.
+ */
+class BarsRevealWatch {
+    private var last: Boolean? = null
+    private var hiddenWanted = false
+    private var ownShowPending = false
+    fun requested(hidden: Boolean) {
+        if (!hidden && last != true) ownShowPending = true
+        hiddenWanted = hidden
+    }
+    fun seen(visible: Boolean, focused: Boolean): Boolean {
+        val was = last
+        last = visible
+        if (!visible) return false
+        val own = ownShowPending
+        ownShowPending = false
+        return was == false && hiddenWanted && focused && !own
+    }
+}
+
+/**
  * True once the reader route has been on screen for a frame (P-015): the reader's window look waits for it, so the
  * frame after the reader's first one is not made to draw (and wait for the render thread) by a window change.
  * False again as soon as the route is left.
@@ -75,3 +103,16 @@ fun rememberReaderShown(inReader: Boolean): Boolean {
 
 /** The reader's window look applies only on the reader route, after its first frame ([rememberReaderShown]). */
 fun readerWindowActive(inReader: Boolean, readerFramed: Boolean): Boolean = inReader && readerFramed
+
+/**
+ * C-103: calls [onChange] with the system bars' visibility (the status bar stands for them: the reader shows and hides
+ * them together), at the start and on every change. Its own composable, so a change recomposes only this and not the
+ * activity's root.
+ */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@androidx.compose.runtime.Composable
+fun BarsVisibility(onChange: (Boolean) -> Unit) {
+    val visible = WindowInsets.areStatusBarsVisible
+    val call by androidx.compose.runtime.rememberUpdatedState(onChange)
+    androidx.compose.runtime.LaunchedEffect(visible) { call(visible) }
+}

@@ -4,7 +4,13 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.mandatorySystemGestures
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -68,7 +74,9 @@ fun ReaderSheet(
         color = MaterialTheme.colorScheme.surfaceContainer,
         shadowElevation = 8.dp,
     ) {
-        Column(Modifier.navigationBarsPadding().heightIn(max = 460.dp)) {
+        // C-103: also clear of the strip where the system always takes the gestures (home, switching apps), which stays
+        // while the bars are hidden: a slider's sideways drag there would be one of them.
+        Column(Modifier.windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.mandatorySystemGestures.only(WindowInsetsSides.Bottom))).heightIn(max = 460.dp)) {
             TabRow(selectedTabIndex = pager.targetPage, containerColor = MaterialTheme.colorScheme.surfaceContainer) {
                 for (t in tabs) Tab(
                     selected = t.ordinal == pager.targetPage, onClick = { onTab(t) },

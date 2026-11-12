@@ -93,7 +93,7 @@ fun ReaderSurface(engine: ReaderEngine, covered: Boolean, background: Color, ful
     Box(Modifier.fillMaxSize().background(background)) {
     // C-102: [pageGestures] (the Contents edge swipe) watch every touch on the page from its parent, ahead of the WebView.
     // The inset is stable: it never follows the bars showing or hiding (with the controls, F-035), so the page does not
-    // reflow. Fullscreen: only the display cutout (transient bars draw over the page), whose top the page keeps itself
+    // reflow. Fullscreen: only the display cutout (bars swiped back in draw over the page, C-103), whose top the page keeps itself
     // (C-099); otherwise the bars' size.
     Box(
         Modifier.fillMaxSize().windowInsetsPadding(
