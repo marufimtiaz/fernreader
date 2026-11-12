@@ -49,10 +49,13 @@ class ReaderWindowStateTest {
         assertTrue(state(chrome = true).keepScreenOn)
     }
 
-    /** M7 (review): a lock follows the sensor within the locked orientation, so the page is never upside down. */
-    @Test fun orientation_lock_maps_to_the_sensor_variant_of_the_requested_orientation() {
-        assertEquals(ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT, state(s = defaults.copy(orientation = OrientationLock.PORTRAIT)).orientation)
-        assertEquals(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE, state(s = defaults.copy(orientation = OrientationLock.LANDSCAPE)).orientation)
+    /**
+     * M7 (review): with auto-rotate on, a lock follows the sensor within the locked orientation, so the page is never upside
+     * down. C-108 (g): the USER variants, so with auto-rotate off the system does not listen to the accelerometer for it.
+     */
+    @Test fun orientation_lock_maps_to_the_user_variant_of_the_requested_orientation() {
+        assertEquals(ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT, state(s = defaults.copy(orientation = OrientationLock.PORTRAIT)).orientation)
+        assertEquals(ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE, state(s = defaults.copy(orientation = OrientationLock.LANDSCAPE)).orientation)
         assertEquals(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED, state(s = defaults.copy(orientation = OrientationLock.SYSTEM)).orientation)
     }
 

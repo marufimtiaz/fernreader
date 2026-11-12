@@ -75,7 +75,7 @@ class ScreenBehaviourTest {
 
     @Test fun orientation_lock_applies_in_the_reader_and_is_released_on_leaving() = withReader(ReaderSettings(orientation = OrientationLock.PORTRAIT)) { sc, _ ->
         // M7 (review): either way up (the sensor decides within portrait)
-        eventually("portrait in the reader", ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT) { sc.read { it.requestedOrientation } }
+        eventually("portrait in the reader", ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT) { sc.read { it.requestedOrientation } }
         sc.onActivity { it.goBack() }
         eventually("unspecified in the library", ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) { sc.read { it.requestedOrientation } }
     }

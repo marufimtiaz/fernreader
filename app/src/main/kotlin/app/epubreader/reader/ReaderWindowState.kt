@@ -34,7 +34,9 @@ data class ReaderWindowInputs(
  * Screen behaviour from (route, reader state, settings). Only the reader route changes anything; the library follows
  * the system. Fullscreen hides the system bars while the controls are hidden and shows them with the controls (the
  * page is inset by a stable amount, so neither reflows it), while the user's swipe has them in (C-104) and on an error screen. Keep-screen-on needs a book on
- * screen. An orientation lock follows the sensor within the locked orientation (either way up).
+ * screen. An orientation lock follows the sensor within the locked orientation (either way up) while the phone's
+ * auto-rotate is on; with it off the system holds the locked orientation without the accelerometer (C-108 g: the SENSOR_
+ * variants kept the system's rotation sensor on even then).
  */
 fun readerWindowState(inReader: Boolean, r: ReaderWindowInputs, s: ReaderSettings): ReaderWindowState =
     if (!inReader) ReaderWindowState(false, false, ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED)
@@ -43,8 +45,8 @@ fun readerWindowState(inReader: Boolean, r: ReaderWindowInputs, s: ReaderSetting
         keepScreenOn = s.keepScreenOn && r.bookShown,
         orientation = when (s.orientation) {
             OrientationLock.SYSTEM -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-            OrientationLock.PORTRAIT -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
-            OrientationLock.LANDSCAPE -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            OrientationLock.PORTRAIT -> ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
+            OrientationLock.LANDSCAPE -> ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE
         },
     )
 
