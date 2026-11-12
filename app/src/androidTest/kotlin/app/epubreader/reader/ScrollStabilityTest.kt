@@ -10,6 +10,7 @@ import app.epubreader.core.data.ReaderSettings
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
 import org.json.JSONTokener
 import org.junit.Assert.assertEquals
@@ -63,10 +64,10 @@ class ScrollStabilityTest {
         startSampling()
         repeat(gestures) { k ->
             if (k % 3 == 2) drag() else fling()
-            delay(900)
+            delay(900) // a reader's pace: how far the 15 gestures get, and that they overlap the run-outs, is the scenario
             a.controller.page.value.page?.let { labels += it }
         }
-        delay(600)
+        delay(600) // the last run-out, sampled as well
         val pos = stopSampling()
         assertTrue("$what: sampled ${pos.size} frames", pos.size > 20)
         for (k in 1 until pos.size) {
@@ -85,14 +86,14 @@ class ScrollStabilityTest {
             val h = ReaderHarness(sc, this)
             try {
                 h.ready(); h.openBook(path, title)
-                h.scrolled(); delay(1_500)
+                h.scrolled(); h.still()
                 // "the start": the first contents entry (resuming would start wherever an earlier run left the book)
                 val start = h.tocJump(jump ?: h.a.controller.state.value.toc.first().label).sectionIndex
-                delay(1_000)
-                val pos = h.scrollDownSteadily(15, "${File(path).name} from ${jump ?: "the start"}")
+                h.still()
+                val pos = h.traced { h.scrollDownSteadily(15, "${File(path).name} from ${jump ?: "the start"}") }
                 assertTrue("went on into later sections: from $start to ${pos.last().first}; samples ${pos.first()}..${pos.last()}, max offset ${pos.maxOf { it.second }}; slots ${h.sc.js("JSON.stringify(window.__readerTest.slots())")}",
                     pos.last().first >= start + 2)
-            } finally { h.a.controller.updateSettings { ReaderSettings() }; h.stop() }
+            } finally { sc.onActivity { it.controller.updateSettings { ReaderSettings() } }; h.a.settingsStored(); h.stop() }
         }
     }
 
@@ -125,12 +126,13 @@ class ScrollStabilityTest {
         val item = a.controller.state.value.toc.first { it.label.contains(label, ignoreCase = true) }
         drain()
         sc.onActivity { it.controller.onTocSelected(item) }
-        val landed = relocate(10_000)
-        delay(1_000)
+        val landed = relocate(10_000) { it.sectionIndex == item.index } // not a late report of the scrolling before it
+        still()
+        withTimeout(30_000) { a.controller.page.first { it.exact } } // the background count can still change the label by itself
         val first = where()
         assertEquals("$what: landed in the entry's section (relocate ${landed.sectionIndex})", landed.sectionIndex, first.first)
         val page = a.controller.page.value.page
-        delay(3_000)
+        delay(3_000) // the check that it stays there: fixed
         assertEquals("$what: still there 3 s later", first, where())
         assertEquals("$what: the page label stays", page, a.controller.page.value.page)
     }
@@ -141,15 +143,15 @@ class ScrollStabilityTest {
             val h = ReaderHarness(sc, this)
             try {
                 h.ready(); h.openBook("/sdcard/Books/epub3-samples/accessible_epub_3.epub", "Accessible")
-                h.scrolled(); delay(1_500)
+                h.scrolled(); h.still()
                 h.contentsJump("2. Building", "forward to chapter 2")
-                repeat(3) { fling(); delay(900) }
+                repeat(3) { fling(); delay(900) }; h.still() // a jump during the run-out is another case: see the commit
                 h.contentsJump("Preface", "back to the Preface")
                 h.contentsJump("Acknowledgments", "forward to Acknowledgments")
                 h.contentsJump("1. Introduction", "to chapter 1")
-                repeat(3) { fling(); delay(900) }
+                repeat(3) { fling(); delay(900) }; h.still() // a jump during the run-out is another case: see the commit
                 h.contentsJump("Preface", "back to the Preface again")
-            } finally { h.a.controller.updateSettings { ReaderSettings() }; h.stop() }
+            } finally { sc.onActivity { it.controller.updateSettings { ReaderSettings() } }; h.a.settingsStored(); h.stop() }
         }
     }
 
@@ -158,13 +160,13 @@ class ScrollStabilityTest {
             val h = ReaderHarness(sc, this)
             try {
                 h.ready(); h.openBook("/sdcard/Books/gutenberg/war-and-peace-epub3.epub", "War and Peace")
-                h.scrolled(); delay(1_500)
+                h.scrolled(); h.still()
                 h.contentsJump("BOOK THREE", "forward far")
-                repeat(3) { fling(); delay(900) }
+                repeat(3) { fling(); delay(900) }; h.still() // a jump during the run-out is another case: see the commit
                 h.contentsJump("BOOK ONE", "far back")
                 h.contentsJump("BOOK TWO", "forward")
                 h.contentsJump("BOOK ONE", "back again")
-            } finally { h.a.controller.updateSettings { ReaderSettings() }; h.stop() }
+            } finally { sc.onActivity { it.controller.updateSettings { ReaderSettings() } }; h.a.settingsStored(); h.stop() }
         }
     }
 
@@ -174,10 +176,10 @@ class ScrollStabilityTest {
             val h = ReaderHarness(sc, this)
             try {
                 h.ready(); h.openBook("/sdcard/Books/epub3-samples/accessible_epub_3.epub", "Accessible")
-                h.scrolled(); delay(1_500)
+                h.scrolled(); h.still()
                 h.contentsJump("1. Introduction", "start")
                 h.contentsJump("About the Book", "to the last entry (the end of the last chapter)")
-            } finally { h.a.controller.updateSettings { ReaderSettings() }; h.stop() }
+            } finally { sc.onActivity { it.controller.updateSettings { ReaderSettings() } }; h.a.settingsStored(); h.stop() }
         }
     }
 }

@@ -12,7 +12,7 @@ import { decoded, pageImages } from './paint'
 import { polyfillMfenced } from './mathml'
 import { shareSections } from './sections'
 import { rangeAtOffset, resolveTextRange, textOffsetOf, textSpanOf } from './textpos'
-import { effectiveDir, reportSwipes, swipeToTurn } from './swipe'
+import { dragFinishes, effectiveDir, followsFinger, reportSwipes, swipeToTurn } from './swipe'
 import { externalHref, isNoteTarget, noteElement, noteLinkResolver, noteRef, sanitizeNote } from './links'
 import { FootnotePopup } from './footnote'
 import { visibleBookmarks } from './bookmarks'
@@ -106,6 +106,8 @@ export class Reader {
     // Read-only probes for the app's instrumented tests (evaluateJavascript); nothing in the app calls them.
     const identities = new Map<string, { identifier?: string | null; error?: string }>()
     ;(window as any).__readerTest = {
+      /** C-094: the last drag (what it moved, how far, how it ended) and the page's offset now; null before any. */
+      drag: () => { const r = this.view?.renderer; return r?.debugDrag ? { ...r.debugDrag, start: r.start, sliding: !!r.debugSlideGeometry } : null },
       page: () => { const r = this.view?.renderer; return r ? { page: r.page, textPages: r.pages - 2, index: this.view.lastLocation?.section?.current } : null },
       /** Sections with a loaded document: the current one first, then preloaded neighbours. */
       loaded: () => this.view?.renderer?.getContents?.().map((c: any) => c.index) ?? [],
@@ -126,6 +128,49 @@ export class Reader {
       },
       lastPage: () => { const v = this.view; const i = v?.lastLocation?.section?.current; if (v && i != null) void v.renderer.goTo({ index: i, anchor: () => 1 }) },
       /** Text of the block element where the visible range starts (F-070 check). */
+      /**
+       * C-099: where the page keeps the cutout's band: the inset it was given, the top of the scroller or the page, the page
+       * counter's page height, the top of the reported position, and the text in the band (host CSS px).
+       */
+      cutout: () => {
+        const r = this.view?.renderer
+        if (!r) return null
+        const range = this.view.lastLocation?.range
+        const frame = range?.startContainer?.ownerDocument?.defaultView?.frameElement as HTMLElement | null
+        const rect = range ? [...range.getClientRects()].find((x: DOMRect) => x.width > 0 && x.height > 0) as DOMRect | undefined : undefined
+        const inset = Number(r.getAttribute('top-inset') ?? 0)
+        let bandText = ''
+        for (let y = 0; y < inset && !bandText; y += 2) for (const c of r.getContents?.() ?? []) {
+          const box = (c.doc?.defaultView?.frameElement as HTMLElement | null)?.getBoundingClientRect()
+          if (!box || y < box.top || y >= box.bottom) continue
+          const el = c.doc.elementFromPoint(window.innerWidth / 2 - box.left, y - box.top)
+          if (el && el !== c.doc.body && el !== c.doc.documentElement) bandText = el.textContent?.trim().slice(0, 40) ?? ''
+        }
+        return { inset, containerTop: r.containerRect.top, pagedHeight: r.pagedLayout.height, dpr: window.devicePixelRatio, bandText,
+          positionTop: rect ? (frame?.getBoundingClientRect().top ?? 0) + rect.top : null }
+      },
+      /** C-099: top edge (host px) of the first [selector] in loaded section [index], its box on screen; null if none. */
+      blockTop: (index: number, selector: string) => {
+        const doc: Document | undefined = this.view?.renderer?.getContents?.().find((x: any) => x.index === index)?.doc
+        const el = doc?.querySelector(selector)
+        if (!doc || !el) return null
+        return ((doc.defaultView?.frameElement as HTMLElement | null)?.getBoundingClientRect().top ?? 0) + el.getBoundingClientRect().top
+      },
+      /** Scroll and touch trace of the renderer (paginator.js startTrace), for a test's failure message. */
+      traceStart: () => this.view?.renderer?.startTrace?.(),
+      traceStop: () => JSON.stringify(this.view?.renderer?.stopTrace?.() ?? []),
+      /** What is really at the top of the screen: a hit test down the viewport, whatever the reader thinks is current. */
+      screenTop: () => {
+        const x = window.innerWidth / 2
+        for (let y = 8; y < 300; y += 8) for (const c of this.view?.renderer?.getContents?.() ?? []) {
+          const box = (c.doc?.defaultView?.frameElement as HTMLElement | null)?.getBoundingClientRect()
+          if (!box || y < box.top || y >= box.bottom) continue
+          const el = c.doc.elementFromPoint(x - box.left, y - box.top)
+          const text = el && el !== c.doc.body && el !== c.doc.documentElement ? el.textContent?.trim().slice(0, 60) : ''
+          if (text) return { index: c.index, text }
+        }
+        return null
+      },
       firstVisibleBlock: () => {
         const r = this.view?.lastLocation?.range
         const n = r?.startContainer
@@ -454,6 +499,12 @@ export class Reader {
       // Swipes come to the host as `swipe` events and turn pages through the queue (F-032, C-026), not foliate's drag.
       r.setAttribute('host-swipe', '')
       r.addEventListener('swipe', (e: CustomEvent) => this.onSwipe(view, e.detail))
+      // C-094: the page follows a drag only with nothing else on its way; a gesture it can't follow comes as a `swipe`.
+      r.dragHost = {
+        ready: (rtl: boolean, vertical: boolean) => !this.pumping && !this.queue.length && !this.seeking
+          && followsFinger(effectiveDir(this.settings.swipeDirection, this.book?.dir), rtl, vertical),
+        finishes: dragFinishes,
+      }
       if (isFixedLayout(r)) reportSwipes(r, r) // foliate-fxl has no touch handling: the host recognises its swipes
       // F-081: vertical-rl sections are paged right-to-left (horizontal pages), where the engine supports it.
       r.setAttribute('vertical-pages', '')
@@ -479,9 +530,12 @@ export class Reader {
     }
   }
 
-  /** At most [MAX_TURNS] pending; more are dropped (a burst of taps still moves that many pages, in order). */
-  private turn(dir: 'next' | 'prev', chapter = false) {
-    if (this.queue.filter(c => c.kind === 'turn').length >= MAX_TURNS) return
+  /**
+   * At most [MAX_TURNS] pending; more are dropped (a burst of taps still moves that many pages, in order). A swipe is
+   * never dropped (C-094): each is a whole gesture, so there are never many, and a section still loading can hold them up.
+   */
+  private turn(dir: 'next' | 'prev', chapter = false, swipe = false) {
+    if (!swipe && this.queue.filter(c => c.kind === 'turn').length >= MAX_TURNS) return
     this.enqueue({ kind: 'turn', dir, chapter })
   }
 
@@ -501,6 +555,9 @@ export class Reader {
       while (this.queue.length && this.token === token && this.view) {
         const view = this.view
         const sessionId = this.sessionId!
+        // C-094: a finger holds the page, or its turn is settling: foliate would ignore a turn or a jump meanwhile
+        const held = view.renderer?.dragging
+        if (held) { await held; continue }
         const c = this.queue.shift()!
         if (c.kind === 'turn') {
           // Resolves after the turn (and foliate's lock) is over, so the next one is not ignored.
@@ -642,6 +699,8 @@ export class Reader {
     // C-085: before `flow`, so switching to Scroll lays out the chosen chapter mode once (each change re-renders)
     if (s.chapters === 'one-at-a-time') set('chapter-stop', '')
     else r.removeAttribute('chapter-stop')
+    set('top-inset', String(s.topInset ?? 0)) // C-099: before `flow`, as above
+    if (isFixedLayout(r) && this.view) this.view.style.top = s.topInset ? `${s.topInset}px` : '' // no flow and no paginator there
     set('flow', s.flow)
     if (s.pageAnimation === 'none') r.removeAttribute('animated') // F-032: no slide
     else set('animated', '')
@@ -669,7 +728,7 @@ export class Reader {
   private setSettings(s: WebSettings) {
     const old = this.settings
     this.settings = s
-    const layout = (x: WebSettings) => [x.fontScale, x.fontFamily, x.lineHeight, x.marginPercent, x.align].join('|')
+    const layout = (x: WebSettings) => [x.fontScale, x.fontFamily, x.lineHeight, x.marginPercent, x.align, x.topInset ?? 0].join('|')
     if (layout(old) !== layout(s) && this.counter) this.scheduleCount()
     const look = (x: WebSettings) => [layout(x), x.theme, x.flow].join('|')
     if (this.view && look(old) === look(s)) this.layoutAttributes(this.view.renderer) // input settings only: nothing to restyle
@@ -837,7 +896,7 @@ export class Reader {
     const doc = contents[0]?.doc
     const vertical = !!doc?.defaultView?.getComputedStyle(doc.documentElement).writingMode?.startsWith('vertical')
     const t = swipeToTurn(d.dx, d.dy, d.dt, effectiveDir(this.settings.swipeDirection, this.book?.dir), vertical)
-    if (t) this.turn(t, view.renderer.getAttribute?.('flow') === 'scrolled')
+    if (t) this.turn(t, view.renderer.getAttribute?.('flow') === 'scrolled', true)
   }
 
   /**

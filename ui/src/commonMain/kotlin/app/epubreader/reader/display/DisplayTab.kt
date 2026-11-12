@@ -1,6 +1,7 @@
 package app.epubreader.reader.display
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -9,9 +10,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -48,58 +48,51 @@ import app.epubreader.core.data.PageNumbers
 import app.epubreader.core.data.ReaderSettings
 import app.epubreader.core.data.ReadingThemeId
 import app.epubreader.core.data.ScrollChapters
+import app.epubreader.reader.settings.keepsSideways
 import app.epubreader.ui.Copy
 import kotlin.math.roundToInt
 
 /**
- * Display settings inside the reader (F-075). Anchored to the bottom over the page (it never reflows it); the upper
- * part of the page stays visible, so every change previews live. Coloured by the active reading theme (F-074).
- * [fonts]: the bundled faces by settings id, so each option is shown in its own face (F-071).
+ * Display settings inside the reader (F-075), the first tab of [app.epubreader.reader.settings.ReaderSheet], whose
+ * surface lies over the page: every change previews live. [fonts]: the bundled faces by settings id, so each option is
+ * shown in its own face (F-071).
  */
 @Composable
-fun DisplayPanel(
+fun DisplayTab(
     s: ReaderSettings,
     fonts: Map<String, FontFamily>,
     onChange: ((ReaderSettings) -> ReaderSettings) -> Unit,
-    modifier: Modifier = Modifier,
+    scroll: ScrollState,
     /** C-004: Auto reading mode scrolls in landscape. */
     landscape: Boolean = false,
 ) {
-    Surface(
-        modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        shadowElevation = 8.dp,
+    Column(
+        Modifier.fillMaxSize().verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Column(
-            Modifier.navigationBarsPadding().heightIn(max = 460.dp).verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            ThemeRow(s.theme) { id -> onChange { it.copy(theme = id) } }
-            TextSizeRow(s.fontScale, onStep = { d -> onChange { it.stepFont(d) } })
-            FontRow(s.fontFamily, fonts) { f -> onChange { it.copy(fontFamily = f) } }
-            SliderRow(Copy.lineSpacing, s.lineHeight.toString(), s.lineHeight.toFloat(), 1.3f..2.0f, steps = 6) { v ->
-                onChange { it.copy(lineHeight = (v * 10).roundToInt() / 10.0) }
-            }
-            SliderRow(Copy.margins, "${s.marginPercent} %", s.marginPercent.toFloat(), 0f..10f, steps = 9) { v ->
-                onChange { it.copy(marginPercent = v.roundToInt()) }
-            }
-            Segments(Copy.alignment, listOf(Align.PUBLISHER to Copy.alignPublisher, Align.START to Copy.alignStart, Align.JUSTIFY to Copy.alignJustify), s.align) { a ->
-                onChange { it.copy(align = a) }
-            }
-            Segments(Copy.layout, FlowOptions, s.flow) { f ->
-                onChange { it.copy(flow = f) }
-            }
-            if (s.scrolls(landscape)) Segments(Copy.scrollChapters, ChaptersOptions, s.scrollChapters) { v ->
-                onChange { it.copy(scrollChapters = v) }
-            }
-            // C-083: book pages (the default) or screen pages, for the whole book or the chapter.
-            Segments(Copy.pageNumbers, PageNumberOptions, s.pageNumbers, hint = Copy.pageNumbersHint(s.pageNumbers)) { p ->
-                onChange { it.copy(pageNumbers = p) }
-            }
-            BrightnessRow(s.brightness) { b -> onChange { it.copy(brightness = b) } }
+        ThemeRow(s.theme) { id -> onChange { it.copy(theme = id) } }
+        TextSizeRow(s.fontScale, onStep = { d -> onChange { it.stepFont(d) } })
+        FontRow(s.fontFamily, fonts) { f -> onChange { it.copy(fontFamily = f) } }
+        SliderRow(Copy.lineSpacing, s.lineHeight.toString(), s.lineHeight.toFloat(), 1.3f..2.0f, steps = 6) { v ->
+            onChange { it.copy(lineHeight = (v * 10).roundToInt() / 10.0) }
         }
+        SliderRow(Copy.margins, "${s.marginPercent} %", s.marginPercent.toFloat(), 0f..10f, steps = 9) { v ->
+            onChange { it.copy(marginPercent = v.roundToInt()) }
+        }
+        Segments(Copy.alignment, listOf(Align.PUBLISHER to Copy.alignPublisher, Align.START to Copy.alignStart, Align.JUSTIFY to Copy.alignJustify), s.align) { a ->
+            onChange { it.copy(align = a) }
+        }
+        Segments(Copy.layout, FlowOptions, s.flow) { f ->
+            onChange { it.copy(flow = f) }
+        }
+        if (s.scrolls(landscape)) Segments(Copy.scrollChapters, ChaptersOptions, s.scrollChapters) { v ->
+            onChange { it.copy(scrollChapters = v) }
+        }
+        // C-083: book pages (the default) or screen pages, for the whole book or the chapter.
+        Segments(Copy.pageNumbers, PageNumberOptions, s.pageNumbers, hint = Copy.pageNumbersHint(s.pageNumbers)) { p ->
+            onChange { it.copy(pageNumbers = p) }
+        }
+        BrightnessRow(s.brightness) { b -> onChange { it.copy(brightness = b) } }
     }
 }
 
@@ -152,7 +145,7 @@ private fun TextSizeRow(scale: Double, onStep: (Int) -> Unit) {
 private fun FontRow(current: String, fonts: Map<String, FontFamily>, onPick: (String) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Label(Copy.font)
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.keepsSideways().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             for (id in ReaderSettings.FONTS) FilterChip(
                 selected = id == current, onClick = { onPick(id) },
                 label = { Text(Copy.fontName(id), fontFamily = fonts[id], fontSize = 16.sp) },
@@ -211,7 +204,7 @@ private fun BrightnessRow(brightness: Double?, onValue: (Double?) -> Unit) {
         }
         Slider(
             value = (brightness ?: 0.5).toFloat(), onValueChange = { onValue(it.toDouble()) }, valueRange = 0.05f..1f,
-            enabled = brightness != null, modifier = Modifier.semantics { contentDescription = Copy.brightness },
+            enabled = brightness != null, modifier = Modifier.keepsSideways().semantics { contentDescription = Copy.brightness },
         )
     }
 }

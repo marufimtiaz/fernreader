@@ -20,6 +20,7 @@ import app.epubreader.core.library.ScanScope
 import app.epubreader.reader.ReaderHarness
 import app.epubreader.ui.Copy
 import app.epubreader.ui.Route
+import app.epubreader.settled
 import app.epubreader.waitFresh
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -28,6 +29,7 @@ import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -115,7 +117,7 @@ class ResumeButtonTest {
         ActivityScenario.launch(MainActivity::class.java).use { sc ->
             val a = launched(sc)
             device.wait(Until.hasObject(By.text(title(1))), 5_000) // the library is on screen
-            SystemClock.sleep(500)
+            SystemClock.sleep(500) // the window in which no button may come: fixed
             assertEquals(null, a.library.resume.value)
             assertFalse(waitFresh(0) { anyButton() })
         }
@@ -201,7 +203,7 @@ class ResumeButtonTest {
                 val x = device.displayWidth / 3
                 repeat(6) { device.swipe(x, device.displayHeight * 3 / 4, x, device.displayHeight / 4, 15) }
                 assertTrue("$layout: at the end of the list", waitFresh(5_000) { device.hasObject(By.text(title(14))) })
-                SystemClock.sleep(500) // the fling is over
+                assertNotNull("$layout: the fling is over", device.settled(By.text(title(14)), 5_000))
                 val top = shown(2, "$layout").visibleBounds.top
                 val rows = waitFresh(0) { true }.let { device.findObjects(By.text("Test Author")).map { it.visibleBounds.bottom } }
                 assertTrue("$layout: rows end at ${rows.max()}, the button starts at $top", rows.max() <= top)

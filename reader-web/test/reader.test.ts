@@ -523,12 +523,36 @@ describe('swipes (F-032, C-026)', () => {
     expect(v.turnsMade).toEqual(['next', 'next', 'next'])
   })
 
-  it('swipes share the bridge turns cap', async () => {
+  it('no swipe is lost, however many are waiting (C-094); only bridge turns are capped', async () => {
     open('s1', null); await settle()
     const v = FakeView.all[0]
     for (let i = 0; i < 6; i++) swipe(v, -200)
     await settle()
-    expect(v.turnsMade).toHaveLength(3)
+    expect(v.turnsMade).toHaveLength(6)
+  })
+
+  it('a queued turn waits for the drag that holds the page (C-094)', async () => {
+    open('s1', null); await settle()
+    const v = FakeView.all[0]
+    let release!: () => void
+    v.renderer.dragging = new Promise<void>(r => { release = () => { v.renderer.dragging = null; r() } })
+    send({ v: 1, type: 'next' }); await settle()
+    expect(v.turnsMade).toEqual([])
+    release(); await settle()
+    expect(v.turnsMade).toEqual(['next'])
+  })
+
+  it('the page follows a drag only with nothing queued, and with the swipe direction agreeing with the pages (C-094)', async () => {
+    open('s1', null); await settle()
+    const v = FakeView.all[0]
+    const { ready } = v.renderer.dragHost
+    expect(ready(false, false)).toBe(true)
+    expect(ready(true, false)).toBe(false) // forced or book direction against right-to-left pages
+    expect(ready(true, true)).toBe(true)
+    swipe(v, -200) // a turn running: a new gesture is reported, not followed
+    expect(ready(false, false)).toBe(false)
+    await settle()
+    expect(ready(false, false)).toBe(true)
   })
 
   it('a swipe before the first layout settled waits for it', async () => {
@@ -601,11 +625,11 @@ describe('swipes (F-032, C-026)', () => {
       expect(made).toEqual([])
     })
 
-    it('swipes during a running chapter turn queue up, within the same cap as page turns', async () => {
+    it('swipes during a running chapter turn queue up and none is lost (C-094)', async () => {
       const { v, made } = await opened()
       for (let i = 0; i < 6; i++) swipe(v, -200)
       await settle()
-      expect(made).toHaveLength(3)
+      expect(made).toHaveLength(6)
     })
 
     it('not while text is selected (the gesture was a selection drag)', async () => {
@@ -1064,6 +1088,34 @@ describe('book pages (C-083)', () => {
 
 // C-085: scroll mode's "Chapters" setting reaches the paginator as its `chapter-stop` attribute, and the One at a time
 // controls are labelled with the app's texts and the book's contents.
+describe('Reader top inset (C-099)', () => {
+  const settings = { fontScale: 1, fontFamily: 'publisher', lineHeight: 1.5, marginPercent: 5, align: 'publisher', theme: 'light', flow: 'scrolled', swipeDirection: 'auto', pageAnimation: 'slide' } as const
+  const openWith = (s: object) => send({ v: 1, type: 'open', sessionId: 's1', position: null, texts: { missingPart: 'missing' }, settings: { ...settings, ...s } } as ToWeb)
+
+  it('goes to the paginator with the first layout, before the flow, and follows a change', async () => {
+    openWith({ topInset: 28 }); await settle(); await settle()
+    const r = FakeView.all.at(-1)!.renderer as HTMLElement
+    expect(r.getAttribute('top-inset')).toBe('28')
+    const seen: string[] = []; const set = r.setAttribute.bind(r); r.setAttribute = (k: string, v: string) => { seen.push(k); set(k, v) }
+    send({ v: 1, type: 'setSettings', settings: { ...settings, flow: 'paginated', topInset: 12 } }); await settle()
+    expect(r.getAttribute('top-inset')).toBe('12')
+    expect(seen.indexOf('top-inset')).toBeLessThan(seen.indexOf('flow'))
+  })
+
+  it('an app that sends none: 0', async () => {
+    openWith({}); await settle(); await settle()
+    expect((FakeView.all.at(-1)!.renderer as HTMLElement).getAttribute('top-inset')).toBe('0')
+  })
+
+  it('a fixed-layout book has no paginator to place it: its whole view stays below the inset', async () => {
+    FakeView.fxl = true
+    openWith({ topInset: 28 }); await settle(); await settle()
+    expect(FakeView.all.at(-1)!.style.top).toBe('28px')
+    send({ v: 1, type: 'setSettings', settings: { ...settings, topInset: 0 } }); await settle()
+    expect(FakeView.all.at(-1)!.style.top).toBe('')
+  })
+})
+
 describe('Reader chapters (One at a time)', () => {
   const settings = { fontScale: 1, fontFamily: 'publisher', lineHeight: 1.5, marginPercent: 5, align: 'publisher', theme: 'light', swipeDirection: 'auto', pageAnimation: 'slide' } as const
   const texts = { missingPart: 'missing', nextChapter: 'Weiter: {title}', previousChapter: 'Zurück: {title}', nextChapterUntitled: 'Weiter', previousChapterUntitled: 'Zurück' }

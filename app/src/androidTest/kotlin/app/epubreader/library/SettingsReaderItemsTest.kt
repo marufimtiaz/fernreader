@@ -10,6 +10,8 @@ import androidx.test.uiautomator.Until
 import app.epubreader.EpubReaderApp
 import app.epubreader.MainActivity
 import app.epubreader.core.data.ReaderSettings
+import app.epubreader.reader.settingsStored
+import app.epubreader.settled
 import app.epubreader.ui.Copy
 import app.epubreader.ui.Route
 import kotlinx.coroutines.delay
@@ -41,7 +43,7 @@ class SettingsReaderItemsTest {
             device.swipe(r.centerX(), from, r.centerX(), to, 30)
             device.waitForIdle(300)
             if (android.os.Build.VERSION.SDK_INT >= 34) inst.uiAutomation.clearCache()
-            device.findObject(By.text(text))?.let { return it }
+            if (device.hasObject(By.text(text))) return device.settled(By.text(text), 3_000) // a click on the moving list can miss
         }
         return null
     }
@@ -52,8 +54,9 @@ class SettingsReaderItemsTest {
         inst.uiAutomation.executeShellCommand("appops set ${inst.targetContext.packageName} MANAGE_EXTERNAL_STORAGE allow").close()
         ActivityScenario.launch(MainActivity::class.java).use { sc ->
             lateinit var a: MainActivity
-            delay(1_000) // the controller has read the stored settings (its load would replace the reset below)
-            sc.onActivity { a = it; it.controller.updateSettings { ReaderSettings() }; it.nav.push(Route.Settings) }
+            sc.onActivity { a = it }
+            a.settingsStored() // its load would replace the reset below
+            sc.onActivity { it.controller.updateSettings { ReaderSettings() }; it.nav.push(Route.Settings) }
             try {
                 assertNotNull(device.wait(Until.findObject(By.text(Copy.pageNumbers)), 10_000))
                 for (t in listOf(Copy.pageAnimation, Copy.swipeDirection, Copy.volumeKeys, Copy.fullscreen, Copy.keepScreenOn, Copy.orientation, Copy.confirmLinks)) {
@@ -70,7 +73,7 @@ class SettingsReaderItemsTest {
                 withTimeout(5_000) { while (stored().tapZones) delay(100) }
             } finally {
                 sc.onActivity { it.controller.updateSettings { ReaderSettings() } }
-                delay(500)
+                a.settingsStored()
             }
         }
     }

@@ -40,7 +40,7 @@ class PageIndicatorTest {
                 assertTrue("an estimate before the exact total: $fresh", estimate != null)
                 val err = abs(estimate!!.total!! - exact.total!!).toDouble() / exact.total!!
                 assertTrue("estimate ${estimate.total} vs exact ${exact.total}: ${"%.1f".format(err * 100)} %", err <= 0.05)
-            } finally { h.change { ReaderSettings() }; h.stop() }
+            } finally { h.change { ReaderSettings() }; h.a.settingsStored(); h.stop() }
         }
     }
 

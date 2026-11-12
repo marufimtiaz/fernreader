@@ -29,7 +29,8 @@ abstract class LibraryDao {
     /** Book by identity (created on first sight) + its source; one transaction. Returns the book id. */
     @Transaction
     open suspend fun recordOpened(identityKey: String, title: String, authors: String, path: String, size: Long, now: Long, source: String = "opened"): String {
-        val id = byIdentity(identityKey)?.id ?: newId().also {
+        // C-096: a separate copy's file is that copy, though its content's identity leads to the other entry.
+        val id = separateHolder(path, identityKey)?.id ?: byIdentity(identityKey)?.id ?: newId().also {
             insertBook(
                 BookEntity(
                     id = it, identityKey = identityKey, title = title, sortTitle = MetadataReader.sortKey(title), authors = authors,
@@ -78,7 +79,8 @@ abstract class LibraryDao {
     @Query("UPDATE book SET deleted = 1, updatedAt = :now WHERE deleted = 0 AND hidden = 0 AND id NOT IN (SELECT bookId FROM book_file)")
     abstract suspend fun tombstoneOrphans(now: Long): Int
 
-    @Query("UPDATE book SET identityKey = :key, updatedAt = :now WHERE id = :id")
+    /** The content changed: a separate copy (C-096) no longer shares it with anything and is an ordinary book now. */
+    @Query("UPDATE book SET identityKey = :key, separateOf = NULL, separatePath = NULL, separateMtimeMs = NULL, updatedAt = :now WHERE id = :id")
     protected abstract suspend fun setIdentity(id: String, key: String, now: Long)
     @Query("UPDATE book SET coverThumb = NULL WHERE id = :id") protected abstract suspend fun forgetCover(id: String)
     @Query(
@@ -93,11 +95,14 @@ abstract class LibraryDao {
      * same path held a book with the same package identifier (the first half of the identity key), that book's file
      * changed in place and it stays the same book (C-009). A different book at a known path takes the path over; the
      * old book keeps its other files and reading data (Review Focus 4 of the M3 plan).
+     *
+     * C-096: a separate copy keeps its known file, and [into] (from [recordScannedCopies]) names the entry that takes
+     * a new one.
      */
     @Transaction
-    open suspend fun recordScanned(s: ScannedBook, scanId: Long, now: Long): String {
+    open suspend fun recordScanned(s: ScannedBook, scanId: Long, now: Long, into: String? = null): String {
         val before = fileRow(s.path)
-        var book = byIdentity(s.identityKey)
+        var book = into?.let { byId(it) } ?: separateHolder(s.path, s.identityKey) ?: byIdentity(s.identityKey)
         if (book == null) {
             val prev = bookIdForPath(s.path)?.let { byId(it) }
             val idHash = s.identityKey.substringBefore('-')
@@ -111,6 +116,7 @@ abstract class LibraryDao {
             updateScanned(book.id, s.title, s.sortTitle, s.authors, s.sortAuthor, s.language, s.titleDirection, now)
             // This book's own file changed in place (M3 deferred): its cover may have changed too, so look again.
             if (before?.bookId == book.id && (before.size != s.size || before.mtimeMs != s.mtimeMs)) forgetCover(book.id)
+            if (book.separateOf == s.identityKey) noteSeparateFile(book.id, s.path, s.mtimeMs)
             book.id
         } else newId().also {
             insertBook(
@@ -124,6 +130,125 @@ abstract class LibraryDao {
         upsertFile(BookFileEntity(path = s.path, bookId = id, source = "scan", folder = s.folder, size = s.size, mtimeMs = s.mtimeMs, lastSeenScan = scanId))
         deleteFailure(s.path)
         return id
+    }
+
+    // --- C-096: separate copies ----------------------------------------------------------------------------------
+
+    @Query("SELECT * FROM book WHERE separateOf = :key") abstract suspend fun copiesOf(key: String): List<BookEntity>
+    @Query("SELECT EXISTS(SELECT 1 FROM book WHERE separateOf = :key)") protected abstract suspend fun hasCopies(key: String): Boolean
+    @Query("UPDATE book SET separatePath = :path, separateMtimeMs = :mtimeMs WHERE id = :id")
+    protected abstract suspend fun noteSeparateFile(id: String, path: String, mtimeMs: Long)
+    @Query("UPDATE book SET separateOf = NULL, separatePath = NULL, separateMtimeMs = NULL WHERE id = :id")
+    protected abstract suspend fun endSeparate(id: String)
+    @Query("UPDATE book SET deleted = 0, updatedAt = MAX(updatedAt, :now) WHERE id = :id") protected abstract suspend fun revive(id: String, now: Long)
+    @Query("UPDATE book_file SET bookId = :to WHERE bookId = :from") protected abstract suspend fun moveFiles(from: String, to: String)
+    @Query("UPDATE reading_position SET deleted = 1, updatedAt = :now WHERE bookId = :id AND deleted = 0") protected abstract suspend fun tombstonePosition(id: String, now: Long)
+    @Query("UPDATE bookmark SET deleted = 1, updatedAt = :now WHERE bookId = :id AND deleted = 0") protected abstract suspend fun tombstoneBookmarks(id: String, now: Long)
+    @Query("UPDATE annotation SET deleted = 1, updatedAt = :now WHERE bookId = :id AND deleted = 0") protected abstract suspend fun tombstoneAnnotations(id: String, now: Long)
+    @Query("UPDATE collection_book SET deleted = 1, updatedAt = :now WHERE bookId = :id AND deleted = 0") protected abstract suspend fun tombstoneMemberships(id: String, now: Long)
+    @Query("SELECT COUNT(*) FROM bookmark WHERE bookId = :id AND deleted = 0") abstract suspend fun bookmarkCount(id: String): Int
+    @Query("SELECT COUNT(*) FROM annotation WHERE bookId = :id AND deleted = 0 AND (note IS NULL OR note = '')") abstract suspend fun highlightCount(id: String): Int
+    @Query("SELECT COUNT(*) FROM annotation WHERE bookId = :id AND deleted = 0 AND note IS NOT NULL AND note != ''") abstract suspend fun noteCount(id: String): Int
+
+    /** The separate copy of this content that already holds [path], if any. */
+    private suspend fun separateHolder(path: String, key: String): BookEntity? =
+        fileRow(path)?.let { byId(it.bookId) }?.takeIf { it.separateOf == key }
+
+    /**
+     * Whether [s] has to wait for the end of the walk: its content has separate copies and its file is not a known file
+     * of one of those entries, so only the files that went missing can tell where it belongs. An "opened" row of the
+     * other entry says nothing: a moved copy opened from a file manager before this scan was recorded there.
+     */
+    open suspend fun needsCopyMatch(s: ScannedBook): Boolean {
+        if (!hasCopies(s.identityKey)) return false
+        val row = fileRow(s.path) ?: return true
+        val holder = byId(row.bookId)
+        return holder?.separateOf != s.identityKey && (row.source != "scan" || holder?.identityKey != s.identityKey)
+    }
+
+    /**
+     * After a completed walk and [markSeen]: records [files], new files of the content [key], which has separate copies.
+     * Files not seen under [prefix] are still in the table (see [SeparateCopies.assign]). Returns each file's book id.
+     */
+    @Transaction
+    open suspend fun recordScannedCopies(key: String, files: List<ScannedBook>, scanId: Long, prefix: String, now: Long): List<Pair<ScannedBook, String>> {
+        val claims = (listOfNotNull(byIdentity(key)) + copiesOf(key)).flatMap { b ->
+            val rows = filesOf(b.id)
+            val separate = b.separateOf != null
+            if (rows.isEmpty()) listOfNotNull(if (separate) SeparateCopies.Claim(b.id, true, b.separatePath, b.separateMtimeMs) else null)
+            else rows.filter { it.source == "scan" && it.lastSeenScan < scanId && it.path.startsWith(prefix) }
+                .map { SeparateCopies.Claim(b.id, separate, it.path, it.mtimeMs) }
+        }
+        val owners = SeparateCopies.assign(files.map { SeparateCopies.Found(it.path, it.mtimeMs) }, claims)
+        return files.map { it to recordScanned(it, scanId, now, owners[it.path]) }
+    }
+
+    /**
+     * C-096 "keep as a separate copy": the file at [path] leaves its entry for a new one with the entry's metadata and
+     * nothing else (no position, bookmarks, annotations, collections or cover). Returns the new book id, or null if
+     * [path] is not a lasting location other than its entry's first.
+     */
+    @Transaction
+    open suspend fun keepSeparate(path: String, now: Long): String? {
+        val row = fileRow(path)?.takeIf { it.source != "session" } ?: return null
+        val owner = byId(row.bookId) ?: return null
+        if (filesOf(owner.id).minWith(SeparateCopies.fileOrder).path == path) return null
+        val content = owner.separateOf ?: owner.identityKey
+        val id = newId()
+        insertBook(
+            owner.copy(
+                id = id, identityKey = SeparateCopies.identityKey(content), coverThumb = null, addedAt = now, lastOpenedAt = null,
+                hidden = false, hiddenUpdatedAt = 0, updatedAt = now, deleted = false,
+                separateOf = content, separatePath = path, separateMtimeMs = row.mtimeMs,
+            ),
+        )
+        upsertFile(row.copy(bookId = id))
+        return id
+    }
+
+    /** The live entry a separate copy can merge with: the book of its content first, else another copy; null if none. */
+    open suspend fun mergeTarget(book: BookEntity): BookEntity? {
+        val key = book.separateOf ?: return null
+        return (listOfNotNull(byIdentity(key)) + copiesOf(key).sortedBy { it.addedAt })
+            .firstOrNull { it.id != book.id && !it.deleted && !it.hidden && filesOf(it.id).isNotEmpty() }
+    }
+
+    /**
+     * C-096 "merge with the other copy": the copy's files join the [mergeTarget] and the copy ends, its reading data
+     * tombstoned (F-115: an older backup can't bring it back). With no target nothing changes, and false is returned.
+     */
+    @Transaction
+    open suspend fun mergeCopy(id: String, now: Long): Boolean {
+        val book = byId(id) ?: return false
+        val target = mergeTarget(book) ?: return false
+        moveFiles(id, target.id)
+        tombstonePosition(id, now); tombstoneBookmarks(id, now); tombstoneAnnotations(id, now); tombstoneMemberships(id, now)
+        deleteCache(id); deletePages(id)
+        endSeparate(id); forgetCover(id); tombstone(id, now)
+        return true
+    }
+
+    /**
+     * Restore: the separate copies of [key] with no file take theirs from the book of that content, which had every
+     * copy on this device. A file the copy last had goes to it whatever is left; other evidence never empties the book.
+     * Returns how many copies found a file. A copy that didn't waits for a scan.
+     */
+    open suspend fun adoptCopyFiles(key: String, now: Long): Int {
+        val waiting = copiesOf(key).filter { filesOf(it.id).isEmpty() }
+        val book = byIdentity(key)
+        if (waiting.isEmpty() || book == null) return 0
+        val files = filesOf(book.id).filter { it.source != "session" }.sortedWith(SeparateCopies.fileOrder)
+        val stays = files.firstOrNull { f -> waiting.none { it.separatePath == f.path } }
+        val owners = SeparateCopies.assign(
+            files.filter { it !== stays }.map { SeparateCopies.Found(it.path, it.mtimeMs) },
+            waiting.map { SeparateCopies.Claim(it.id, true, it.separatePath, it.separateMtimeMs) },
+        )
+        for ((path, id) in owners) {
+            val row = files.first { it.path == path }
+            upsertFile(row.copy(bookId = id)); noteSeparateFile(id, path, row.mtimeMs); revive(id, now)
+        }
+        if (owners.isNotEmpty()) tombstoneOrphans(now)
+        return owners.size
     }
 
     @Query(LIBRARY_QUERY) abstract fun library(): Flow<List<LibraryRow>>
@@ -159,9 +284,12 @@ abstract class LibraryDao {
         books.forEach { insertBook(it) }; files.forEach { upsertFile(it) }
     }
 
-    /** F-018 "remove entry": the book leaves the library; its reading data stays keyed by the id (a later scan brings it back). */
+    /**
+     * F-018 "remove entry": the book leaves the library; its reading data stays keyed by the id (a later scan brings it
+     * back). C-096: a separate copy the user removed is over, so it doesn't claim the next identical file.
+     */
     @Transaction
-    open suspend fun removeBook(id: String, now: Long) { deleteFiles(id); tombstone(id, now) }
+    open suspend fun removeBook(id: String, now: Long) { deleteFiles(id); endSeparate(id); tombstone(id, now) }
 }
 
 /** The identity-key half of a book with no package identifier. */
@@ -173,7 +301,8 @@ private const val LIBRARY_COLUMNS =
         "(SELECT f.path FROM book_file f WHERE f.bookId = b.id ORDER BY f.source = 'scan' DESC, f.path LIMIT 1) AS path, " +
         "(SELECT GROUP_CONCAT(f.path, char(10)) FROM book_file f WHERE f.bookId = b.id) AS paths, " +
         "(SELECT GROUP_CONCAT(m.collectionId, char(10)) FROM collection_book m JOIN collection c ON c.id = m.collectionId " +
-        "WHERE m.bookId = b.id AND m.deleted = 0 AND c.deleted = 0) AS collectionIds " +
+        "WHERE m.bookId = b.id AND m.deleted = 0 AND c.deleted = 0) AS collectionIds, " +
+        "(b.separateOf IS NOT NULL OR EXISTS (SELECT 1 FROM book s WHERE s.separateOf = b.identityKey AND s.deleted = 0)) AS split " +
         "FROM book b WHERE b.deleted = 0 AND EXISTS (SELECT 1 FROM book_file f WHERE f.bookId = b.id) "
 
 private const val LIBRARY_QUERY = LIBRARY_COLUMNS + "AND b.hidden = 0"
@@ -182,7 +311,7 @@ private const val HIDDEN_QUERY = LIBRARY_COLUMNS + "AND b.hidden = 1 ORDER BY b.
 data class LibraryRow(
     val id: String, val title: String, val authors: String, val titleDirection: String, val coverThumb: String?,
     val addedAt: Long, val lastOpenedAt: Long?, val sortTitle: String, val sortAuthor: String, val path: String, val paths: String,
-    val collectionIds: String?,
+    val collectionIds: String?, val split: Boolean,
 )
 
 data class CoverJob(val bookId: String, val path: String)

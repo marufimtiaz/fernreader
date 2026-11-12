@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { effectiveDir, swipeToTurn } from '../src/reader/swipe'
+import { dragFinishes, effectiveDir, followsFinger, swipeToTurn } from '../src/reader/swipe'
 
 describe('swipeToTurn (F-032)', () => {
   it('LTR: finger moving left is next, moving right is previous', () => {
@@ -85,5 +85,64 @@ describe('reportSwipes (fixed layout: foliate-fxl reports no swipes; F-032 for F
     touch(doc, 'touchmove', 200, 400, 1050, 2)
     touch(doc, 'touchend', 100, 400, 1100)
     expect(got).toEqual([])
+  })
+  it('a gesture the app took (a touchcancel, C-102) is no swipe, even if a stray end follows', async () => {
+    const { reportSwipes } = await import('../src/reader/swipe')
+    const doc = document.implementation.createHTMLDocument('p')
+    const renderer = document.createElement('div')
+    const got: any[] = []
+    renderer.addEventListener('swipe', (e: Event) => got.push(e))
+    reportSwipes(doc, renderer)
+    touch(doc, 'touchstart', 390, 400, 1000)
+    touch(doc, 'touchmove', 370, 400, 1016)
+    touch(doc, 'touchcancel', 370, 400, 1020)
+    touch(doc, 'touchend', 100, 400, 1100)
+    expect(got).toEqual([])
+  })
+})
+
+describe('dragFinishes (C-094): a released drag finishes its turn past about a third of the screen or as a flick', () => {
+  const size = 390
+  const release = (main: number, speed: number, cross = 0) => dragFinishes({ main, cross, speed, size })
+  it('a slow release before a third snaps back, past it finishes', () => {
+    expect(release(size / 3 - 1, 0)).toBe(false)
+    expect(release(size / 3, 0)).toBe(true)
+    expect(release(300, 0.1)).toBe(true)
+  })
+  it('a flick finishes however short, at F-032\'s distance and speed', () => {
+    expect(release(24, 0.3)).toBe(true)
+    expect(release(23, 2)).toBe(false)
+    expect(release(40, 0.29)).toBe(false)
+  })
+  it('a flick back against the drag snaps back, however far the page was', () => {
+    expect(release(300, -0.3)).toBe(false)
+    expect(release(300, -0.29)).toBe(true)
+  })
+  it('a release that ended up mostly across the axis snaps back', () => {
+    expect(release(200, 0, 140)).toBe(false)
+    expect(release(200, 1, 140)).toBe(false)
+    expect(release(210, 0, 140)).toBe(true)
+  })
+  it('nothing dragged toward the turn finishes nothing', () => {
+    expect(release(0, 3)).toBe(false)
+    expect(release(-200, 3)).toBe(false)
+  })
+  it('unknown numbers finish nothing', () => {
+    expect(release(NaN, 0)).toBe(false)
+    expect(dragFinishes({ main: 200, cross: 0, speed: NaN, size: 0 })).toBe(false)
+  })
+})
+
+describe('followsFinger (C-094): the page can follow only where a finger going forward moves the page forward', () => {
+  it('the swipe direction in effect matches the way the pages lie', () => {
+    expect(followsFinger('ltr', false, false)).toBe(true)
+    expect(followsFinger('rtl', true, false)).toBe(true)
+  })
+  it('a swipe direction forced against the pages turns on release instead', () => {
+    expect(followsFinger('rtl', false, false)).toBe(false)
+    expect(followsFinger('ltr', true, false)).toBe(false)
+  })
+  it('top-to-bottom pages follow along their own axis whatever the setting', () => {
+    expect(followsFinger('rtl', false, true)).toBe(true)
   })
 })

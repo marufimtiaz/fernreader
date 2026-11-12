@@ -143,6 +143,36 @@ class MigrationTest {
         migrated.close()
     }
 
+    @Test fun v8_to_v9_keeps_the_library_as_it_is_with_no_separate_copies() {
+        val dbPath = Files.createTempDirectory("mig").resolve("m.db")
+        val helper = MigrationTestHelper(
+            schemaDirectoryPath = Path.of("schemas"), databasePath = dbPath,
+            driver = BundledSQLiteDriver(), databaseClass = AppDatabase::class,
+        )
+        helper.createDatabase(8).also {
+            insertM2Book(it)
+            it.execSQL("UPDATE book SET hidden = 1, hiddenUpdatedAt = 250 WHERE id = 'b1'")
+            it.execSQL("INSERT INTO book_file (path, bookId, source, folder, size, mtimeMs, lastSeenScan) VALUES ('/sdcard/a.epub', 'b1', 'scan', '/sdcard', 10, 5, 7)")
+            it.execSQL("INSERT INTO bookmark (id, bookId, cfi, spineIndex, fraction, chapter, createdAt, updatedAt, deleted) VALUES ('m1', 'b1', 'c', 1, 0.5, 'One', 1, 2, 0)")
+            it.execSQL("INSERT INTO annotation (id, bookId, cfi, spineIndex, text, chapter, color, style, note, createdAt, updatedAt, deleted) VALUES ('a1', 'b1', 'c', 1, 't', 'One', 'yellow', 'highlight', 'n', 1, 2, 0)")
+        }.close()
+        val migrated = helper.runMigrationsAndValidate(9)
+        migrated.prepare("SELECT identityKey, title, addedAt, lastOpenedAt, hidden, hiddenUpdatedAt, updatedAt, deleted, separateOf, separatePath, separateMtimeMs FROM book").use {
+            assertEquals(true, it.step())
+            assertEquals("k", it.getText(0)); assertEquals("WS Book", it.getText(1))
+            assertEquals(listOf(100L, 200L, 1L, 250L, 200L, 0L), (2..7).map(it::getLong))
+            assertEquals(listOf(true, true, true), (8..10).map(it::isNull))
+            assertEquals(false, it.step())
+        }
+        migrated.prepare("SELECT path, source, size, mtimeMs, lastSeenScan FROM book_file WHERE bookId = 'b1' ORDER BY path").use {
+            assertEquals(true, it.step()); assertEquals("/sdcard/a.epub", it.getText(0)); assertEquals("scan", it.getText(1)); assertEquals(listOf(10L, 5L, 7L), (2..4).map(it::getLong))
+            assertEquals(true, it.step()); assertEquals("opened", it.getText(1))
+        }
+        migrated.prepare("SELECT cfi FROM reading_position WHERE bookId = 'b1'").use { assertEquals(true, it.step()); assertEquals("epubcfi(/6/4!/4/2/1:0)", it.getText(0)) }
+        migrated.prepare("SELECT (SELECT COUNT(*) FROM bookmark WHERE bookId = 'b1'), (SELECT note FROM annotation WHERE id = 'a1')").use { assertEquals(true, it.step()); assertEquals(1L, it.getLong(0)); assertEquals("n", it.getText(1)) }
+        migrated.close()
+    }
+
     companion object {
         /** A book as M2 recorded it after a picker open: identity from foliate, a content:// file row, a position. */
         fun insertM2Book(c: androidx.sqlite.SQLiteConnection, identityKey: String = "k", uri: String = "content://com.android.providers.downloads.documents/document/42") {

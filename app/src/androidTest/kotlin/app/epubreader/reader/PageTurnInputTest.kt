@@ -57,9 +57,6 @@ class PageTurnInputTest {
         return p
     }
 
-    /** Waits until the turns asked for have run (each ~0.3 s), then makes sure everything sent before was applied. */
-    private suspend fun ReaderHarness.quiet() { delay(1_500); drain(); settle() }
-
     /**
      * [count] quick leftward swipes (down, two moves, up: 48 ms each, 32 ms apart), built up front with explicit event
      * times and injected back to back without waiting for each to be handled, so the test's own pacing on a busy
@@ -107,7 +104,7 @@ class PageTurnInputTest {
                 block(hr, sc)
             } finally {
                 sc.onActivity { it.controller.updateSettings { ReaderSettings() } } // defaults again (stored after 300 ms)
-                delay(800)
+                hr.a.settingsStored()
                 hr.stop()
             }
         }
@@ -174,7 +171,7 @@ class PageTurnInputTest {
             sc.onActivity { it.controller.updateSettings { s -> s.copy(volumeKeys = VolumeKeys.OFF) } }
             dev.pressKeyCode(KeyEvent.KEYCODE_VOLUME_DOWN); hr.quiet()
             assertEquals("volume keys off: no page change", start, sc.pos())
-            delay(3_500) // the system volume panel that OFF lets through goes away
+            delay(3_500) // the system volume panel that OFF lets through goes away: its own timeout, in another process
         } finally {
             audio.setStreamVolume(AudioManager.STREAM_MUSIC, before, 0)
         }
@@ -196,7 +193,8 @@ class PageTurnInputTest {
             val f = File("/sdcard/Books/epub3-samples/$name.epub")
             hr.open(f)
             // from a fixed page: the book resumes where another test left it, which can be its last page
-            hr.drain(); sc.js("window.__readerTest.goIndex(2)"); hr.relocate(10_000) { it.sectionIndex >= 2 }; hr.quiet()
+            if (hr.at!!.sectionIndex != 2) { hr.drain(); sc.js("window.__readerTest.goIndex(2)"); hr.relocate(10_000) { it.sectionIndex == 2 } } // (no relocate if it is there already)
+            hr.quiet()
             val start = hr.at!!.sectionIndex
             if (rtl) swipeRight() else swipeLeft()
             hr.quiet()

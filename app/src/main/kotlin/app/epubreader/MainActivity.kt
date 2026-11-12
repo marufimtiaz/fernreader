@@ -13,11 +13,15 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import app.epubreader.reader.BarsRevealWatch
+import app.epubreader.reader.BarsVisibility
 import app.epubreader.reader.ReaderWindowInputs
 import app.epubreader.reader.WindowApplier
 import app.epubreader.reader.WindowLook
@@ -50,6 +54,7 @@ import app.epubreader.reader.EventProbe
 import app.epubreader.reader.ReaderController
 import app.epubreader.reader.ReaderEngine
 import app.epubreader.reader.ReaderSurface
+import app.epubreader.reader.contents.contentsEdgeSwipe
 import app.epubreader.reader.SelectionAction
 import app.epubreader.reader.SelectionActionHandler
 import app.epubreader.reader.TextActions
@@ -241,10 +246,13 @@ class MainActivity : ComponentActivity() {
             val win = readerWindowState(readerShown, winInputs, rs)
             val brightness = if (readerShown) rs.brightness?.toFloat() ?: WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
             SideEffect { windowLook.update(WindowLook(brightness, lightBars = if (readerShown) theme.isLight else !dark, win)) }
+            BarsVisibility(::barsVisibilityChanged)
+            // C-102: kept across recompositions, so a recomposition never restarts a gesture in progress.
+            val pageGestures = remember { Modifier.contentsEdgeSwipe(controller) { nav.top == Route.Reader } }
             Box {
                 App(
                     dark = dark, webViewTooOld = webViewTooOld, nav = nav, library = library, reader = controller, probe = probe,
-                    readerSurface = { ReaderSurface(reader, covered = nav.top != Route.Reader, background = theme.background, fullscreen = rs.fullscreen, loading = { controller.state.value.loading }) },
+                    readerSurface = { ReaderSurface(reader, covered = nav.top != Route.Reader, background = theme.background, fullscreen = rs.fullscreen, loading = { controller.state.value.loading }, onTopInset = controller::setTopInset, pageGestures = pageGestures) },
                     fonts = fonts, formatDate = { ms -> dateFormat.format(java.util.Date(ms)) },
                     onOpenPicker = { pick.launch(arrayOf("application/epub+zip", "application/octet-stream")) },
                     onGrantAccess = access::request, onLeave = ::finish,
@@ -278,8 +286,8 @@ class MainActivity : ComponentActivity() {
             BenchCommands.register("resetSettings") { controller.updateSettings { app.epubreader.core.data.ReaderSettings() } }
             // C-079: reading mode for the scroll-mode fling checks (paged | scrolled | auto)
             BenchCommands.register("flow") { f -> runCatching { app.epubreader.core.data.Flow.valueOf(f.trim().uppercase()) }.getOrNull()?.let { v -> controller.updateSettings { it.copy(flow = v) } } }
-            BenchCommands.register("display") { controller.showDisplay() }
-            BenchCommands.register("hideDisplay") { controller.hideDisplay() }
+            BenchCommands.register("display") { controller.showSheet(app.epubreader.core.data.ReaderSheetTab.DISPLAY) }
+            BenchCommands.register("hideDisplay") { controller.hideSheet() }
             BenchCommands.register("lastPage") { reader.webView.evaluateJavascript("window.__readerTest.lastPage()", null) }
             BenchCommands.register("orient") { o ->
                 requestedOrientation = when (o.trim()) {
@@ -360,6 +368,19 @@ class MainActivity : ComponentActivity() {
     var windowApplies = 0
         private set
 
+    /** What [applyReaderWindow] asked of the system bars and what they did (C-103). */
+    private val barsReveal = BarsRevealWatch()
+
+    /**
+     * C-103: the bars' visibility changed. When the user swiped them back over the fullscreen reader, only the bars show
+     * (C-104): the reader keeps them in until its timeout or the next tap on the page, and the controls stay hidden.
+     */
+    private fun barsVisibilityChanged(visible: Boolean) {
+        if (barsReveal.seen(visible, hasWindowFocus()) && nav.top == Route.Reader && !controller.state.value.chromeVisible) {
+            controller.revealBars()
+        }
+    }
+
     private fun applyReaderWindow(look: WindowLook) {
         windowApplies++
         val win = look.win
@@ -367,7 +388,11 @@ class MainActivity : ComponentActivity() {
         WindowCompat.getInsetsController(window, window.decorView).apply {
             isAppearanceLightStatusBars = look.lightBars
             isAppearanceLightNavigationBars = look.lightBars
-            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            // C-103: the default behaviour, not "transient bars by swipe": with the bars hidden the system keeps its gestures
+            // (Back on both edges, the first time); a swipe from the top or bottom brings the bars back for good, and
+            // [barsVisibilityChanged] tells the reader, which keeps them in for a while (C-104).
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_DEFAULT
+            barsReveal.requested(hidden = win.barsHidden)
             if (win.barsHidden) hide(WindowInsetsCompat.Type.systemBars()) else show(WindowInsetsCompat.Type.systemBars())
         }
         if (win.keepScreenOn) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)

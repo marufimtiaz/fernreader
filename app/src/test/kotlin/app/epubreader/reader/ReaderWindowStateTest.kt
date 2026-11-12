@@ -26,6 +26,12 @@ class ReaderWindowStateTest {
         assertTrue(state(chrome = false).barsHidden)
     }
 
+    /** C-104: bars the user swiped in stay in without the controls, until the reader lets them go. */
+    @Test fun swiped_in_bars_stay_shown_without_the_controls() {
+        assertFalse(state(ui = reading.copy(barsRevealed = true)).barsHidden)
+        assertFalse(ReaderWindowInputs.of(reading) == ReaderWindowInputs.of(reading.copy(barsRevealed = true)))
+    }
+
     @Test fun fullscreen_off_never_hides_bars() {
         assertFalse(state(s = defaults.copy(fullscreen = false)).barsHidden)
     }
@@ -92,5 +98,33 @@ class ReaderWindowStateTest {
         assertTrue(readerWindowActive(inReader = true, readerFramed = true))
         assertFalse(readerWindowActive(inReader = false, readerFramed = true))
         assertFalse(readerWindowActive(inReader = false, readerFramed = false))
+    }
+
+    /** C-103: only the user's swipe (hidden to shown while the app wants them hidden, focused) counts as a reveal. */
+    @Test fun a_reveal_is_the_bars_coming_back_while_the_app_wants_them_hidden() {
+        val w = BarsRevealWatch()
+        assertFalse("the first look is no change", w.seen(visible = true, focused = true))
+        w.requested(hidden = true)
+        assertFalse("the app hid them", w.seen(visible = false, focused = true))
+        assertTrue("the user's swipe", w.seen(visible = true, focused = true))
+        assertFalse("still shown: not again", w.seen(visible = true, focused = true))
+        w.seen(visible = false, focused = true)
+        w.requested(hidden = false)
+        assertFalse("the app showed them (with the controls)", w.seen(visible = true, focused = true))
+        w.requested(hidden = true)
+        w.seen(visible = false, focused = true)
+        assertFalse("another window on top", w.seen(visible = true, focused = false))
+    }
+
+    /** C-103: the app shows the bars and hides them again before the system reports them shown: still the app's show. */
+    @Test fun a_quick_show_and_hide_by_the_app_is_no_reveal() {
+        val w = BarsRevealWatch()
+        w.requested(hidden = true)
+        w.seen(visible = false, focused = true)
+        w.requested(hidden = false)
+        w.requested(hidden = true)
+        assertFalse(w.seen(visible = true, focused = true))
+        w.seen(visible = false, focused = true)
+        assertTrue("a later swipe is the user's", w.seen(visible = true, focused = true))
     }
 }

@@ -9,6 +9,7 @@ import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
 import app.epubreader.EpubReaderApp
 import app.epubreader.MainActivity
+import app.epubreader.settled
 import app.epubreader.TestBooks
 import app.epubreader.core.data.Flow
 import app.epubreader.core.data.PageNumbers
@@ -64,7 +65,7 @@ class BookPagesTest {
         sc.onActivity { it.controller.updateSettings(f) }
         // No settle() here: its goTo to the current location is a navigation, which would re-anchor the reader at the
         // reflowed screen's start (the drift F-037 forbids comes from that, not from the reflow). Only waits.
-        runCatching { relocate(5_000) }; delay(1_500); drain()
+        still(); drain()
     }
 
     @Test fun each_page_source_gives_its_pages(): Unit = runBlocking {
@@ -109,7 +110,7 @@ class BookPagesTest {
                     h.open(TestBooks.write(inst.targetContext, "stay-$kind-${System.nanoTime()}.epub", TestBooks.pagesEpub(kind, paragraphs = 90)))
                     h.bookPage()
                     repeat(7) { h.drain(); h.send(ToWeb.Next()); h.relocate() } // one turn at a time (the queue keeps 3)
-                    delay(300); h.settle()
+                    h.still(); h.settle()
                     val before = h.bookPage()
                     val screenBefore = h.a.controller.page.value
                     Log.i("EPR", "C-083 $kind before: $before (screen $screenBefore) at ${h.at?.sectionIndex}:${h.at?.textOffset} block ${sc.js("window.__readerTest.firstVisibleBlock()").take(50)}")
@@ -129,9 +130,11 @@ class BookPagesTest {
                     sc.onActivity { it.goBack() }
                     withTimeout(10_000) { h.a.controller.state.first { !it.open } }
                 }
-            } finally { sc.onActivity { it.controller.updateSettings { ReaderSettings() } }; h.stop() }
+            } finally { sc.onActivity { it.controller.updateSettings { ReaderSettings() } }; h.a.settingsStored(); h.stop() }
         }
     }
+
+    private fun goButton() = checkNotNull(dev.settled(By.text(Copy.goToPageAction), 3_000)) { "no ${Copy.goToPageAction} button" }
 
     @Test fun go_to_page_takes_a_roman_label(): Unit = runBlocking {
         val bytes = TestBooks.pagesEpub(TestBooks.Pages.NAV, paragraphs = 90)
@@ -161,12 +164,14 @@ class BookPagesTest {
                 val field = dev.wait(Until.findObject(By.clazz("android.widget.EditText")), 5_000)
                 // A label the book does not have: the dialog says so and stays.
                 field.text = "xii"
-                dev.findObject(By.text(Copy.goToPageAction)).click()
+                assertTrue("typed", dev.wait(Until.hasObject(By.text("xii")), 3_000))
+                goButton().click() // (the keyboard coming up moves the dialog)
                 assertTrue("no such page", dev.wait(Until.hasObject(By.text(Copy.noSuchPage("xii"))), 5_000))
                 h.drain()
                 clearCache()
                 dev.findObject(By.clazz("android.widget.EditText")).text = "IV"
-                dev.findObject(By.text(Copy.goToPageAction)).click()
+                assertTrue("typed", dev.wait(Until.hasObject(By.text("IV")), 3_000))
+                goButton().click()
                 val landed = h.relocate(10_000)
                 assertTrue("dialog closed", dev.wait(Until.gone(By.text(Copy.goToPage)), 5_000))
                 val p = withTimeout(5_000) { h.a.controller.shownPage.first { it.label == "iv" } }
@@ -215,8 +220,7 @@ class BookPagesTest {
                     seen += p to landed
                     Log.i("EPR", "C-083 chunked=${policy.thresholdBytes != Int.MAX_VALUE}: $p at $landed")
                     sc.onActivity { it.goBack() }
-                    withTimeout(10_000) { c.state.first { !it.open } }
-                    delay(800)
+                    withTimeout(10_000) { c.state.first { !it.open } } // (the next open waits for the close-out)
                 }
                 val (unchunked, chunked) = seen
                 assertEquals(unchunked.first, chunked.first)
@@ -260,13 +264,13 @@ class BookPagesTest {
                 assertTrue(c.bookPagesInUse.value)
                 sc.onActivity { it.goBack() }
                 withTimeout(10_000) { c.state.first { !it.open } }
-                delay(800); h.drain()
+                h.drain()
                 sc.onActivity { it.openBook(SourceRef.File(f.path)) } // again: the stored print pages at once
                 first = h.relocate(30_000)
                 assertEquals(text(first.sectionIndex), h.shown())
                 h.painted(30_000)
                 withTimeout(20_000) { c.state.first { !it.loading } }
-                delay(2_000)
+                delay(2_000) // the check that the stored total stays after the open: fixed
                 Log.i("EPR", "C-087 page-blanche: ${c.shownPage.value} (${want.source} ${want.count}) screen ${c.page.value}")
                 assertEquals(want.count, c.shownPage.value.total)
                 h.drain(); h.send(ToWeb.Next())
@@ -275,7 +279,7 @@ class BookPagesTest {
                 assertTrue("n moved: $after", turned.sectionIndex > first.sectionIndex)
                 for (mode in listOf(PageNumbers.SCREEN_BOOK, PageNumbers.SCREEN_CHAPTER)) {
                     sc.onActivity { it.controller.updateSettings { s -> s.copy(pageNumbers = mode) } }
-                    delay(300)
+                    delay(300) // the label must not change: a wait for a value it already has would end at once
                     assertEquals("$mode", after, Copy.pageLabel(c.shownPage.value))
                 }
                 sc.onActivity { it.controller.updateSettings { ReaderSettings() } }
@@ -284,7 +288,7 @@ class BookPagesTest {
                 val short = Copy.pageLabelShort(c.shownPage.value)!! // C-091: what the bar shows
                 val label = dev.wait(Until.findObject(By.text(short)), 5_000)
                 assertNotNull("page label $short on the bar", label)
-                assertTrue("the go-to entry is offered", dev.hasObject(By.descContains(Copy.goToPage)))
+                assertTrue("the go-to entry is offered", app.epubreader.waitFresh(3_000) { dev.hasObject(By.descContains(Copy.goToPage)) })
                 sc.onActivity { it.controller.toggleChrome() }
                 h.drain()
                 var ok = false
@@ -314,7 +318,7 @@ class BookPagesTest {
                 h.drain(); h.send(ToWeb.Next()); h.relocate(10_000) { it.sectionIndex == 1 }
                 assertEquals("Page ii of 4", h.shown { it.label == "ii" })
                 sc.onActivity { it.controller.updateSettings { s -> s.copy(pageNumbers = PageNumbers.SCREEN_CHAPTER) } }
-                delay(300)
+                delay(300) // the label must not change: a wait for a value it already has would end at once
                 assertEquals("Page ii of 4", Copy.pageLabel(c.shownPage.value))
                 h.drain()
                 var ok = false
@@ -324,6 +328,7 @@ class BookPagesTest {
                 assertEquals("Page iv of 4", h.shown { it.label == "iv" })
             } finally {
                 sc.onActivity { it.controller.updateSettings { ReaderSettings() } }
+                h.a.settingsStored()
                 h.stop()
             }
         }

@@ -17,6 +17,7 @@ import app.epubreader.core.data.SwipeDirection
 import app.epubreader.core.data.ScrollChapters
 import app.epubreader.core.data.ReaderSettings
 import app.epubreader.core.data.SearchHistoryPort
+import app.epubreader.core.data.ReaderSheetTab
 import app.epubreader.core.data.SettingsPort
 import app.epubreader.core.data.SourceRef
 import app.epubreader.core.epub.PositionMap
@@ -58,6 +59,9 @@ sealed interface ReaderError {
     data object FileChanged : ReaderError
 }
 
+/** C-104: how long system bars swiped in over the fullscreen reader stay before they hide again by themselves. */
+const val BARS_REVEAL_MS = 3_000L
+
 enum class Notice { MissingTarget, HitNotFound, NoAppForLink, BookmarkAdded, BookmarkRemoved, HighlightRemoved }
 
 data class ReaderUiState(
@@ -71,6 +75,11 @@ data class ReaderUiState(
     /** Book fraction of the current location (seek slider, F-034). */
     val fraction: Double = 0.0,
     val chromeVisible: Boolean = false,
+    /**
+     * C-104: the system bars are showing over the fullscreen reader because the user swiped them in from the top or bottom
+     * edge, without the controls. They hide again after [BARS_REVEAL_MS] or at the next tap on the page.
+     */
+    val barsRevealed: Boolean = false,
     val tocVisible: Boolean = false,
     /** The Contents panel's tab (F-041, F-062); opening the panel always starts on Contents. */
     val contentsTab: ContentsTab = ContentsTab.Contents,
@@ -79,8 +88,8 @@ data class ReaderUiState(
     /** F-041: the visible page holds a bookmark: the marker is drawn and the bookmark button is filled. */
     val bookmarked: Boolean = false,
     val searchVisible: Boolean = false,
-    val displayVisible: Boolean = false,
-    val settingsVisible: Boolean = false,
+    /** C-095: the reader's settings sheet (its tab is [ReaderSettings.sheetTab]). */
+    val sheetVisible: Boolean = false,
     /** F-043: the footnote popup is shown (in the web page); Back closes it. */
     val footnoteOpen: Boolean = false,
     /** F-044: an external link waiting for the reader's confirmation (a dialog); Back cancels it. */
@@ -205,6 +214,9 @@ class ReaderController(
 
     private val _state = MutableStateFlow(ReaderUiState())
     val state: StateFlow<ReaderUiState> = _state
+    private val _contentsDrag = MutableStateFlow<Float?>(null)
+    /** C-097: where a finger holds the Contents panel (0 = off screen, 1 = open), null when none does. */
+    val contentsDrag: StateFlow<Float?> = _contentsDrag
     private val _seekPreview = MutableStateFlow<SeekPreview?>(null)
     /** C-073: where the dragged slider would land (chapter and page); null when it is not dragged. */
     val seekPreview: StateFlow<SeekPreview?> = _seekPreview
@@ -254,6 +266,7 @@ class ReaderController(
         hidePanel = ::hideSearch,
     )
     private var landscape = false
+    private var topInset = 0
     private var saveJob: Job? = null
     /** Settings are read before the first open is sent, so a book never opens with the defaults first. */
     private val settingsLoaded: Deferred<Unit> = scope.async {
@@ -457,6 +470,7 @@ class ReaderController(
     /** Back from the reader (R-005): returns immediately; the engine and the session close in the background. */
     fun close() {
         openJob?.cancel(); openJob = null
+        barsJob?.cancel(); barsJob = null
         val s = session
         session = null
         s?.bookmarkJob?.cancel()
@@ -464,7 +478,7 @@ class ReaderController(
         s?.let(::saveNote) // a sheet open when the book closes keeps its note
         searcher.reset()
         bookNumbers.reset(); fixedLayoutBook.value = false
-        _state.value = ReaderUiState(); _seekPreview.value = null
+        _state.value = ReaderUiState(); _seekPreview.value = null; _contentsDrag.value = null
         if (s == null) return
         reader.send(ToWeb.Close())
         s.bookId?.let { id -> runCatching { search?.bookClosed(id) } } // an unfinished index is finished later (idle job)
@@ -513,6 +527,18 @@ class ReaderController(
         if (web() != before) { bookNumbers.pinHere(); probe.ev("layout_change", "flow"); reader.send(ToWeb.SetSettings(settings = web())) }
     }
 
+    /**
+     * C-099: the band at the top of the page the display cutout takes, in CSS px (0 when the page doesn't draw under it).
+     * The window's, not a reading setting: the surface reports it, and it goes with the settings to the web side.
+     */
+    fun setTopInset(value: Int) {
+        if (value == topInset) return
+        topInset = value
+        bookNumbers.pinHere()
+        probe.ev("layout_change", "topInset")
+        reader.send(ToWeb.SetSettings(settings = web()))
+    }
+
     /** The settings as the web side applies them (AUTO flow resolved by orientation). */
     private fun web(s: ReaderSettings = _settings.value) = WebSettings(
         fontScale = s.fontScale, fontFamily = s.fontFamily, lineHeight = s.lineHeight, marginPercent = s.marginPercent,
@@ -522,6 +548,7 @@ class ReaderController(
         swipeDirection = when (s.swipeDirection) { SwipeDirection.AUTO -> "auto"; SwipeDirection.LTR -> "ltr"; SwipeDirection.RTL -> "rtl" },
         pageAnimation = if (s.pageAnimation == PageAnimation.NONE) "none" else "slide",
         chapters = if (s.scrollChapters == ScrollChapters.ONE_AT_A_TIME) "one-at-a-time" else "continuous",
+        topInset = topInset,
     )
 
     /** One page turn through the web side's queue (same path as the bench's `next`/`prev`). */
@@ -535,11 +562,39 @@ class ReaderController(
      */
     fun onVolumeKey(volumeDown: Boolean, press: Boolean): Boolean {
         val st = _state.value
-        if (session == null || st.error != null || st.tocVisible || st.searchVisible || st.displayVisible || st.settingsVisible ||
-            st.footnoteOpen || st.externalLink != null || st.annotationSheet != null) return false
+        if (session == null || somethingOverThePage(st)) return false
         val t = volumeTurn(volumeDown, _settings.value.volumeKeys) ?: return false
         if (press) { probe.ev("volume_turn", t.name); turn(t) }
         return true
+    }
+
+    private fun somethingOverThePage(st: ReaderUiState) = st.error != null || st.tocVisible || st.searchVisible || st.sheetVisible ||
+        st.footnoteOpen || st.externalLink != null || st.annotationSheet != null
+
+    /**
+     * C-102: whether a gesture from the right edge may take hold of the Contents panel now: a book is shown, with nothing over
+     * the page and no text selected (a drag from the strip may be a selection handle's). The app recognises the gesture above
+     * the page ([contentsEdgeSwipe]); while the finger holds the panel it goes through [dragContents].
+     */
+    fun edgeSwipeAllowed(): Boolean {
+        val st = _state.value
+        val s = session ?: return false
+        return st.open && !st.loading && !somethingOverThePage(st) && s.selection == null
+    }
+
+    /** C-097: the edge gesture let go of the panel: it opens, or slides back (a release short of opening, or the system took it). */
+    fun releaseEdge(open: Boolean) {
+        if (open && session != null) showToc()
+        _contentsDrag.value = null
+    }
+
+    /** C-097: a finger holds the panel at [fraction]. */
+    fun dragContents(fraction: Float) { if (_settings.value.pageAnimation != PageAnimation.NONE) _contentsDrag.value = fraction }
+
+    /** C-097: the finger left the panel, after a rightward swipe on it. */
+    fun releaseContents(close: Boolean) {
+        if (close) hideToc()
+        _contentsDrag.value = null
     }
 
     /** R-008: the book's file went away or was rewritten under the reader: close it safely and say so. */
@@ -567,8 +622,7 @@ class ReaderController(
             st.annotationSheet != null -> { closeAnnotationSheet(); true }
             st.footnoteOpen -> { _state.update { it.copy(footnoteOpen = false) }; reader.send(ToWeb.CloseFootnote()); true }
             st.searchVisible -> { hideSearch(); true }
-            st.settingsVisible -> { hideSettings(); true }
-            st.displayVisible -> { hideDisplay(); true }
+            st.sheetVisible -> { hideSheet(); true }
             st.tocVisible -> { hideToc(); true }
             s != null && s.linkDepth > 0 -> { s.linkDepth--; s.pendingBacks++; probe.ev("link_back", "${s.linkDepth}"); reader.send(ToWeb.Back()); true }
             else -> false
@@ -591,7 +645,33 @@ class ReaderController(
         if (!ok) _state.update { it.copy(notice = Notice.NoAppForLink) }
     }
 
-    fun toggleChrome() = _state.update { it.copy(chromeVisible = !it.chromeVisible) }
+    /** Opening the controls while swiped-in bars show (C-104) makes the bars theirs: they hide again with the controls. */
+    fun toggleChrome() {
+        barsJob?.cancel(); barsJob = null
+        _state.update { it.copy(chromeVisible = !it.chromeVisible, barsRevealed = false) }
+    }
+
+    private var barsJob: Job? = null
+
+    /**
+     * C-104: the user swiped the system bars in over the fullscreen reader. Only the bars show (the controls stay hidden);
+     * they hide again by themselves after [BARS_REVEAL_MS], or at the next tap on the page, whichever comes first.
+     */
+    fun revealBars() {
+        if (_state.value.chromeVisible) return
+        barsJob?.cancel()
+        _state.update { it.copy(barsRevealed = true) }
+        barsJob = scope.launch {
+            kotlinx.coroutines.delay(BARS_REVEAL_MS)
+            barsJob = null
+            _state.update { it.copy(barsRevealed = false) }
+        }
+    }
+
+    private fun hideRevealedBars() {
+        barsJob?.cancel(); barsJob = null
+        _state.update { it.copy(barsRevealed = false) }
+    }
     fun showToc() { probe.ev("toc_cmd", ""); _state.update { it.copy(tocVisible = true, contentsTab = ContentsTab.Contents, chromeVisible = false) } }
     fun hideToc() = _state.update { it.copy(tocVisible = false) }
     fun showSearch() { probe.ev("search_open", ""); _state.update { it.copy(searchVisible = true, chromeVisible = false) }; searcher.loadHistory() }
@@ -603,10 +683,15 @@ class ReaderController(
         showSearch()
         searcher.submit(text)
     }
-    fun showDisplay() { probe.ev("display_cmd", ""); _state.update { it.copy(displayVisible = true, chromeVisible = false) } }
-    fun hideDisplay() = _state.update { it.copy(displayVisible = false) }
-    fun showSettings() { probe.ev("settings_cmd", ""); _state.update { it.copy(settingsVisible = true, chromeVisible = false) } }
-    fun hideSettings() = _state.update { it.copy(settingsVisible = false) }
+    /** C-095: the settings sheet, on the last tab unless a [tab] is asked for (the bench's `display`). */
+    fun showSheet(tab: ReaderSheetTab = _settings.value.sheetTab) {
+        probe.ev("display_cmd", "")
+        selectSheetTab(tab)
+        _state.update { it.copy(sheetVisible = true, chromeVisible = false) }
+    }
+    fun hideSheet() = _state.update { it.copy(sheetVisible = false) }
+    /** C-095: a tab picked in the sheet, stored like the other settings so the sheet reopens there. */
+    fun selectSheetTab(tab: ReaderSheetTab) = updateSettings { it.copy(sheetTab = tab) }
 
     /** Opens the Contents panel on a tab (the Highlights tab is filled by the annotations list). */
     fun selectContentsTab(tab: ContentsTab) = _state.update { it.copy(contentsTab = tab) }
@@ -1095,11 +1180,14 @@ class ReaderController(
             is FromWeb.Tap -> if (m.sessionId == s.id) {
                 val set = _settings.value
                 val action = tapAction(m.x, set.tapZones, effectiveRtl(set.swipeDirection, s.dir))
+                // C-104: a tap while swiped-in bars show hides them, and that is all it does (no turn, no controls).
+                val barsWere = _state.value.barsRevealed
+                if (barsWere) hideRevealedBars()
                 when {
                     _state.value.highlightPicker != null -> dismissHighlightPicker() // a tap on the page closes the colour row
                     _state.value.annotationSheet != null -> closeAnnotationSheet()
-                    _state.value.settingsVisible -> hideSettings() // a tap on the page closes the sheet or panel
-                    _state.value.displayVisible -> hideDisplay()
+                    _state.value.sheetVisible -> hideSheet() // a tap on the page closes the sheet
+                    barsWere -> Unit
                     action == TapAction.Controls -> toggleChrome()
                     // F-032 tap zones; while the controls are shown an edge tap hides them instead of turning
                     action == TapAction.Next || action == TapAction.Prev ->

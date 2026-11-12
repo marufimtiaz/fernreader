@@ -102,7 +102,8 @@ class HugeChapterChunkTest {
         drain()
         step("$run selectCfi->selection") {
             assertEquals("true", sc.js("window.__readerTest.selectCfi(${JSONObject.quote(cfi)})"))
-            next(5_000) { e -> (e as? FromWeb.Selection)?.takeIf { it.cfi != null } }
+            // 10 s: on the unchunked control the selection takes 3-4.4 s on a quiet emulator and over 5 s on a loaded host
+            next(10_000) { e -> (e as? FromWeb.Selection)?.takeIf { it.cfi != null } }
         }
         val row = step("$run highlightSelection->row") {
             sc.onActivity { it.controller.highlightSelection() }
@@ -114,7 +115,9 @@ class HugeChapterChunkTest {
 
     private suspend fun ActivityScenario<MainActivity>.drawnText(id: String): String = withTimeout(15_000) {
         while (true) {
-            ((jsValue("window.__readerTest.annotation(${JSONObject.quote(id)})") as? JSONObject)?.takeIf { !it.isNull("text") })?.let { return@withTimeout it.getString("text") }
+            // (the page can be busy with the 10 MB chapter for longer than one read's 5 s: the 15 s above are the limit)
+            val drawn = try { jsValue("window.__readerTest.annotation(${JSONObject.quote(id)})") as? JSONObject } catch (e: TimeoutCancellationException) { null }
+            drawn?.takeIf { !it.isNull("text") }?.let { return@withTimeout it.getString("text") }
             delay(100)
         }
         @Suppress("UNREACHABLE_CODE") error("unreachable")
@@ -123,7 +126,6 @@ class HugeChapterChunkTest {
     private suspend fun ReaderHarness.closeBook() {
         sc.onActivity { it.goBack() }
         withTimeout(10_000) { a.controller.state.first { !it.open } }
-        delay(800) // the close-out stores the last position
     }
 
     /** The CFI's package part (`epubcfi(/6/N[id]`): the spine step, the original itemref's in stored rows. */
@@ -188,6 +190,7 @@ class HugeChapterChunkTest {
                 }.bookmarks.single().also { marks += it.id }
                 val stoppedAt = h.settle()
                 h.closeBook()
+                withTimeout(5_000) { while (graph.library.position(id)?.cfi != stoppedAt.cfi) delay(20) } // the close-out stored it
                 val posC = graph.library.position(id)!!
                 assertEquals(stoppedAt.cfi, posC.cfi) // identity map: the stored position is the reader's own
 
@@ -268,6 +271,7 @@ class HugeChapterChunkTest {
                 assertEquals("true", sc.js("window.__readerTest.blockVisible(${JSONObject.quote(pageBlockC)})"))
                 val stoppedK = h.settle()
                 h.closeBook()
+                withTimeout(5_000) { while (graph.library.position(id)?.cfi != map.cfiToOriginal(stoppedK.cfi)) delay(20) }
 
                 // The position the chunked run stored on close: original coordinates, the control's section and itemref.
                 val posK = graph.library.position(id)!!

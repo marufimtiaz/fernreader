@@ -50,16 +50,15 @@ class PositionFallbackTest {
             // Another book in between, so the next open is a cold one (no warm view kept at the old place).
             next = async(start = CoroutineStart.UNDISPATCHED) { relocates.first() }
             sc.onActivity { it.openBook(SourceRef.File(other.path)) }
-            withTimeout(10_000) { next.await() }
-            sc.onActivity { it.goBack() }
-            delay(500) // close-out stored the last position of each book
+            val otherSession = withTimeout(10_000) { next.await() }.sessionId
+            sc.onActivity { it.goBack() } // (the next open waits for the close-out)
 
             // The file "changed": the stored path now points past the end of the chapter's body.
             val saved = graph.library.position(bookId)!!
             val broken = "epubcfi(" + saved.cfi.removePrefix("epubcfi(").substringBefore('!') + "!/4/9999)"
             graph.db.positionDao().put(bookId, broken, saved.fraction, saved.spineIndex, saved.updatedAt + 1)
 
-            next = async(start = CoroutineStart.UNDISPATCHED) { relocates.first() }
+            next = async(start = CoroutineStart.UNDISPATCHED) { relocates.first { it.sessionId != otherSession } } // a late one of the book just closed isn't the landing
             sc.onActivity { it.openBook(ref) }
             val landed = withTimeout(10_000) { next.await() }
             assertEquals(1, landed.sectionIndex)
@@ -83,16 +82,15 @@ class PositionFallbackTest {
             val graph = (a.application as EpubReaderApp).graph
             val bookId = graph.library.knownBookId(ref)!!
             sc.onActivity { it.goBack() }
-            delay(500)
-            val saved = graph.library.position(bookId)!!
-            graph.db.positionDao().put(bookId, "epubcfi(/6/2!/4/2,,/2/2)", 0.0, 0, saved.updatedAt + 1)
             val other = TestBooks.write(ctx, "cover-other.epub", TestBooks.epub(id = "urn:uuid:cover-other-${System.nanoTime()}"))
             next = async(start = CoroutineStart.UNDISPATCHED) { relocates.first() }
             sc.onActivity { it.openBook(SourceRef.File(other.path)) } // so the next open is a cold one
-            withTimeout(10_000) { next.await() }
+            val otherSession = withTimeout(10_000) { next.await() }.sessionId // (it waited for the close-out, so the row below is not written over)
+            val saved = graph.library.position(bookId)!!
+            graph.db.positionDao().put(bookId, "epubcfi(/6/2!/4/2,,/2/2)", 0.0, 0, saved.updatedAt + 1)
             sc.onActivity { it.goBack() }
 
-            next = async(start = CoroutineStart.UNDISPATCHED) { relocates.first() }
+            next = async(start = CoroutineStart.UNDISPATCHED) { relocates.first { it.sessionId != otherSession } }
             sc.onActivity { it.openBook(ref) }
             assertEquals(0, withTimeout(10_000) { next.await() }.sectionIndex)
             withTimeout(5_000) { a.controller.state.first { !it.loading } }

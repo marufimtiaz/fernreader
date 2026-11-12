@@ -14,7 +14,7 @@ describe('protocol v1', () => {
     b.receive(fixture(name))
     expect(seen).toEqual([JSON.parse(fixture(name))])
   })
-  it.each([{}, { fontScale: 'x' }, { ...JSON.parse(fixture('setSettings')).settings, theme: 'neon' }, { ...JSON.parse(fixture('setSettings')).settings, chapters: 'sideways' }])('drops setSettings with bad settings %#', settings => {
+  it.each([{}, { fontScale: 'x' }, { ...JSON.parse(fixture('setSettings')).settings, theme: 'neon' }, { ...JSON.parse(fixture('setSettings')).settings, chapters: 'sideways' }, { ...JSON.parse(fixture('setSettings')).settings, topInset: 'x' }, { ...JSON.parse(fixture('setSettings')).settings, topInset: -1 }])('drops setSettings with bad settings %#', settings => {
     const h = vi.fn(); const b = new Bridge(vi.fn()); b.onMessage(h)
     b.receive(JSON.stringify({ v: 1, type: 'setSettings', settings })); expect(h).not.toHaveBeenCalled()
   })

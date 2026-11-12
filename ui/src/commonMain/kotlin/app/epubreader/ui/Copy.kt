@@ -22,6 +22,8 @@ object Copy {
     const val settings = "Settings"
     const val about = "About"
     const val openMenu = "Open navigation"
+    const val navigationMenu = "Navigation menu"
+    const val closeNavigationMenu = "Close navigation menu"
     const val resume = "Resume"
     fun resumeBook(title: String) = "Resume $title"
     const val endSelection = "End selection"
@@ -50,6 +52,9 @@ object Copy {
         name.startsWith("/storage/") -> "Storage " + name.removePrefix("/storage/")
         else -> name
     }
+    /** C-096: the last part of a folder's path, the storage's own name at its root. */
+    fun folderLine(path: String) =
+        if (Regex("^/storage/(emulated/\\d+|[^/]+)$").matches(path)) folderName(path) else path.substringAfterLast('/').ifEmpty { path }
     fun deleteTitle(n: Int) = if (n == 1) "Remove this book?" else "Remove $n books?"
     const val deleteLibraryOnlyBody = "The book leaves the library and stays hidden on later scans. Its file stays on the device. You can show it again in Settings → Hidden books."
     fun deleteFilesBody(files: Int) = if (files == 1) "The book's file is deleted from the device." else "The books' $files files are deleted from the device."
@@ -139,6 +144,27 @@ object Copy {
     const val never = "Not yet"
     fun fileLocations(n: Int) = if (n == 1) "File" else "Files ($n copies, one entry)"
     const val identity = "Identity"
+    // --- C-096 separate copies ---
+    const val keepSeparate = "Keep as a separate copy"
+    const val separateCopyNote = "This file is a separate copy, with its own reading position, bookmarks, highlights and notes."
+    const val mergeCopy = "Merge with the other copy"
+    const val mergeCopyTitle = "Merge with the other copy?"
+    const val mergeCopyConfirm = "Merge"
+    const val noOtherCopy = "There's no other copy in the library to merge with."
+    /** Names what a merge loses: this entry's reading data, as counted. */
+    fun mergeCopyWarning(position: Boolean, bookmarks: Int, highlights: Int, notes: Int): String {
+        fun count(n: Int, one: String) = if (n == 1) "1 $one" else "$n ${one}s"
+        val lost = listOfNotNull(
+            "reading position".takeIf { position }, count(bookmarks, "bookmark").takeIf { bookmarks > 0 },
+            count(highlights, "highlight").takeIf { highlights > 0 }, count(notes, "note").takeIf { notes > 0 },
+        )
+        val first = when (lost.size) {
+            0 -> "This copy has no reading data to lose."
+            1 -> "This copy's ${lost[0]} will be deleted."
+            else -> "This copy's ${lost.dropLast(1).joinToString(", ")} and ${lost.last()} will be deleted."
+        }
+        return "$first The file stays in the library and uses the other copy's reading data."
+    }
     /** "1.4 MB", "820 KB" (decimal units, one decimal for MB). */
     fun fileSize(bytes: Long): String = when {
         bytes >= 1_000_000 -> "${(bytes / 100_000) / 10.0} MB"
@@ -297,6 +323,8 @@ object Copy {
     /** Describes the list's colour mark: e.g. "Yellow highlight", "Blue underline". */
     fun annotationMark(color: String, underline: Boolean) = "${highlightColorName(color)} ${if (underline) "underline" else "highlight"}"
     const val readerSettings = "Reader settings"
+    /** C-095: the sheet's second tab (the first is [display]). */
+    const val general = "General"
     const val settingsPageTurning = "Page turning"
     const val settingsScreen = "Screen"
     const val settingsLinks = "Links"

@@ -34,7 +34,7 @@ import java.io.File
  * table, not a failure. Books with more than [MAX_SECTIONS] linear sections are checked on that many evenly spaced sections (always the
  * first and the last). Fixed-layout books have no text pages and are skipped. Malformed books are R-002's.
  *
- * Long (~20 min): run it on its own, `-e class app.epubreader.release.CorpusPageCountTest` (docs/milestones/M9.md).
+ * About 7 minutes on the emulator; alone: `tools/run_suite.sh CorpusPageCountTest`, the rest without it: `tools/run_suite.sh --no-corpus`.
  * The per-book table is written to logcat (tag EPR) and to /sdcard/Download/corpus-pagecount.txt.
  */
 @RunWith(AndroidJUnit4::class)
@@ -60,7 +60,6 @@ class CorpusPageCountTest {
                     rows += r.row(); problems += r.problems()
                     Log.i("EPR", "corpus pagecount: ${r.row()}")
                     sc.onActivity { it.goBack() }
-                    delay(500)
                 }
             } finally { h.stop() }
         }
@@ -108,10 +107,10 @@ class CorpusPageCountTest {
                 var visible = -1
                 var tries = 0
                 while (tries++ < 30) { // two equal readings 150 ms apart (fonts and images settle after the first relocate)
-                    delay(150)
                     val p = JSONObject(JSONTokener(sc.js("JSON.stringify(window.__readerTest.page())")).nextValue() as String).getInt("textPages")
                     if (p == visible) break
                     visible = p
+                    delay(150)
                 }
                 val counted = h.a.controller.countedPages(i)
                 if (counted != visible) wrong += "section $i: counted $counted, visible $visible"

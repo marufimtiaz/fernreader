@@ -18,7 +18,11 @@ data class LibraryBook(
     val paths: List<String>,
     /** Live collections the book is in (F-026). */
     val collectionIds: List<String> = emptyList(),
+    /** C-096: a separate copy, or the entry one was split from: they look the same, so the library shows their folder. */
+    val split: Boolean = false,
 ) {
+    /** The folder of the file [path] opens, for a [split] entry; null for other books and for a file with no folder path. */
+    val splitFolder: String? get() = if (split && path.startsWith("/")) path.substringBeforeLast('/').ifEmpty { "/" } else null
     /** Folders that directly contain a local file of this book (F-017). */
     val folders: List<String> get() = paths.filter { it.startsWith("/") }.map { it.substringBeforeLast('/').ifEmpty { "/" } }.distinct()
 }

@@ -11,6 +11,7 @@ import app.epubreader.core.data.LibraryRepository
 import app.epubreader.core.data.PositionWriter
 import app.epubreader.core.data.Flow
 import app.epubreader.core.data.ReaderSettings
+import app.epubreader.core.data.ReaderSheetTab
 import app.epubreader.core.data.ReadingThemeId
 import app.epubreader.core.data.SwipeDirection
 import app.epubreader.core.data.VolumeKeys
@@ -40,8 +41,10 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
 import kotlin.test.AfterTest
@@ -231,6 +234,19 @@ class ReaderControllerTest {
         c.updateSettings { it.copy(flow = Flow.PAGED) }; reader.sent.clear()
         c.setLandscape(false); c.setLandscape(true)
         assertTrue(reader.sent.isEmpty()) // paged stays paged in landscape
+    }
+
+    /** C-099: the cutout's band goes to the web side with the settings, live, and with every later settings message. */
+    @Test fun the_top_inset_goes_with_the_settings() = runTest(dispatcher) {
+        val c = controller()
+        reader.sent.clear()
+        c.setTopInset(28)
+        assertEquals(28, (reader.sent.single() as ToWeb.SetSettings).settings.topInset)
+        reader.sent.clear()
+        c.setTopInset(28)
+        assertTrue(reader.sent.isEmpty()) // nothing changed
+        c.updateSettings { it.copy(lineHeight = 2.0) }
+        assertEquals(28, reader.sent.filterIsInstance<ToWeb.SetSettings>().last().settings.topInset)
     }
 
     /** C-085: Scroll mode's "Chapters" goes to the web side live and is stored with the other display settings. */
@@ -455,11 +471,58 @@ class ReaderControllerTest {
 
     @Test fun tap_zone_tap_with_a_sheet_or_the_controls_open_closes_them_instead() = runTest(dispatcher) {
         val c = openWith { it.copy(tapZones = true) }
-        c.showSettings(); tap(0.9)
-        assertFalse(c.state.value.settingsVisible)
+        c.showSheet(); tap(0.9)
+        assertFalse(c.state.value.sheetVisible)
         c.toggleChrome(); tap(0.9)
         assertFalse(c.state.value.chromeVisible)
         assertEquals(emptyList(), turns())
+    }
+
+    // C-104: bars swiped in over the fullscreen reader come without the controls and hide by themselves or at the next tap.
+    @Test fun swiped_in_bars_come_without_the_controls_and_hide_after_the_timeout() = runTest(dispatcher) {
+        val c = openWith()
+        c.revealBars(); runCurrent()
+        assertTrue(c.state.value.barsRevealed)
+        assertFalse(c.state.value.chromeVisible)
+        advanceTimeBy(BARS_REVEAL_MS - 100); runCurrent()
+        assertTrue(c.state.value.barsRevealed, "still in just before the timeout")
+        advanceTimeBy(200); runCurrent()
+        assertFalse(c.state.value.barsRevealed)
+        assertFalse(c.state.value.chromeVisible)
+    }
+
+    @Test fun a_tap_while_swiped_in_bars_show_only_hides_them() = runTest(dispatcher) {
+        val c = openWith { it.copy(tapZones = true) }
+        for (x in listOf(0.5, 0.9, 0.1)) {
+            c.revealBars(); runCurrent()
+            reader.events.emit(FromWeb.Tap(sessionId = "s-1", x = x, y = 0.5)); runCurrent()
+            assertFalse(c.state.value.barsRevealed, "tap at $x hides the bars")
+            assertFalse(c.state.value.chromeVisible, "tap at $x opens no controls")
+        }
+        assertEquals(emptyList(), turns())
+        tap(0.9) // the bars gone, taps work as before
+        assertEquals(listOf("next"), turns())
+    }
+
+    @Test fun opening_the_controls_while_swiped_in_bars_show_makes_the_bars_theirs() = runTest(dispatcher) {
+        val c = openWith()
+        c.revealBars(); runCurrent()
+        c.toggleChrome()
+        assertTrue(c.state.value.chromeVisible)
+        assertFalse(c.state.value.barsRevealed)
+        advanceTimeBy(BARS_REVEAL_MS * 2); runCurrent()
+        assertTrue(c.state.value.chromeVisible, "the timeout is gone with the reveal")
+        c.revealBars() // with the controls shown, a reveal is nothing
+        assertFalse(c.state.value.barsRevealed)
+    }
+
+    @Test fun a_new_swipe_restarts_the_timeout_and_closing_the_book_ends_it() = runTest(dispatcher) {
+        val c = openWith()
+        c.revealBars(); advanceTimeBy(BARS_REVEAL_MS - 500); runCurrent()
+        c.revealBars(); advanceTimeBy(1_000); runCurrent()
+        assertTrue(c.state.value.barsRevealed)
+        c.close()
+        assertFalse(c.state.value.barsRevealed)
     }
 
     // C-005: ON = volume-down next, volume-up previous; REVERSED swaps; OFF and open panels leave the keys alone.
@@ -486,7 +549,7 @@ class ReaderControllerTest {
 
     @Test fun volume_keys_with_a_panel_open_or_no_book_are_not_handled() = runTest(dispatcher) {
         val c = openWith { it.copy(volumeKeys = VolumeKeys.ON) }
-        for (show in listOf(c::showToc, c::showSearch, c::showDisplay, c::showSettings)) {
+        for (show in listOf(c::showToc, c::showSearch, { c.showSheet() })) {
             show()
             assertFalse(c.onVolumeKey(volumeDown = true, press = true))
             c.backInside()
@@ -708,21 +771,61 @@ class ReaderControllerTest {
         c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
         reader.events.emit(FromWeb.Tap(sessionId = "s-1", x = 0.5, y = 0.5)); advanceUntilIdle()
         assertTrue(c.state.value.chromeVisible)
-        c.showSettings()
-        assertTrue(c.state.value.settingsVisible)
+        c.showSheet()
+        assertTrue(c.state.value.sheetVisible)
         assertFalse(c.state.value.chromeVisible)
         assertTrue(c.backInside())
-        assertFalse(c.state.value.settingsVisible)
+        assertFalse(c.state.value.sheetVisible)
         assertFalse(c.backInside())
     }
 
     @Test fun a_tap_on_the_page_closes_the_settings_sheet() = runTest(dispatcher) {
         val c = controller()
         c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
-        c.showSettings()
+        c.showSheet()
         reader.events.emit(FromWeb.Tap(sessionId = "s-1", x = 0.5, y = 0.5)); advanceUntilIdle()
-        assertFalse(c.state.value.settingsVisible)
+        assertFalse(c.state.value.sheetVisible)
         assertFalse(c.state.value.chromeVisible) // the tap only closed the sheet
+    }
+
+    // C-095: one sheet, two tabs; it opens on the last tab, also after a restart, and a tab change never touches the page.
+    @Test fun the_sheet_opens_on_the_last_tab() = runTest(dispatcher) {
+        val c = controller()
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
+        c.showSheet()
+        assertEquals(ReaderSheetTab.DISPLAY, c.settings.value.sheetTab) // the first time
+        c.selectSheetTab(ReaderSheetTab.GENERAL)
+        c.hideSheet()
+        c.showSheet()
+        assertTrue(c.state.value.sheetVisible)
+        assertEquals(ReaderSheetTab.GENERAL, c.settings.value.sheetTab)
+    }
+
+    @Test fun the_display_entry_lands_on_the_display_tab_whatever_the_last_tab_was() = runTest(dispatcher) {
+        val c = controller()
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
+        c.showSheet(); c.selectSheetTab(ReaderSheetTab.GENERAL); c.hideSheet()
+        c.showSheet(ReaderSheetTab.DISPLAY) // the bench's `display` (P-020)
+        assertTrue(c.state.value.sheetVisible)
+        assertEquals(ReaderSheetTab.DISPLAY, c.settings.value.sheetTab)
+    }
+
+    @Test fun the_last_tab_is_stored_and_read_back_by_a_new_controller() = runTest(dispatcher) {
+        val c = controller()
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
+        c.selectSheetTab(ReaderSheetTab.GENERAL); advanceUntilIdle()
+        assertEquals(ReaderSheetTab.GENERAL, ReaderSettings.decode(settings.map[ReaderSettings.KEY]).sheetTab)
+        val again = controller()
+        advanceUntilIdle()
+        assertEquals(ReaderSheetTab.GENERAL, again.settings.value.sheetTab)
+    }
+
+    @Test fun a_tab_change_sends_nothing_to_the_page() = runTest(dispatcher) {
+        val c = controller()
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
+        c.showSheet(); reader.sent.clear()
+        c.selectSheetTab(ReaderSheetTab.GENERAL); advanceUntilIdle()
+        assertEquals(emptyList(), reader.sent.filterIsInstance<ToWeb.SetSettings>())
     }
 
     @Test fun settings_sheet_edits_the_new_fields_live_and_persist() = runTest(dispatcher) {
@@ -1307,6 +1410,91 @@ class ReaderControllerTest {
     }
 
     /** I1: the contents panel opens in a book without a table of contents (its bookmarks and highlights live there). */
+    private suspend fun TestScope.openBook(c: ReaderController) {
+        c.open(ref); advanceUntilIdle()
+        reader.events.emit(opened()); reader.events.emit(FromWeb.Painted(sessionId = "s-1")); advanceUntilIdle()
+    }
+    /** C-102: the edge gesture as the app's recogniser drives it: held at [fractions], then let go. */
+    private fun edge(c: ReaderController, vararg fractions: Float, open: Boolean) {
+        assertTrue(c.edgeSwipeAllowed(), "a gesture may start")
+        fractions.forEach(c::dragContents)
+        c.releaseEdge(open)
+    }
+
+    @Test fun the_panel_follows_a_gesture_from_the_right_edge_and_opens_on_release() = runTest(dispatcher) {
+        val c = controller(); openBook(c)
+        c.toggleChrome()
+        assertTrue(c.edgeSwipeAllowed())
+        c.dragContents(0.1f); assertEquals(0.1f, c.contentsDrag.value)
+        c.dragContents(0.4f); assertEquals(0.4f, c.contentsDrag.value)
+        assertFalse(c.state.value.tocVisible)
+        assertTrue(c.state.value.chromeVisible, "the bars stay until it opens")
+        c.releaseEdge(open = true)
+        assertTrue(c.state.value.tocVisible)
+        assertFalse(c.state.value.chromeVisible)
+        assertEquals(ContentsTab.Contents, c.state.value.contentsTab)
+        assertNull(c.contentsDrag.value)
+        assertFalse(c.edgeSwipeAllowed(), "not over the open panel")
+    }
+
+    @Test fun a_release_short_of_opening_lets_the_panel_go_back() = runTest(dispatcher) {
+        val c = controller(); openBook(c)
+        edge(c, 0.1f, 0.2f, open = false)
+        assertFalse(c.state.value.tocVisible)
+        assertNull(c.contentsDrag.value)
+    }
+
+    @Test fun with_page_animation_off_the_gesture_only_opens_on_release() = runTest(dispatcher) {
+        val c = controller(); openBook(c)
+        c.updateSettings { it.copy(pageAnimation = PageAnimation.NONE) }; advanceUntilIdle()
+        c.dragContents(0.1f); c.dragContents(0.5f)
+        assertNull(c.contentsDrag.value)
+        c.releaseEdge(open = true)
+        assertTrue(c.state.value.tocVisible)
+    }
+
+    @Test fun the_edge_gesture_may_not_start_with_something_over_the_page() = runTest(dispatcher) {
+        val c = controller(); openBook(c)
+        c.showSheet(); advanceUntilIdle()
+        assertFalse(c.edgeSwipeAllowed())
+    }
+
+    @Test fun nor_without_a_book_nor_while_it_loads() = runTest(dispatcher) {
+        val c = controller()
+        assertFalse(c.edgeSwipeAllowed())
+        c.open(ref); advanceUntilIdle()
+        assertFalse(c.edgeSwipeAllowed(), "loading")
+        reader.events.emit(opened()); reader.events.emit(FromWeb.Painted(sessionId = "s-1")); advanceUntilIdle()
+        assertTrue(c.edgeSwipeAllowed())
+    }
+
+    @Test fun nor_with_text_selected_a_drag_from_the_strip_may_be_a_handles() = runTest(dispatcher) {
+        val c = controller(); openBook(c)
+        reader.events.emit(FromWeb.Selection(sessionId = "s-1", text = "word", cfi = "epubcfi(/6/4!/4/2,/1:4,/1:8)", sectionIndex = 2)); advanceUntilIdle()
+        assertFalse(c.edgeSwipeAllowed())
+        reader.events.emit(FromWeb.Selection(sessionId = "s-1", text = "", cfi = null, sectionIndex = 2)); advanceUntilIdle()
+        assertTrue(c.edgeSwipeAllowed())
+    }
+
+    @Test fun closing_the_book_lets_go_of_the_panel() = runTest(dispatcher) {
+        val c = controller(); openBook(c)
+        c.dragContents(0.3f)
+        c.close(); advanceUntilIdle()
+        assertNull(c.contentsDrag.value)
+        c.releaseEdge(open = true)
+        assertFalse(c.state.value.tocVisible, "a release after the close opens nothing")
+    }
+
+    @Test fun a_swipe_on_the_panel_holds_it_and_closes_or_not_on_release() = runTest(dispatcher) {
+        val c = controller(); openBook(c)
+        c.showToc()
+        c.dragContents(0.8f); assertEquals(0.8f, c.contentsDrag.value)
+        c.releaseContents(close = false)
+        assertTrue(c.state.value.tocVisible); assertNull(c.contentsDrag.value)
+        c.dragContents(0.4f); c.releaseContents(close = true)
+        assertFalse(c.state.value.tocVisible); assertNull(c.contentsDrag.value)
+    }
+
     @Test fun the_contents_panel_opens_in_a_book_without_a_toc() = runTest(dispatcher) {
         val c = controller()
         c.open(ref); advanceUntilIdle(); reader.events.emit(opened().copy(toc = emptyList())); advanceUntilIdle()

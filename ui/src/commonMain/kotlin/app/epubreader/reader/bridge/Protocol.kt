@@ -82,6 +82,7 @@ import kotlinx.serialization.json.Json
     val swipeDirection: String = "auto",
     /** F-032: "slide" | "none". */ val pageAnimation: String = "slide",
     /** C-085, scrolled flow: "continuous" | "one-at-a-time" (stop at each chapter's end). */ val chapters: String = "continuous",
+    /** C-099: CSS px at the top of the page kept free of text at rest (fullscreen: the display cutout). */ val topInset: Int = 0,
 )
 
 /**
