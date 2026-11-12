@@ -32,7 +32,8 @@ import java.util.concurrent.atomic.AtomicInteger
  * C-107 "Follow Battery Saver" (on by default): with a book open, turning the phone's power save mode on (`cmd power
  * set-mode 1`) makes the page true Black, page turns lose their animation, the screen-page counter stops (the indicator
  * shows a percentage) and the window asks for the panel's lowest refresh rate; turning it off brings all four back, the
- * saved settings untouched. With the setting off nothing changes. Power save mode is off after each test.
+ * saved settings untouched. With the setting off nothing changes. Power save mode is off, and the battery back to the
+ * device's own state, after each test.
  */
 @RunWith(AndroidJUnit4::class)
 class FollowBatterySaverTest {
@@ -50,8 +51,9 @@ class FollowBatterySaverTest {
         assertEquals("the phone's power save mode", on, pm.isPowerSaveMode)
     }
 
-    @Before fun powerSaveOff() = powerSave(false)
-    @After fun powerSaveOffAfter() = powerSave(false)
+    // The system keeps Battery Saver off while the phone charges (the emulator is always on AC): unplugged for the test.
+    @Before fun unplugged() { shell("dumpsys battery unplug"); powerSave(false) }
+    @After fun powerSaveOffAndPluggedIn() { powerSave(false); shell("dumpsys battery reset") }
 
     private fun <T> ActivityScenario<MainActivity>.read(f: (MainActivity) -> T): T { var r: T? = null; onActivity { r = f(it) }; @Suppress("UNCHECKED_CAST") return r as T }
 

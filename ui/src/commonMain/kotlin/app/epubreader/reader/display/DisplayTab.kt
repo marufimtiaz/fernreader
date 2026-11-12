@@ -77,7 +77,6 @@ fun DisplayTab(
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         ThemeRow(s.theme) { id -> onChange { it.copy(theme = id) } }
-        SwitchRow(Copy.followBatterySaver, Copy.followBatterySaverHint, s.followBatterySaver) { v -> onChange { it.copy(followBatterySaver = v) } } // C-107
         TextSizeRow(s.fontScale, onStep = { d -> onChange { it.stepFont(d) } })
         FontRow(s.fontFamily, fonts) { f -> onChange { it.copy(fontFamily = f) } }
         SliderRow(Copy.lineSpacing, s.lineHeight.toString(), s.lineHeight.toFloat(), 1.3f..2.0f, steps = 6) { v ->
@@ -103,6 +102,7 @@ fun DisplayTab(
         ExtraDimRow(s.extraDim, s.extraDimLevel, onSwitch = { on -> onChange { it.copy(extraDim = on) } }) { level ->
             onChange { it.copy(extraDimLevel = level) }
         }
+        SwitchRow(Copy.followBatterySaver, Copy.followBatterySaverHint, s.followBatterySaver) { v -> onChange { it.copy(followBatterySaver = v) } } // C-107
     }
 }
 
