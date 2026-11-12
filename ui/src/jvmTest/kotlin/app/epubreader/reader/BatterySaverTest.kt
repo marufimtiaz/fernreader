@@ -177,6 +177,19 @@ class BatterySaverTest {
         assertEquals(75, c.seekPreview.value?.page?.percent)
     }
 
+    /** C-110 under C-107: Battery Saver's Black is dimmed by Extra dim like any other theme. */
+    @Test fun extra_dim_still_applies_under_battery_saver() = runTest(dispatcher) {
+        val c = controller()
+        openOnScreenPages(c, ReaderSettings(theme = ReadingThemeId.WARM, extraDim = true, extraDimLevel = 0.3))
+        assertEquals(0.3, lastSettings().dim)
+        c.setPowerSave(true); advanceUntilIdle()
+        assertEquals("black", lastSettings().theme)
+        assertEquals(0.3, lastSettings().dim)
+        c.updateSettings { it.copy(extraDimLevel = 0.2) }; advanceUntilIdle()
+        assertEquals("black", lastSettings().theme)
+        assertEquals(0.2, lastSettings().dim)
+    }
+
     @Test fun indicator_labels() {
         val p = percentIndicator(0.426)
         assertEquals("43%", Copy.pageLabelShort(p))
