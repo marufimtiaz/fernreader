@@ -229,10 +229,13 @@ class MainActivity : ComponentActivity() {
         val windowInputs = controller.state.map(ReaderWindowInputs::of)
             .stateIn(lifecycleScope, SharingStarted.Eagerly, ReaderWindowInputs.of(controller.state.value))
         controller.setSystemDark(resources.configuration.systemDark()) // C-105: before the first open, so no light flash
+        readPowerSave() // C-107: likewise for Battery Saver's Black
         setContent {
             val rs by controller.settings.collectAsState()
+            val shown by controller.shownSettings.collectAsState() // C-107: Battery Saver's Black
+            val saving by controller.batterySaving.collectAsState()
             val systemDark by controller.systemDark.collectAsState()
-            val theme = ReadingTheme.of(rs.theme, systemDark)
+            val theme = ReadingTheme.of(shown.theme, systemDark)
             val mode by graph.prefs.theme.collectAsState()
             val dark = when (mode) {
                 app.epubreader.settings.AppThemeMode.SYSTEM -> isSystemInDarkTheme()
@@ -250,7 +253,7 @@ class MainActivity : ComponentActivity() {
             // thread stalls right at the open. Leaving the reader restores the library's window at once.
             val readerShown = rememberReaderShown(inReader)
             val winInputs by windowInputs.collectAsState()
-            val win = readerWindowState(readerShown, winInputs, rs)
+            val win = readerWindowState(readerShown, winInputs, rs, lowestRefresh = saving) // C-107: the lowest rate under Battery Saver
             val brightness = if (readerShown) rs.brightness?.toFloat() ?: WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
             SideEffect { windowLook.update(WindowLook(brightness, lightBars = if (readerShown) theme.isLight else !dark, win)) }
             BarsVisibility(::barsVisibilityChanged)
@@ -376,6 +379,10 @@ class MainActivity : ComponentActivity() {
     /** Applies the window look only when it changed (I2: each call costs a window relayout on the main thread). */
     private val windowLook = WindowApplier(::applyReaderWindow)
 
+    /** The refresh rate the window last asked for (instrumented tests, C-107: the emulator's panel has one rate). */
+    var requestedRefresh = app.epubreader.reader.RefreshRate.ANY
+        private set
+
     /** How often the window was changed (instrumented tests: a page turn must not change it, I2). */
     var windowApplies = 0
         private set
@@ -397,6 +404,7 @@ class MainActivity : ComponentActivity() {
         windowApplies++
         val win = look.win
         // C-108 (d): the reading refresh rate while a book is shown, no request elsewhere. One attributes change for both.
+        requestedRefresh = win.refresh
         val rate = preferredRate(win.refresh, panelRates())
         val attrs = window.attributes
         if (attrs.screenBrightness != look.brightness || attrs.preferredRefreshRate != rate) {
@@ -562,6 +570,26 @@ class MainActivity : ComponentActivity() {
         openFromIntent(intent, cold = false)
     }
 
+    /**
+     * C-107: the phone's Battery Saver, followed while the activity is started: the system's broadcast reports each
+     * change (no polling), and [onStart] reads the mode, which may have changed while the app was away.
+     */
+    private val powerSaveReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context, intent: Intent) = readPowerSave()
+    }
+
+    private fun readPowerSave() {
+        val pm = getSystemService(android.os.PowerManager::class.java) ?: return
+        controller.setPowerSave(pm.isPowerSaveMode)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        androidx.core.content.ContextCompat.registerReceiver(this, powerSaveReceiver,
+            android.content.IntentFilter(android.os.PowerManager.ACTION_POWER_SAVE_MODE_CHANGED), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
+        readPowerSave()
+    }
+
     override fun onResume() {
         super.onResume()
         // Back from another app into the reader: the bars and flags as the reader wants them. Not on the library: its
@@ -589,6 +617,7 @@ class MainActivity : ComponentActivity() {
 
     /** R-009: the process may be killed in the background without onDestroy, so a note being typed (and the position) is stored now. */
     override fun onStop() {
+        unregisterReceiver(powerSaveReceiver) // C-107
         barsReveal.away() // C-108 (h): the bars shown on the return are the system's, not the user's swipe
         controller.flushNote()
         controller.flushPosition() // C-108 (e): positions are otherwise written at most every 5 s

@@ -44,6 +44,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
@@ -257,10 +259,24 @@ class ReaderController(
     private val _settings = MutableStateFlow(ReaderSettings())
     /** Display settings (F-070..F-075), one value for every book. */
     val settings: StateFlow<ReaderSettings> = _settings
-    /** C-083: what the indicator, the bar and the lists show: book pages or screen pages, as the Page numbers setting says. */
-    val shownPage: StateFlow<PageIndicator> = combine(_settings, totals.state, bookNumbers.state, bookPagesMissing, fixedLayoutBook) { set, screen, book, missing, fixed ->
-        if (useBookPages(set, fixed) && !missing) book else screen
-    }.stateIn(scope, SharingStarted.Eagerly, PageIndicator(null, null, false, false))
+    private val _powerSave = MutableStateFlow(false)
+    /** C-107: Battery Saver applies to the reader now: the phone is in power save mode and the setting follows it. */
+    val batterySaving: StateFlow<Boolean> = combine(_settings, _powerSave) { set, p -> set.batterySaving(p) }
+        .stateIn(scope, SharingStarted.Eagerly, false)
+    /** C-107: the settings the reader shows ([ReaderSettings.effective]); [settings] stays what the reader chose and saved. */
+    val shownSettings: StateFlow<ReaderSettings> = combine(_settings, _powerSave) { set, p -> set.effective(p) }
+        .stateIn(scope, SharingStarted.Eagerly, ReaderSettings())
+    private fun saving() = _settings.value.batterySaving(_powerSave.value)
+    /**
+     * C-083: what the indicator, the bar and the lists show: book pages or screen pages, as the Page numbers setting says.
+     * C-107: while Battery Saver applies, the position in percent where screen pages would show (the counter is off).
+     */
+    val shownPage: StateFlow<PageIndicator> = combine(
+        combine(_settings, _powerSave, bookPagesMissing, fixedLayoutBook) { set, p, missing, fixed -> ShownPages(useBookPages(set, fixed) && !missing, set.batterySaving(p)) },
+        totals.state, bookNumbers.state, _state.map { it.fraction }.distinctUntilChanged(),
+    ) { src, screen, book, fraction -> shownIndicator(src.bookPages, src.saving, screen, book, fraction) }
+        .stateIn(scope, SharingStarted.Eagerly, PageIndicator(null, null, false, false))
+    private data class ShownPages(val bookPages: Boolean, val saving: Boolean)
     /**
      * C-083: Book pages are what the reader shows (the setting, or a fixed-layout book (C-087), and the book has them):
      * go to page and the lists' book pages.
@@ -272,9 +288,9 @@ class ReaderController(
     private fun useBookPages(set: ReaderSettings, fixedLayout: Boolean) = fixedLayout || set.pageNumbers == PageNumbers.BOOK_PAGES
     /**
      * C-108 (c): the screen-page counts are shown ([shownPage] shows screen pages): a Screen setting, or Book pages for a
-     * book without them. Only then does the counter run.
+     * book without them, and Battery Saver does not apply (C-107: a percentage instead). Only then does the counter run.
      */
-    private fun screenPagesShown() = !(useBookPages(_settings.value, fixedLayoutBook.value) && !bookPagesMissing.value)
+    private fun screenPagesShown() = !saving() && !(useBookPages(_settings.value, fixedLayoutBook.value) && !bookPagesMissing.value)
     /** F-050 search state for the open book (reset when another opens). */
     val searcher = ReaderSearch(
         scope, search, searchHistory, probe,
@@ -512,7 +528,11 @@ class ReaderController(
         val (section, inSection) = sectionAt(s.sizes, f) ?: run { s.seekSent = null; _seekPreview.value = SeekPreview(f, null, PageIndicator(null, null, false, false)); return }
         val st = _state.value
         val entry = tocEntryAt(st.toc, section, inSection, st.currentTocHref.takeIf { s.at?.sectionIndex == section })
-        val page = if (bookPagesShown) bookNumbers.previewAt(section, inSection) else totals.previewAt(section, inSection)
+        val page = when {
+            bookPagesShown -> bookNumbers.previewAt(section, inSection)
+            saving() -> percentIndicator(f) // C-107: no screen pages while Battery Saver applies
+            else -> totals.previewAt(section, inSection)
+        }
         s.seekSent = null // a new drag: the preview is the user's, not a seek's waiting to land
         _seekPreview.value = SeekPreview(f, entry?.label?.trim()?.takeIf { it.isNotEmpty() }, page)
     }
@@ -591,12 +611,14 @@ class ReaderController(
      */
     fun updateSettings(change: (ReaderSettings) -> ReaderSettings) {
         val before = _settings.value
+        val wasSaving = saving()
         val changed = change(before).clamped()
         if (changed == before) return
         val next = changed.withChoicesFrom(before) // C-105/C-106: the reader's choices survive a later change of default
         _settings.value = next
         totals.scope = next.pageNumbers.screenScope
         if (next.pageNumbers != before.pageNumbers) session?.let { requestListPages(it); resolveCount(it) }
+        else if (saving() != wasSaving) session?.let { resolveCount(it) } // C-107: "Follow Battery Saver" switched
         if (web(before) != web(next)) {
             // C-110: Extra dim only repaints the page; nothing moves, so no layout change to pin the page number across
             if (web(before).copy(dim = 1.0) != web(next).copy(dim = 1.0)) { bookNumbers.pinHere(); probe.ev("layout_change", "") }
@@ -640,8 +662,27 @@ class ReaderController(
         if (web() != before) { bookNumbers.pinHere(); probe.ev("layout_change", "systemDark"); reader.send(ToWeb.SetSettings(settings = web())) }
     }
 
-    /** The settings as the web side applies them (AUTO flow resolved by orientation, the System theme by dark mode). */
-    private fun web(s: ReaderSettings = _settings.value) = WebSettings(
+    /**
+     * C-107: whether the phone's Battery Saver (power save mode) is on. The activity sets it when it starts and on every
+     * change the system announces; while it applies ([batterySaving]) the page is Black, turns without animation and the
+     * screen-page counter does not run. All of it switches live, and back, with the book open; the saved settings stay.
+     */
+    fun setPowerSave(value: Boolean) {
+        if (value == _powerSave.value) return
+        val before = web()
+        val wasSaving = saving()
+        _powerSave.value = value
+        if (saving() == wasSaving) return
+        probe.ev("battery_saving", "${saving()}")
+        if (web() != before) { bookNumbers.pinHere(); probe.ev("layout_change", "batterySaver"); reader.send(ToWeb.SetSettings(settings = web())) }
+        session?.let { resolveCount(it) }
+    }
+
+    /**
+     * The settings as the web side applies them (AUTO flow resolved by orientation, the System theme by dark mode,
+     * C-107 Battery Saver's Black and no animation).
+     */
+    private fun web(saved: ReaderSettings = _settings.value) = saved.effective(_powerSave.value).let { s -> WebSettings(
         fontScale = s.fontScale, fontFamily = s.fontFamily, lineHeight = s.lineHeight, marginPercent = s.marginPercent,
         align = when (s.align) { Align.PUBLISHER -> "publisher"; Align.START -> "start"; Align.JUSTIFY -> "justify" },
         theme = s.theme.resolve(_systemDark.value).name.lowercase(),
@@ -651,7 +692,7 @@ class ReaderController(
         chapters = if (s.scrollChapters == ScrollChapters.ONE_AT_A_TIME) "one-at-a-time" else "continuous",
         topInset = topInset,
         dim = s.pageDim,
-    )
+    ) }
 
     /** One page turn through the web side's queue (same path as the bench's `next`/`prev`). */
     private fun turn(t: PageTurn) = reader.send(if (t == PageTurn.Next) ToWeb.Next() else ToWeb.Prev())
@@ -691,7 +732,7 @@ class ReaderController(
     }
 
     /** C-097: a finger holds the panel at [fraction]. */
-    fun dragContents(fraction: Float) { if (_settings.value.pageAnimation != PageAnimation.NONE) _contentsDrag.value = fraction }
+    fun dragContents(fraction: Float) { if (_settings.value.effective(_powerSave.value).pageAnimation != PageAnimation.NONE) _contentsDrag.value = fraction }
 
     /** C-097: the finger left the panel, after a rightward swipe on it. */
     fun releaseContents(close: Boolean) {

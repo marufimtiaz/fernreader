@@ -67,6 +67,7 @@ fun ReaderScreen(
 ) {
     val s by c.state.collectAsState()
     val settings by c.settings.collectAsState()
+    val shown by c.shownSettings.collectAsState() // C-107: Battery Saver's Black and no animation; [settings] as saved
     val systemDark by c.systemDark.collectAsState() // C-105: the System theme follows the phone's dark mode
     val page by c.shownPage.collectAsState() // C-083: book or screen pages, as the setting says
     val bookPages by c.bookPagesInUse.collectAsState() // the setting, unless the book has none (fixed-layout, unreadable)
@@ -74,7 +75,7 @@ fun ReaderScreen(
     var bookInfo by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { withFrameNanos { }; probe.ev("reader_frame", "") }
     // F-074: the reader's own surfaces (loading screen, bars, panels) follow the reading theme, not the app theme.
-    MaterialTheme(colorScheme = ReadingTheme.of(settings.theme, systemDark).colorScheme()) {
+    MaterialTheme(colorScheme = ReadingTheme.of(shown.theme, systemDark).colorScheme()) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val landscape = maxWidth > maxHeight
         LaunchedEffect(landscape) { c.setLandscape(landscape) } // C-004: AUTO flow follows the orientation
@@ -138,7 +139,7 @@ fun ReaderScreen(
             LaunchedEffect(Unit) { withFrameNanos { }; probe.ev("display_shown", "") }
             ReaderSheet(settings, fonts, onChange = c::updateSettings, onTab = c::selectSheetTab, modifier = Modifier.align(Alignment.BottomCenter), landscape = landscape, brightness = c.screenBrightness)
         }
-        ContentsSlide(s.tocVisible, c.contentsDrag, settings.pageAnimation != PageAnimation.NONE, c::dragContents, c::releaseContents) {
+        ContentsSlide(s.tocVisible, c.contentsDrag, shown.pageAnimation != PageAnimation.NONE, c::dragContents, c::releaseContents) {
             ContentsPanel(
                 s.title, s.contentsTab, c::selectContentsTab, s.toc, s.currentTocHref, c::onTocSelected,
                 s.bookmarks, page, formatDate, c::onBookmarkSelected, c::removeBookmark, c::hideToc, probe,

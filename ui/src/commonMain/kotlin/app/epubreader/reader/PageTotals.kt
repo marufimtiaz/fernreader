@@ -11,8 +11,22 @@ import kotlin.math.roundToInt
 /**
  * What the page indicator shows: "page N", "page N of ≈ M" or "page N of M" (F-034, C-016, C-017). C-083 book pages
  * have [label] when the book's print labels are shown (e.g. "xii"; [page] is then its 1-based place in the list).
+ * C-107: [percent] instead of a page while Battery Saver keeps the screen-page counter off.
  */
-data class PageIndicator(val page: Int?, val total: Int?, val exact: Boolean, val chapterScope: Boolean, val label: String? = null)
+data class PageIndicator(val page: Int?, val total: Int?, val exact: Boolean, val chapterScope: Boolean, val label: String? = null, val percent: Int? = null)
+
+/** C-107: the position in the book as a percentage, for where screen pages would show. */
+fun percentIndicator(fraction: Double) = PageIndicator(null, null, false, false, percent = bookmarkPercent(fraction))
+
+/**
+ * C-083/C-107: what the indicator shows: the book's pages when they are in use; otherwise screen pages, or while Battery
+ * Saver applies ([saving]) the position in percent, once the book has a position (the screen pages' own [screen] page).
+ */
+fun shownIndicator(bookPages: Boolean, saving: Boolean, screen: PageIndicator, book: PageIndicator, fraction: Double): PageIndicator = when {
+    bookPages -> book
+    saving && screen.page != null -> percentIndicator(fraction)
+    else -> screen
+}
 
 /**
  * Page number and book total for the open book (F-034, P-021). Counts come from the web side's hidden-layout counter

@@ -102,6 +102,7 @@ fun DisplayTab(
         ExtraDimRow(s.extraDim, s.extraDimLevel, onSwitch = { on -> onChange { it.copy(extraDim = on) } }) { level ->
             onChange { it.copy(extraDimLevel = level) }
         }
+        SwitchRow(Copy.followBatterySaver, Copy.followBatterySaverHint, s.followBatterySaver) { v -> onChange { it.copy(followBatterySaver = v) } } // C-107
     }
 }
 
@@ -138,6 +139,18 @@ private fun ThemeRow(current: ReadingThemeId, onPick: (ReadingThemeId) -> Unit) 
                     fontWeight = if (selected) FontWeight.SemiBold else null)
             }
         }
+    }
+}
+
+/** C-107: a labelled switch with a hint under the label. */
+@Composable
+private fun SwitchRow(label: String, hint: String, checked: Boolean, onChecked: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Label(label)
+            Text(hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Switch(checked = checked, onCheckedChange = onChecked, modifier = Modifier.semantics { contentDescription = label })
     }
 }
 

@@ -193,6 +193,33 @@ class ReaderSettingsTest {
         assertEquals(setOf("flow"), ReaderSettings.decode("""{"chosen":["flow",3,null]}""").chosen)
     }
 
+    @Test fun c107_follow_battery_saver_is_on_by_default_and_round_trips() {
+        assertEquals(true, ReaderSettings().followBatterySaver)
+        assertEquals(true, ReaderSettings.decode("{}").followBatterySaver) // settings stored before C-107
+        assertEquals(true, ReaderSettings.decode("""{"followBatterySaver":"no"}""").followBatterySaver)
+        val off = ReaderSettings().copy(followBatterySaver = false).withChoicesFrom(ReaderSettings())
+        assertEquals(off, ReaderSettings.decode(off.encode()))
+        assertEquals(false, ReaderSettings.decode(off.encode()).followBatterySaver)
+    }
+
+    /** C-107: while Battery Saver applies, Black and no animation; nothing else changes, and the saved value is untouched. */
+    @Test fun c107_effective_settings_under_battery_saver() {
+        val saved = ReaderSettings(theme = ReadingThemeId.WARM, pageAnimation = PageAnimation.SLIDE, fontScale = 1.4, flow = Flow.SCROLLED,
+            pageNumbers = PageNumbers.SCREEN_BOOK, keepScreenOn = true, chosen = setOf("theme"))
+        assertEquals(saved, saved.effective(powerSave = false))
+        val saving = saved.effective(powerSave = true)
+        assertEquals(saved.copy(theme = ReadingThemeId.BLACK, pageAnimation = PageAnimation.NONE), saving)
+        assertEquals(ReadingThemeId.WARM, saved.theme) // the saved settings are a value: unchanged
+        assertTrue(saved.batterySaving(powerSave = true))
+        // Every theme, System in light mode included, becomes Black.
+        for (t in ReadingThemeId.entries) assertEquals(ReadingThemeId.BLACK, ReaderSettings(theme = t).effective(true).theme.resolve(systemDark = false))
+        // The setting off: nothing changes whatever the phone does.
+        val off = saved.copy(followBatterySaver = false)
+        assertEquals(off, off.effective(powerSave = true))
+        assertEquals(false, off.batterySaving(powerSave = true))
+        assertEquals(false, saved.batterySaving(powerSave = false))
+    }
+
     @Test fun c110_extra_dim_is_off_by_default_at_half_level_and_round_trips() {
         val d = ReaderSettings()
         assertEquals(false, d.extraDim)
