@@ -279,6 +279,31 @@ class ReaderControllerTest {
         assertEquals(28, reader.sent.filterIsInstance<ToWeb.SetSettings>().last().settings.topInset)
     }
 
+    /** C-110: Extra dim goes to the web side live as the page's dim factor (1 = off) and is stored with the other settings. */
+    @Test fun extra_dim_reaches_the_web_side_live_and_is_stored() = runTest(dispatcher) {
+        val c = controller()
+        c.open(ref); advanceUntilIdle()
+        assertEquals(1.0, (reader.sent.single() as ToWeb.Open).settings.dim)
+        reader.sent.clear()
+        c.updateSettings { it.copy(extraDimLevel = 0.3) } // the level alone, while off: the page doesn't change
+        assertTrue(reader.sent.isEmpty())
+        c.updateSettings { it.copy(extraDim = true) }
+        assertEquals(0.3, (reader.sent.single() as ToWeb.SetSettings).settings.dim)
+        repeat(3) { c.updateSettings { it.copy(extraDimLevel = it.extraDimLevel - 0.05) } } // a drag: every step at once
+        assertEquals(listOf(0.25, 0.2, 0.15), reader.sent.filterIsInstance<ToWeb.SetSettings>().drop(1).map { it.settings.dim })
+        advanceUntilIdle()
+        val stored = ReaderSettings.decode(settings.map[ReaderSettings.KEY])
+        assertEquals(true, stored.extraDim)
+        assertEquals(0.15, stored.extraDimLevel)
+        c.updateSettings { it.copy(extraDim = false) }
+        assertEquals(1.0, (reader.sent.last() as ToWeb.SetSettings).settings.dim)
+        advanceUntilIdle()
+        assertEquals(1.0, ReaderSettings.decode(settings.map[ReaderSettings.KEY]).pageDim)
+        // the same settings otherwise: only the dim factor differs between the messages
+        val sent = reader.sent.filterIsInstance<ToWeb.SetSettings>().map { it.settings.copy(dim = 1.0) }.toSet()
+        assertEquals(1, sent.size)
+    }
+
     /** C-085: Scroll mode's "Chapters" goes to the web side live and is stored with the other display settings. */
     @Test fun scroll_chapters_reach_the_web_side_and_are_stored() = runTest(dispatcher) {
         val c = controller()

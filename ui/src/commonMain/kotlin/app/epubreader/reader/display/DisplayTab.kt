@@ -99,6 +99,9 @@ fun DisplayTab(
             onChange { it.copy(pageNumbers = p) }
         }
         BrightnessRow(s.brightness, brightness) { b -> onChange { it.copy(brightness = b) } }
+        ExtraDimRow(s.extraDim, s.extraDimLevel, onSwitch = { on -> onChange { it.copy(extraDim = on) } }) { level ->
+            onChange { it.copy(extraDimLevel = level) }
+        }
     }
 }
 
@@ -233,6 +236,35 @@ private fun BrightnessRow(brightness: Double?, screen: ScreenBrightness, onValue
             value = BrightnessCurve.toPosition(linear, screen.min, 1.0).toFloat(),
             onValueChange = { onValue(BrightnessCurve.toLinear(it.toDouble(), screen.min, 1.0)) },
             enabled = !following, modifier = Modifier.keepsSideways().semantics { contentDescription = Copy.brightness },
+        )
+    }
+}
+
+/** C-110: Extra dim's slider runs from light dimming at its start ([ReaderSettings.DIM_LIGHT]) to strong at its end. */
+internal fun dimPosition(level: Double): Float =
+    ((ReaderSettings.DIM_LIGHT - level) / (ReaderSettings.DIM_LIGHT - ReaderSettings.DIM_STRONG)).toFloat().coerceIn(0f, 1f)
+
+/** C-110: the dim level at slider position [position] (0..1), to the hundredth. */
+internal fun dimLevel(position: Float): Double =
+    ((ReaderSettings.DIM_LIGHT - position.coerceIn(0f, 1f) * (ReaderSettings.DIM_LIGHT - ReaderSettings.DIM_STRONG)) * 100).roundToInt() / 100.0
+
+/**
+ * C-110 "Extra dim", under Brightness: a switch (off by default) and how far the page dims, from light to strong; the
+ * value shown is the page's level (70 % .. 15 % of normal). It dims on top of either brightness mode and previews live;
+ * the slider is greyed out while the switch is off and keeps its level.
+ */
+@Composable
+private fun ExtraDimRow(on: Boolean, level: Double, onSwitch: (Boolean) -> Unit, onLevel: (Double) -> Unit) {
+    Column {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Label(Copy.extraDim, Modifier.weight(1f))
+            Text(Copy.extraDimLevel(level), Modifier.alpha(if (on) 1f else 0.38f), style = MaterialTheme.typography.labelLarge)
+            Spacer(Modifier.width(8.dp))
+            Switch(checked = on, onCheckedChange = onSwitch, modifier = Modifier.semantics { contentDescription = Copy.extraDim })
+        }
+        Slider(
+            value = dimPosition(level), onValueChange = { onLevel(dimLevel(it)) }, enabled = on,
+            modifier = Modifier.keepsSideways().semantics { contentDescription = Copy.extraDimSlider },
         )
     }
 }

@@ -192,4 +192,37 @@ class ReaderSettingsTest {
         assertEquals(emptySet(), ReaderSettings.decode("""{"chosen":"theme"}""").chosen)
         assertEquals(setOf("flow"), ReaderSettings.decode("""{"chosen":["flow",3,null]}""").chosen)
     }
+
+    @Test fun c110_extra_dim_is_off_by_default_at_half_level_and_round_trips() {
+        val d = ReaderSettings()
+        assertEquals(false, d.extraDim)
+        assertEquals(0.5, d.extraDimLevel)
+        assertEquals(1.0, d.pageDim)
+        assertEquals("{}", d.encode())
+        val on = d.copy(extraDim = true, extraDimLevel = 0.3).clamped()
+        assertEquals(0.3, on.pageDim)
+        assertEquals(on, ReaderSettings.decode(on.encode()))
+        // The level is kept while Extra dim is off: switching it on again returns to it.
+        val off = on.copy(extraDim = false)
+        assertEquals(1.0, off.pageDim)
+        assertEquals(0.3, ReaderSettings.decode(off.encode()).extraDimLevel)
+    }
+
+    @Test fun c110_extra_dim_level_is_clamped_to_70_down_to_15_percent_and_rounded() {
+        assertEquals(0.7, ReaderSettings(extraDimLevel = 0.95).clamped().extraDimLevel)
+        assertEquals(0.15, ReaderSettings(extraDimLevel = 0.01).clamped().extraDimLevel)
+        assertEquals(0.15, ReaderSettings(extraDimLevel = -3.0).clamped().extraDimLevel)
+        assertEquals(0.43, ReaderSettings(extraDimLevel = 0.4321).clamped().extraDimLevel)
+        assertEquals(0.5, ReaderSettings(extraDimLevel = Double.NaN).clamped().extraDimLevel)
+        assertEquals(0.7, ReaderSettings.decode("""{"extraDim":true,"extraDimLevel":2}""").pageDim)
+    }
+
+    @Test fun c110_settings_without_extra_dim_or_with_bad_values_decode_to_off() {
+        val older = ReaderSettings.decode("""{"theme":"BLACK","fontScale":1.2}""")
+        assertEquals(false, older.extraDim)
+        assertEquals(0.5, older.extraDimLevel)
+        val bad = ReaderSettings.decode("""{"extraDim":"yes","extraDimLevel":"dark"}""")
+        assertEquals(false, bad.extraDim)
+        assertEquals(0.5, bad.extraDimLevel)
+    }
 }
