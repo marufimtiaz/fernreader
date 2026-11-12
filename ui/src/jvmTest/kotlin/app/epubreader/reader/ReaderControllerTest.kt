@@ -41,6 +41,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.TestScope
@@ -475,6 +476,53 @@ class ReaderControllerTest {
         c.toggleChrome(); tap(0.9)
         assertFalse(c.state.value.chromeVisible)
         assertEquals(emptyList(), turns())
+    }
+
+    // C-104: bars swiped in over the fullscreen reader come without the controls and hide by themselves or at the next tap.
+    @Test fun swiped_in_bars_come_without_the_controls_and_hide_after_the_timeout() = runTest(dispatcher) {
+        val c = openWith()
+        c.revealBars(); runCurrent()
+        assertTrue(c.state.value.barsRevealed)
+        assertFalse(c.state.value.chromeVisible)
+        advanceTimeBy(BARS_REVEAL_MS - 100); runCurrent()
+        assertTrue(c.state.value.barsRevealed, "still in just before the timeout")
+        advanceTimeBy(200); runCurrent()
+        assertFalse(c.state.value.barsRevealed)
+        assertFalse(c.state.value.chromeVisible)
+    }
+
+    @Test fun a_tap_while_swiped_in_bars_show_only_hides_them() = runTest(dispatcher) {
+        val c = openWith { it.copy(tapZones = true) }
+        for (x in listOf(0.5, 0.9, 0.1)) {
+            c.revealBars(); runCurrent()
+            reader.events.emit(FromWeb.Tap(sessionId = "s-1", x = x, y = 0.5)); runCurrent()
+            assertFalse(c.state.value.barsRevealed, "tap at $x hides the bars")
+            assertFalse(c.state.value.chromeVisible, "tap at $x opens no controls")
+        }
+        assertEquals(emptyList(), turns())
+        tap(0.9) // the bars gone, taps work as before
+        assertEquals(listOf("next"), turns())
+    }
+
+    @Test fun opening_the_controls_while_swiped_in_bars_show_makes_the_bars_theirs() = runTest(dispatcher) {
+        val c = openWith()
+        c.revealBars(); runCurrent()
+        c.toggleChrome()
+        assertTrue(c.state.value.chromeVisible)
+        assertFalse(c.state.value.barsRevealed)
+        advanceTimeBy(BARS_REVEAL_MS * 2); runCurrent()
+        assertTrue(c.state.value.chromeVisible, "the timeout is gone with the reveal")
+        c.revealBars() // with the controls shown, a reveal is nothing
+        assertFalse(c.state.value.barsRevealed)
+    }
+
+    @Test fun a_new_swipe_restarts_the_timeout_and_closing_the_book_ends_it() = runTest(dispatcher) {
+        val c = openWith()
+        c.revealBars(); advanceTimeBy(BARS_REVEAL_MS - 500); runCurrent()
+        c.revealBars(); advanceTimeBy(1_000); runCurrent()
+        assertTrue(c.state.value.barsRevealed)
+        c.close()
+        assertFalse(c.state.value.barsRevealed)
     }
 
     // C-005: ON = volume-down next, volume-up previous; REVERSED swaps; OFF and open panels leave the keys alone.

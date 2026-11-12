@@ -22,22 +22,24 @@ data class ReaderWindowInputs(
     /** The open-failure or R-008 screen is shown. */
     val error: Boolean,
     val chromeVisible: Boolean,
+    /** C-104: the user swiped the bars in, without the controls. */
+    val barsRevealed: Boolean = false,
 ) {
     companion object {
-        fun of(ui: ReaderUiState) = ReaderWindowInputs(ui.open && ui.error == null && !ui.loading, ui.error != null, ui.chromeVisible)
+        fun of(ui: ReaderUiState) = ReaderWindowInputs(ui.open && ui.error == null && !ui.loading, ui.error != null, ui.chromeVisible, ui.barsRevealed)
     }
 }
 
 /**
  * Screen behaviour from (route, reader state, settings). Only the reader route changes anything; the library follows
  * the system. Fullscreen hides the system bars while the controls are hidden and shows them with the controls (the
- * page is inset by a stable amount, so neither reflows it) and on an error screen. Keep-screen-on needs a book on
+ * page is inset by a stable amount, so neither reflows it), while the user's swipe has them in (C-104) and on an error screen. Keep-screen-on needs a book on
  * screen. An orientation lock follows the sensor within the locked orientation (either way up).
  */
 fun readerWindowState(inReader: Boolean, r: ReaderWindowInputs, s: ReaderSettings): ReaderWindowState =
     if (!inReader) ReaderWindowState(false, false, ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED)
     else ReaderWindowState(
-        barsHidden = s.fullscreen && !r.chromeVisible && !r.error,
+        barsHidden = s.fullscreen && !r.chromeVisible && !r.barsRevealed && !r.error,
         keepScreenOn = s.keepScreenOn && r.bookShown,
         orientation = when (s.orientation) {
             OrientationLock.SYSTEM -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
@@ -66,7 +68,7 @@ class WindowApplier(private val apply: (WindowLook) -> Unit) {
  * of the bars ([requested]) and each change of their visibility ([seen]), it says when the user did that: hidden to shown
  * while the app wants them hidden, with the window focused (another window on top may show the bars too). A show the app
  * asked for and the system hasn't reported yet is the app's, even if the app asked to hide them again meanwhile. The
- * activity then shows the reader's controls with the bars, so the two hide again together.
+ * activity then tells the reader, which keeps only the bars in for a while (C-104).
  */
 class BarsRevealWatch {
     private var last: Boolean? = null

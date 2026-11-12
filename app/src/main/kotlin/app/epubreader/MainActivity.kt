@@ -372,12 +372,12 @@ class MainActivity : ComponentActivity() {
     private val barsReveal = BarsRevealWatch()
 
     /**
-     * C-103: the bars' visibility changed. When the user swiped them back over the fullscreen reader, the reader's controls
-     * come with them, so a tap hides both again (the controls have no timeout of their own).
+     * C-103: the bars' visibility changed. When the user swiped them back over the fullscreen reader, only the bars show
+     * (C-104): the reader keeps them in until its timeout or the next tap on the page, and the controls stay hidden.
      */
     private fun barsVisibilityChanged(visible: Boolean) {
         if (barsReveal.seen(visible, hasWindowFocus()) && nav.top == Route.Reader && !controller.state.value.chromeVisible) {
-            controller.toggleChrome()
+            controller.revealBars()
         }
     }
 
@@ -390,7 +390,7 @@ class MainActivity : ComponentActivity() {
             isAppearanceLightNavigationBars = look.lightBars
             // C-103: the default behaviour, not "transient bars by swipe": with the bars hidden the system keeps its gestures
             // (Back on both edges, the first time); a swipe from the top or bottom brings the bars back for good, and
-            // [barsVisibilityChanged] shows the controls with them.
+            // [barsVisibilityChanged] tells the reader, which keeps them in for a while (C-104).
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_DEFAULT
             barsReveal.requested(hidden = win.barsHidden)
             if (win.barsHidden) hide(WindowInsetsCompat.Type.systemBars()) else show(WindowInsetsCompat.Type.systemBars())

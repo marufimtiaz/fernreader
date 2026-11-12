@@ -634,8 +634,8 @@ class EdgeContentsTest {
         sc.onActivity { v = ViewCompat.getRootWindowInsets(it.window.decorView)?.isVisible(WindowInsetsCompat.Type.statusBars()) ?: false }
         return v
     }
-    private suspend fun ReaderHarness.awaitBars(visible: Boolean) {
-        val until = SystemClock.uptimeMillis() + 3_000
+    private suspend fun ReaderHarness.awaitBars(visible: Boolean, withinMs: Long = 3_000) {
+        val until = SystemClock.uptimeMillis() + withinMs
         while (barsVisible() != visible) { assertTrue("the bars ${if (visible) "shown" else "hidden"}", SystemClock.uptimeMillis() < until); delay(30) }
     }
 
@@ -710,21 +710,57 @@ class EdgeContentsTest {
         assertEquals(start, h.pos())
     }
 
-    /** A swipe down from the top brings the bars back with the controls; they hide again together on a tap. */
-    @Test fun a_top_swipe_brings_the_bars_back_and_they_hide_again_with_the_controls() = run(nav = GESTURAL) { h ->
-        h.awaitBars(false)
+    // ---- C-104: a top swipe brings back only the bars; they hide by themselves or at the next tap ----
+
+    /** A swipe down from the top over the fullscreen reader: the bars come back and the controls stay hidden. */
+    private suspend fun ReaderHarness.swipeTheBarsIn() {
+        awaitBars(false)
+        dev.swipe(w / 2, 1, w / 2, hgt / 3, 20)
+        awaitBars(true)
+    }
+
+    /** C-104: the bars come back without the controls, stay a while, and hide again by themselves (about 3 s). */
+    @Test fun a_top_swipe_brings_back_only_the_bars_and_they_hide_after_the_timeout() = run(nav = GESTURAL) { h ->
         val start = h.midChapter()
+        h.awaitBars(false)
         dev.swipe(w / 2, 1, w / 2, hgt / 3, 20)
         h.awaitBars(true)
-        val until = SystemClock.uptimeMillis() + 3_000
-        while (!h.a.controller.state.value.chromeVisible) { assertTrue("the controls came with the bars", SystemClock.uptimeMillis() < until); delay(20) }
-        delay(500)
-        assertTrue("the bars stay", h.barsVisible())
+        val shownAt = SystemClock.uptimeMillis()
+        // Watch until well into the timeout: the controls never come.
+        while (SystemClock.uptimeMillis() - shownAt < 1_500) {
+            assertFalse("no controls with the bars", h.a.controller.state.value.chromeVisible)
+            delay(30)
+        }
+        assertTrue("the bars stay a while", h.barsVisible())
+        h.awaitBars(false, withinMs = BARS_REVEAL_MS + 2_000)
+        assertFalse(h.a.controller.state.value.chromeVisible)
         assertEquals("no page turn", start, h.pos())
+    }
+
+    /** C-104: a tap on the page while the bars show only hides them: no controls, no page turn. */
+    @Test fun a_tap_while_the_swiped_in_bars_show_only_hides_them() = run(nav = GESTURAL, settings = { it.copy(tapZones = true) }) { h ->
+        val start = h.midChapter()
+        for (x in listOf(w / 2, w * 9 / 10)) { // the centre (controls) and the next-page zone
+            h.swipeTheBarsIn()
+            dev.click(x, hgt / 2)
+            h.awaitBars(false, withinMs = 1_500) // well before the timeout
+            delay(300)
+            assertFalse("at $x: no controls", h.a.controller.state.value.chromeVisible)
+            assertEquals("at $x: no page turn", start, h.pos())
+        }
+    }
+
+    /** C-104: opening the controls while the bars show works as usual, and the bars then hide with the controls. */
+    @Test fun the_controls_opened_while_the_swiped_in_bars_show_take_the_bars() = run(nav = GESTURAL) { h ->
+        h.midChapter()
+        h.swipeTheBarsIn()
+        h.sc.onActivity { it.controller.toggleChrome() }
+        delay(BARS_REVEAL_MS + 1_000)
+        assertTrue("the controls stay", h.a.controller.state.value.chromeVisible)
+        assertTrue("the bars stay with them", h.barsVisible())
         dev.click(w / 2, hgt / 2)
         withTimeout(3_000) { while (h.a.controller.state.value.chromeVisible) delay(20) }
         h.awaitBars(false)
-        assertEquals(start, h.pos())
     }
 
     /** The app reserves no edge from Back while reading: no view in the window asks for a gesture exclusion. */
