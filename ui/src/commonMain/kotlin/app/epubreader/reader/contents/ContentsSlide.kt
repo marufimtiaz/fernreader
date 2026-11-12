@@ -21,6 +21,8 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
+import app.epubreader.reader.ReaderController
+import app.epubreader.ui.edgeSwipe
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
@@ -84,14 +86,31 @@ fun panelSwipeCloses(travelDp: Float, widthDp: Float, speedDpPerMs: Float): Bool
         ((travelDp >= FLICK_DP && speedDpPerMs >= FLICK_SPEED) || travelDp >= widthDp / 3f)
 
 /**
+ * C-102: the gesture from the right edge (always the right one, also in right-to-left books) that opens the Contents panel,
+ * for the page's parent, above the reader's WebView: recognised by the app as the library's drawer is ([edgeSwipe]), so the
+ * page gets every touch until the sideways part starts and a cancel then, and turns nothing. The panel follows the finger
+ * (not with page animation off: it opens on release) and opens past a third of the width or with a flick. [active]: the
+ * reader is the screen shown.
+ */
+fun Modifier.contentsEdgeSwipe(c: ReaderController, active: () -> Boolean): Modifier = edgeSwipe(
+    fromRight = true,
+    enabled = { active() && c.edgeSwipeAllowed() },
+    onHold = { inDp, widthDp -> if (widthDp > 0f) c.dragContents((inDp / widthDp).coerceIn(0f, 1f)) },
+    onEnd = { inDp, widthDp, speed -> c.releaseEdge(inDp != null && edgeSwipeOpens(inDp.coerceIn(0f, widthDp), widthDp, speed)) },
+)
+
+/** Whether a release of the edge gesture opens the panel: the panel swipe's rule (a third, or a flick), the drawer's too. */
+fun edgeSwipeOpens(travelDp: Float, widthDp: Float, speedDpPerMs: Float): Boolean = panelSwipeCloses(travelDp, widthDp, speedDpPerMs)
+
+/**
  * C-097: the Contents panel's way on and off the screen, from and to the right. [open] is where it is going, [drag] where a
- * finger holds it (0..1, null when none does): the page's edge gesture or, through [onDrag] and [onRelease], a rightward
+ * finger holds it (0..1, null when none does): the edge gesture ([contentsEdgeSwipe]) or, through [onDrag] and [onRelease], a rightward
  * swipe on the panel. The position changes the layer only, so nothing recomposes while it moves. It stays composed until
  * it has left. With [animated] false it just appears and goes.
  *
  * C-100: a finger takes hold through a [FingerHold], so the panel comes from where it was and never jumps to the finger.
  * The panel is composed only when it is to show, not ahead of it: composing it at the touch-down in the strip put that
- * work on the main thread while the page was still judging the gesture, and the edge swipe got harder to start.
+ * work on the main thread while the gesture was still being judged, and the edge swipe got harder to start.
  */
 @Composable
 fun ContentsSlide(

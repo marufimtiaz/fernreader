@@ -135,8 +135,6 @@ import kotlinx.serialization.json.Json
         val sample: Boolean = false, val done: Boolean = false,
     ) : FromWeb
     @Serializable @SerialName("tap") data class Tap(val v: Int = 1, val sessionId: String, val x: Double, val y: Double) : FromWeb
-    /** C-097: a gesture from the right edge. [phase]: start, move, end; [fraction]: the share of the screen under the panel; [open]: on end, whether it opens. */
-    @Serializable @SerialName("edgeSwipe") data class EdgeSwipe(val v: Int = 1, val sessionId: String, val phase: String, val fraction: Double, val open: Boolean = false) : FromWeb
     /** F-042: entries in the followed-links history after each push or pop; Back pops one while it is > 0. */
     @Serializable @SerialName("history") data class History(val v: Int = 1, val sessionId: String, val depth: Int) : FromWeb
     /** F-043: the footnote popup opened or closed (a tap outside closes it on the web side). */

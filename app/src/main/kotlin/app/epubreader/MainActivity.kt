@@ -13,6 +13,8 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.core.view.WindowCompat
@@ -50,6 +52,7 @@ import app.epubreader.reader.EventProbe
 import app.epubreader.reader.ReaderController
 import app.epubreader.reader.ReaderEngine
 import app.epubreader.reader.ReaderSurface
+import app.epubreader.reader.contents.contentsEdgeSwipe
 import app.epubreader.reader.SelectionAction
 import app.epubreader.reader.SelectionActionHandler
 import app.epubreader.reader.TextActions
@@ -241,10 +244,12 @@ class MainActivity : ComponentActivity() {
             val win = readerWindowState(readerShown, winInputs, rs)
             val brightness = if (readerShown) rs.brightness?.toFloat() ?: WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
             SideEffect { windowLook.update(WindowLook(brightness, lightBars = if (readerShown) theme.isLight else !dark, win)) }
+            // C-102: kept across recompositions, so a recomposition never restarts a gesture in progress.
+            val pageGestures = remember { Modifier.contentsEdgeSwipe(controller) { nav.top == Route.Reader } }
             Box {
                 App(
                     dark = dark, webViewTooOld = webViewTooOld, nav = nav, library = library, reader = controller, probe = probe,
-                    readerSurface = { ReaderSurface(reader, covered = nav.top != Route.Reader, background = theme.background, fullscreen = rs.fullscreen, loading = { controller.state.value.loading }, onTopInset = controller::setTopInset) },
+                    readerSurface = { ReaderSurface(reader, covered = nav.top != Route.Reader, background = theme.background, fullscreen = rs.fullscreen, loading = { controller.state.value.loading }, onTopInset = controller::setTopInset, pageGestures = pageGestures) },
                     fonts = fonts, formatDate = { ms -> dateFormat.format(java.util.Date(ms)) },
                     onOpenPicker = { pick.launch(arrayOf("application/epub+zip", "application/octet-stream")) },
                     onGrantAccess = access::request, onLeave = ::finish,
