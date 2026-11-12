@@ -1,5 +1,11 @@
 package app.epubreader.ui
 
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.HistoricalChange
+import androidx.compose.ui.input.pointer.PointerId
+import androidx.compose.ui.input.pointer.PointerInputChange
+import androidx.compose.ui.input.pointer.PointerType
 import kotlin.math.PI
 import kotlin.math.tan
 import kotlin.test.Test
@@ -8,6 +14,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /** C-098, C-101, C-102: the recognition shared by the library's drawer and the reader's Contents, in dp from the edge. */
+@OptIn(ExperimentalComposeUiApi::class)
 class EdgeSwipeTest {
     @Test fun the_strip_is_about_24_dp() {
         assertTrue(inEdgeStrip(0f)); assertTrue(inEdgeStrip(24f)); assertFalse(inEdgeStrip(25f))
@@ -77,6 +84,31 @@ class EdgeSwipeTest {
         assertTrue(SidewaysWatch(0f, 300f).sideways(30f, 399f))
         assertFalse(SidewaysWatch(0f, 300f).sideways(30f, 401f))
         assertFalse(SidewaysWatch(0f, 300f).sideways(30f, 199f))
+    }
+
+    // ---- the flick's speed: every reported position counts ----
+
+    /**
+     * The user's swipe (above) as the recogniser got it on the emulator while the panel's first frames held the main thread:
+     * one change a frame up to 91 ms, then nothing until 296 ms, where one change brings the 24 moves of the stall in its
+     * history, then the lift at 300 ms. Taking only each change's latest position left a 205 ms gap before the last 4 ms,
+     * which read as a stop (speed 0): a flick short of a third slid back.
+     */
+    @Test fun a_flick_delivered_in_one_batch_after_a_stall_keeps_its_speed() {
+        val path = { ms: Long -> Offset(1000f - (8f + 113f * ms / 300), 600f - 240f * ms / 300) } // px at density 1, from the right
+        var prev: PointerInputChange? = null
+        fun change(ms: Long, pressed: Boolean = true, history: List<Long> = emptyList()): PointerInputChange = PointerInputChange(
+            id = PointerId(0), uptimeMillis = ms, position = path(ms), pressed = pressed,
+            previousUptimeMillis = prev?.uptimeMillis ?: ms, previousPosition = prev?.position ?: path(ms), previousPressed = prev?.pressed ?: false,
+            isInitiallyConsumed = false, type = PointerType.Touch,
+        ).let { if (history.isEmpty()) it else it.copy(historical = history.map { t -> HistoricalChange(t, path(t)) }) }.also { prev = it }
+        val f = FlickTracker()
+        f.add(change(0))
+        for (ms in listOf(16L, 33L, 50L, 66L, 83L, 91L)) f.add(change(ms))
+        f.add(change(296, history = (99L..288L step 8).toList()))
+        f.add(change(300, pressed = false))
+        val speed = -f.xVelocity() / 1000f // inward from the right, dp/ms
+        assertEquals(113f / 300, speed, 0.03f)
     }
 
     @Test fun a_thumb_scrolling_the_strip_15_degrees_off_vertical_never_counts() {
