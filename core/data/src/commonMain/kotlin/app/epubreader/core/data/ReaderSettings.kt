@@ -81,6 +81,8 @@ data class ReaderSettings(
     val fullscreen: Boolean = true,
     /** C-106: off by default; the phone's own screen timeout applies. */
     val keepScreenOn: Boolean = false,
+    /** C-107: while the phone's Battery Saver is on, the reader saves power ([batterySaving], [effective]); on by default. */
+    val followBatterySaver: Boolean = true,
     val orientation: OrientationLock = OrientationLock.SYSTEM,
     /** F-044: ask before opening a link that leaves the book. */
     val confirmExternalLinks: Boolean = true,
@@ -104,6 +106,16 @@ data class ReaderSettings(
         brightness = brightness?.let { if (it.isNaN()) null else (it.coerceIn(MIN_BRIGHTNESS, 1.0) * 10_000).roundToInt() / 10_000.0 },
         highlightColor = highlightColor.takeIf { it in HighlightColors.ALL } ?: HighlightColors.YELLOW,
     )
+
+    /** C-107: Battery Saver applies to the reader: the phone is in power save mode and the reader follows it. */
+    fun batterySaving(powerSave: Boolean): Boolean = followBatterySaver && powerSave
+
+    /**
+     * C-107: the settings the reader applies, the saved ones unchanged: while [batterySaving], the true Black theme and
+     * page turns with no animation. (The screen-page counter and the refresh rate are the reader's and the window's.)
+     */
+    fun effective(powerSave: Boolean): ReaderSettings =
+        if (batterySaving(powerSave)) copy(theme = ReadingThemeId.BLACK, pageAnimation = PageAnimation.NONE) else this
 
     /** F-070: one 10 % step up or down, staying within 80 %..260 %. */
     fun stepFont(delta: Int): ReaderSettings = copy(fontScale = fontScale + delta * 0.1).clamped()
@@ -171,6 +183,7 @@ data class ReaderSettings(
                 pageAnimation = enum("pageAnimation", PageAnimation.entries.toTypedArray(), d.pageAnimation),
                 fullscreen = bool("fullscreen", d.fullscreen),
                 keepScreenOn = bool("keepScreenOn", d.keepScreenOn),
+                followBatterySaver = bool("followBatterySaver", d.followBatterySaver),
                 orientation = enum("orientation", OrientationLock.entries.toTypedArray(), d.orientation),
                 confirmExternalLinks = bool("confirmExternalLinks", d.confirmExternalLinks),
                 highlightColor = str("highlightColor") ?: d.highlightColor,
