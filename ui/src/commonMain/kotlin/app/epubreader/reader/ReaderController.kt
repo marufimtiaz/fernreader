@@ -503,6 +503,17 @@ class ReaderController(
     }
 
     /**
+     * C-108 (e): stores the newest reading position now instead of after the writer's wait: the reader is left (another
+     * screen on top) or the app goes to the background. Closing the book stores it too ([close]).
+     */
+    fun flushPosition() {
+        if (session?.last == null) return
+        closeScope.launch {
+            try { positions.await().flush() } catch (e: CancellationException) { throw e } catch (e: Exception) { failed("storing the position", e, showIfOpen = false) }
+        }
+    }
+
+    /**
      * Changes the display settings: clamped, applied at once on the page (live preview, F-075), stored 300 ms after the
      * last change (a slider drag writes once).
      */

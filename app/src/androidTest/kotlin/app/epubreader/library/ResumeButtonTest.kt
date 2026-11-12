@@ -131,9 +131,9 @@ class ResumeButtonTest {
             h.tocJump("Chapter 2")
             val last = h.lastPage()
             val id = graph.library.knownBookId(SourceRef.File(file(3).path))!!
-            withTimeout(3_000) { while (graph.library.position(id)?.cfi != last.cfi) delay(20) } // R-009
             device.pressBack()
             withTimeout(5_000) { while (h.a.nav.top != Route.Library) delay(20) }
+            withTimeout(3_000) { while (graph.library.position(id)?.cfi != last.cfi) delay(20) } // R-009: stored on leaving (C-108 e)
             val b = shown(3, "after reading it")
             // one node: what TalkBack focuses is what carries the label (a description on a child of the clickable node isn't)
             assertTrue("the labelled node is the clickable one", b.isClickable)

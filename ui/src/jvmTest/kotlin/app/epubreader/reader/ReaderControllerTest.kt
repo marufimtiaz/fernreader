@@ -979,6 +979,19 @@ class ReaderControllerTest {
         assertEquals(ToWeb.SetBookmarks(sessionId = "s-1", cfis = listOf(rangeCfi)), reader.sent.filterIsInstance<ToWeb.SetBookmarks>().last())
     }
 
+    /** C-108 (e): turns within 5 s are stored once, and the app going to the background stores the newest one at once. */
+    @Test fun leaving_the_app_stores_the_newest_position_at_once() = runTest(dispatcher) {
+        val c = controller()
+        c.open(ref); advanceUntilIdle(); reader.events.emit(opened()); advanceUntilIdle()
+        val id = library.knownBookId(ref)!!
+        reader.events.emit(relocate("c1")); advanceTimeBy(100); runCurrent()
+        assertEquals("c1", library.position(id)?.cfi) // the first turn after a pause: at once
+        reader.events.emit(relocate("c2")); advanceTimeBy(100); runCurrent()
+        assertEquals("c1", library.position(id)?.cfi) // within 5 s: waits
+        c.flushPosition(); runCurrent()
+        assertEquals("c2", library.position(id)?.cfi)
+    }
+
     /** C-108 (b): the book file is checked before a write that depends on it (a new location, bookmark or highlight), not by a timer. */
     @Test fun the_book_file_is_checked_before_each_position_and_nothing_is_added_to_a_changed_file() = runTest(dispatcher) {
         val c = controller(); openedAt(c)

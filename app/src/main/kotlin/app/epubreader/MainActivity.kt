@@ -238,6 +238,8 @@ class MainActivity : ComponentActivity() {
             androidx.compose.runtime.LaunchedEffect(mode) { withContext(Dispatchers.IO) { app.epubreader.settings.AppThemeCache.write(this@MainActivity, mode) } }
             val dateFormat = androidx.compose.runtime.remember { java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT) } // bookmark dates (F-041)
             val inReader = nav.top == Route.Reader
+            // C-108 (e): a screen over the reader (settings, details) stores the newest position at once.
+            androidx.compose.runtime.LaunchedEffect(inReader) { if (!inReader) controller.flushPosition() }
             // P-015: the reader's window (bars hidden: a system insets animation that redraws every frame) is applied one
             // frame after the reader's first frame, never with it. Applied with it, the next frame's draw waits for the
             // render thread to finish the first one (its first WebView draw, 100-300 ms on the emulator), and the main
@@ -559,9 +561,10 @@ class MainActivity : ComponentActivity() {
         onAccessGranted()
     }
 
-    /** R-009: the process may be killed in the background without onDestroy, so a note being typed is stored now. */
+    /** R-009: the process may be killed in the background without onDestroy, so a note being typed (and the position) is stored now. */
     override fun onStop() {
         controller.flushNote()
+        controller.flushPosition() // C-108 (e): positions are otherwise written at most every 5 s
         super.onStop()
     }
 
