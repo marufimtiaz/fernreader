@@ -11,7 +11,8 @@ function validSettings(x: unknown): boolean {
     (s.swipeDirection == null || ['auto', 'ltr', 'rtl'].includes(s.swipeDirection as string)) &&
     (s.pageAnimation == null || ['slide', 'none'].includes(s.pageAnimation as string)) &&
     (s.chapters == null || ['continuous', 'one-at-a-time'].includes(s.chapters as string)) &&
-    (s.topInset == null || (typeof s.topInset === 'number' && s.topInset >= 0))
+    (s.topInset == null || (typeof s.topInset === 'number' && s.topInset >= 0)) &&
+    (s.dim == null || (isNum(s.dim) && (s.dim as number) > 0 && (s.dim as number) <= 1)) // C-110
 }
 
 function validAnnotation(x: unknown): boolean {

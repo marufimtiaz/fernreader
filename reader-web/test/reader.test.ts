@@ -1116,6 +1116,41 @@ describe('Reader top inset (C-099)', () => {
   })
 })
 
+// C-110 Extra dim: a paint-only change. The paper takes the theme colour scaled, the section frames a brightness filter
+// (index.html's ::part(filter) rule reads --er-page-filter); the section documents are not restyled, nothing relayouts.
+describe('Reader Extra dim (C-110)', () => {
+  const settings = { fontScale: 1, fontFamily: 'publisher', lineHeight: 1.5, marginPercent: 5, align: 'publisher', theme: 'warm', flow: 'paginated', swipeDirection: 'auto', pageAnimation: 'slide' } as const
+  const openWith = (s: object) => send({ v: 1, type: 'open', sessionId: 's1', position: null, texts: { missingPart: 'missing' }, settings: { ...settings, ...s } } as ToWeb)
+
+  it('dims the paper and filters the frames, without touching the section documents, and restores them exactly', async () => {
+    openWith({}); await settle(); await settle()
+    const v = FakeView.all.at(-1)!
+    const doc = document.implementation.createHTMLDocument('s')
+    v.renderer.getContents = () => [{ index: 0, doc }]
+    const body = document.body.style
+    expect(body.getPropertyValue('--er-page-filter')).toBe('')
+    const before = body.background
+    const docAttrs = () => [...doc.documentElement.attributes].map(a => `${a.name}=${a.value}`).join(' ') + doc.documentElement.getAttribute('style')
+    send({ v: 1, type: 'setSettings', settings: { ...settings, theme: 'light' } }); await settle()
+    send({ v: 1, type: 'setSettings', settings: { ...settings, theme: 'warm' } }); await settle()
+    const styled = docAttrs()
+    const seen: string[] = []; const set = doc.documentElement.setAttribute.bind(doc.documentElement)
+    doc.documentElement.setAttribute = (k: string, x: string) => { seen.push(k); set(k, x) }
+    send({ v: 1, type: 'setSettings', settings: { ...settings, dim: 0.5 } }); await settle()
+    expect(body.getPropertyValue('--er-page-filter')).toBe('brightness(0.5)')
+    expect(body.background).toBe('rgb(122, 117, 106)') // #F4E9D3 x 0.5
+    expect((v.renderer as HTMLElement).style.getPropertyValue('--er-edge-fg')).toBe('#1d1711') // #3A2E21 x 0.5
+    expect(seen).toEqual([])
+    expect(docAttrs()).toBe(styled)
+    send({ v: 1, type: 'setSettings', settings: { ...settings, dim: 0.2 } }); await settle()
+    expect(body.getPropertyValue('--er-page-filter')).toBe('brightness(0.2)')
+    send({ v: 1, type: 'setSettings', settings }); await settle()
+    expect(body.getPropertyValue('--er-page-filter')).toBe('')
+    expect(body.background).toBe(before)
+    expect(seen).toEqual([])
+  })
+})
+
 describe('Reader chapters (One at a time)', () => {
   const settings = { fontScale: 1, fontFamily: 'publisher', lineHeight: 1.5, marginPercent: 5, align: 'publisher', theme: 'light', swipeDirection: 'auto', pageAnimation: 'slide' } as const
   const texts = { missingPart: 'missing', nextChapter: 'Weiter: {title}', previousChapter: 'Zurück: {title}', nextChapterUntitled: 'Weiter', previousChapterUntitled: 'Zurück' }
