@@ -18,7 +18,7 @@ import { FootnotePopup } from './footnote'
 import { visibleBookmarks } from './bookmarks'
 import { readSelection, SelectionReporter } from './selection'
 import { AnnotationStore, annotationDraw, taggedDraw, type AnnotationChange, type AnnotationItem } from './annotations'
-import { applySettings as applyStyles, DEFAULT_SETTINGS, readerCss, THEMES, type WebSettings } from './styles'
+import { applySettings as applyStyles, DEFAULT_SETTINGS, dimFactor, pagePaper, readerCss, THEMES, type WebSettings } from './styles'
 import { chapterEdgeLabel, chapterSpan, DEFAULT_CHAPTER_TEXTS, type ChapterTexts } from './chapters'
 
 /** The book identifier the app records on open (with the cd digest it is the book's identity, M2). */
@@ -194,6 +194,29 @@ export class Reader {
        * and foot are `{label, index, x, y, w, h}` (host viewport CSS px) or null when not shown; with dpr/vw/vh.
        */
       edges: () => { const e = this.view?.renderer?.debugEdges; return e ? { ...e, dpr: window.devicePixelRatio, vw: window.innerWidth, vh: window.innerHeight } : null },
+      /**
+       * C-110: how the current section is painted: its first paragraph's computed text colour, the filter on its frame and
+       * on its highlight layer, the paper colour, and where its first image and its first paragraph's first line are
+       * (host viewport CSS px), with dpr; null before a section is shown.
+       */
+      dim: () => {
+        const c = this.view?.renderer?.getContents?.()[0]
+        const doc: Document | undefined = c?.doc
+        const frame = doc?.defaultView?.frameElement as HTMLElement | null | undefined
+        if (!doc || !frame) return null
+        const f = frame.getBoundingClientRect()
+        const box = (b: DOMRect | null | undefined) => b ? { x: f.left + b.left, y: f.top + b.top, w: b.width, h: b.height } : null
+        const p = doc.querySelector('p')
+        const lines = p ? doc.createRange() : null
+        lines?.selectNodeContents(p!)
+        const line = lines ? [...lines.getClientRects()].find(b => b.width > 0 && b.height > 0) : null
+        const overlay = c.overlayer?.element as Element | undefined
+        return {
+          textColor: p ? doc.defaultView!.getComputedStyle(p).color : null, filter: getComputedStyle(frame).filter,
+          overlayFilter: overlay ? getComputedStyle(overlay).filter : null, paper: getComputedStyle(document.body).backgroundColor,
+          image: box(doc.querySelector('img')?.getBoundingClientRect()), line: box(line), dpr: window.devicePixelRatio,
+        }
+      },
       /** C-071: frames of the last boundary slide (`{ t, old, next }`, CSS px), [] if none ran. */
       slide: () => this.view?.renderer?.debugSlide ?? null,
       /** C-071: the slide's on-screen geometry now (container, both pages' iframes, old page attached), null if none runs. */
@@ -705,9 +728,9 @@ export class Reader {
     set('flow', s.flow)
     if (s.pageAnimation === 'none') r.removeAttribute('animated') // F-032: no slide
     else set('animated', '')
-    document.body.style.background = THEMES[s.theme]?.bg ?? ''
-    r.style?.setProperty('--er-edge-fg', THEMES[s.theme]?.fg ?? '') // C-085: the chapter controls in the theme's colours
-    r.style?.setProperty('--er-edge-rule', THEMES[s.theme]?.rule ?? '')
+    const paper = this.paper(s)
+    r.style?.setProperty('--er-edge-fg', paper.fg) // C-085: the chapter controls in the theme's colours (dimmed with the page, C-110)
+    r.style?.setProperty('--er-edge-rule', paper.rule)
     // F-061: highlight fills read a little stronger on the dark themes (foliate's overlayer opacity variable).
     document.body.style.setProperty('--overlayer-highlight-opacity', THEMES[s.theme]?.dark ? '0.4' : '0.3')
   }
@@ -734,7 +757,20 @@ export class Reader {
     const look = (x: WebSettings) => [layout(x), x.theme, x.flow].join('|')
     if (this.view && look(old) === look(s)) this.layoutAttributes(this.view.renderer) // input settings only: nothing to restyle
     else if (this.view) this.applyToView(this.view)
-    else document.body.style.background = THEMES[s.theme]?.bg ?? ''
+    else this.paper(s)
+  }
+
+  /**
+   * The host page's paper in the theme's colour and the C-110 Extra dim filter on the section frames (`--er-page-filter`,
+   * read by index.html's `foliate-view::part(filter)` rule). Paint only. Returns the dimmed palette.
+   */
+  private paper(s: WebSettings) {
+    const p = pagePaper(s.theme, dimFactor(s.dim))
+    const body = document.body.style
+    body.background = p.bg
+    if (p.filter === 'none') body.removeProperty('--er-page-filter')
+    else body.setProperty('--er-page-filter', p.filter)
+    return p
   }
 
   private startCounter(sessionId: string) {

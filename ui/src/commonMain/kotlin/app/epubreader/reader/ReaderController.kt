@@ -597,7 +597,11 @@ class ReaderController(
         _settings.value = next
         totals.scope = next.pageNumbers.screenScope
         if (next.pageNumbers != before.pageNumbers) session?.let { requestListPages(it); resolveCount(it) }
-        if (web(before) != web(next)) { bookNumbers.pinHere(); probe.ev("layout_change", ""); reader.send(ToWeb.SetSettings(settings = web())) }
+        if (web(before) != web(next)) {
+            // C-110: Extra dim only repaints the page; nothing moves, so no layout change to pin the page number across
+            if (web(before).copy(dim = 1.0) != web(next).copy(dim = 1.0)) { bookNumbers.pinHere(); probe.ev("layout_change", "") }
+            reader.send(ToWeb.SetSettings(settings = web()))
+        }
         saveJob?.cancel()
         saveJob = closeScope.launch {
             kotlinx.coroutines.delay(300)
@@ -646,6 +650,7 @@ class ReaderController(
         pageAnimation = if (s.pageAnimation == PageAnimation.NONE) "none" else "slide",
         chapters = if (s.scrollChapters == ScrollChapters.ONE_AT_A_TIME) "one-at-a-time" else "continuous",
         topInset = topInset,
+        dim = s.pageDim,
     )
 
     /** One page turn through the web side's queue (same path as the bench's `next`/`prev`). */

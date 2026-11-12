@@ -641,6 +641,7 @@ export class View {
     }
     set overlayer(overlayer) {
         this.#overlayer = overlayer
+        overlayer.element.setAttribute('part', 'filter') // local patch (C-110): highlights dim with the page they are on
         this.#element.append(overlayer.element)
     }
     get overlayer() {

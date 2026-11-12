@@ -6,7 +6,9 @@
 <!-- Book content loads into blob: frames that inherit this policy, so book scripts never run (R-007). -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'self' blob: data:; script-src 'self'; style-src 'self' 'unsafe-inline' blob: data:; img-src 'self' blob: data:; font-src 'self' blob: data:; media-src 'self' blob: data:; frame-src blob: 'self'; connect-src 'self' blob: data:">
 <style>html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; }
-foliate-view { display: block; position: absolute; inset: 0; }</style>
+foliate-view { display: block; position: absolute; inset: 0; }
+/* C-110 Extra dim: the section frames and their highlight layers (foliate's `filter` part, inside the page scroller) */
+foliate-view::part(filter) { filter: var(--er-page-filter, none); }</style>
 <script type="module" src="./main.ts"></script>
 </head>
 <body></body>
