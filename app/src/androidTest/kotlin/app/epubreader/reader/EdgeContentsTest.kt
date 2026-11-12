@@ -4,6 +4,8 @@ import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import android.view.InputDevice
 import android.view.MotionEvent
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -52,7 +54,7 @@ import kotlin.math.abs
  *
  * Injected events go through the input dispatcher to SystemUI's Back detector like a finger's:
  * `a_straight_swipe_is_back_on_gesture_navigation` is the control, and the angled tests pass with the same detector
- * listening. The detector only listens while the bars are shown: those tests turn Fullscreen off.
+ * listening. C-103: the detector listens with the bars hidden too (Fullscreen), so the C-103 tests below run with them hidden.
  */
 @RunWith(AndroidJUnit4::class)
 class EdgeContentsTest {
@@ -622,14 +624,127 @@ class EdgeContentsTest {
 
     @Test fun the_app_takes_a_gesture_the_page_had_on_button_navigation() = run { h -> h.takenFromThePageMidGesture(this) }
 
-    /** Fullscreen (the bars hidden): the system has no Back gesture there, so the whole gesture reaches the app. */
+    /** Fullscreen (the bars hidden): the downward start passes the Back detector, so the whole gesture reaches the app. */
     @Test fun the_app_takes_a_gesture_the_page_had_on_gesture_navigation_with_the_bars_hidden() = run(nav = GESTURAL) { h -> h.takenFromThePageMidGesture(this) }
 
-    /** With the bars hidden (Fullscreen, the default) the system has no Back gesture, so a straight swipe reaches the page. */
-    @Test fun with_the_bars_hidden_a_straight_swipe_opens_it_on_gesture_navigation_too() = run(nav = GESTURAL) { h ->
-        h.touchesDuring { slowDrag(w / 2) }.takenFromThePage()
+    // ---- C-103: Fullscreen on gesture navigation keeps the system's Back on both edges ----
+
+    private fun ReaderHarness.barsVisible(): Boolean {
+        var v = false
+        sc.onActivity { v = ViewCompat.getRootWindowInsets(it.window.decorView)?.isVisible(WindowInsetsCompat.Type.statusBars()) ?: false }
+        return v
+    }
+    private suspend fun ReaderHarness.awaitBars(visible: Boolean) {
+        val until = SystemClock.uptimeMillis() + 3_000
+        while (barsVisible() != visible) { assertTrue("the bars ${if (visible) "shown" else "hidden"}", SystemClock.uptimeMillis() < until); delay(30) }
+    }
+
+    /** A straight pull in from an edge with the bars hidden: Back, before the page turns anything. */
+    private suspend fun ReaderHarness.straightPullIsBack(scope: CoroutineScope, fromX: Int, toX: Int) {
+        awaitBars(false)
+        midChapter()
+        val holds = holdsDuring(scope) {
+            val moved = relocatesDuring(scope) {
+                val backs = backsDuring {
+                    Finger(fromX).run { move(toX, steps = 24); delay(250); up() }
+                    withTimeout(5_000) { while (a.nav.top == Route.Reader) delay(20) }
+                }
+                assertEquals("one Back", 1, backs)
+            }
+            assertEquals("no page turn", emptyList<FromWeb.Relocate>(), moved)
+        }
+        assertEquals("the app never saw it as a gesture", emptyList<Float>(), holds)
+        assertFalse(tocOpen)
+    }
+
+    @Test fun with_the_bars_hidden_a_straight_pull_from_the_left_edge_is_back() = run(nav = GESTURAL) { h -> h.straightPullIsBack(this, 12, w / 2) }
+
+    @Test fun with_the_bars_hidden_a_straight_pull_from_the_right_edge_is_back() = run(nav = GESTURAL) { h -> h.straightPullIsBack(this, strip, w / 2) }
+
+    /**
+     * How many times the system's Back reached the activity during [block]: a callback ahead of the app's counts it and
+     * hands it on. (A rightward swipe on the open panel closes it too, by the app: this tells the two apart.)
+     */
+    private suspend fun ReaderHarness.backsDuring(block: suspend () -> Unit): Int {
+        var n = 0
+        var cb: androidx.activity.OnBackPressedCallback? = null
+        sc.onActivity { act ->
+            cb = object : androidx.activity.OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() { n++; isEnabled = false; act.onBackPressedDispatcher.onBackPressed(); isEnabled = true }
+            }.also { act.onBackPressedDispatcher.addCallback(it) }
+        }
+        try { block() } finally { sc.onActivity { cb?.remove() } }
+        return n
+    }
+
+    /** Back with Contents open closes it first, from either edge; the reader stays. */
+    @Test fun with_the_bars_hidden_back_closes_contents_first() = run(nav = GESTURAL) { h ->
+        h.awaitBars(false)
+        for (fromX in listOf(12, strip)) {
+            h.sc.onActivity { it.controller.showToc() }
+            h.awaitOpen()
+            // The panel's own swipe may see the first moves before the system takes the gesture (as with the bars shown):
+            // what closes it is the one Back.
+            val backs = h.backsDuring {
+                Finger(fromX).run { move(w / 2, steps = 24); delay(250); up() }
+                withTimeout(3_000) { while (h.tocOpen) delay(20) }
+            }
+            assertEquals("from $fromX: one Back", 1, backs)
+            awaitPanelGone()
+            assertEquals("still in the book", Route.Reader, h.a.nav.top)
+        }
+    }
+
+    @Test fun with_the_bars_hidden_an_angled_pull_from_the_right_still_opens_contents() = run(nav = GESTURAL) { h ->
+        h.awaitBars(false)
+        val start = h.midChapter()
+        h.touchesDuring {
+            val f = Finger(strip, hgt * 2 / 5)
+            f.move(w * 2 / 5, hgt * 4 / 5, steps = 30)
+            delay(250)
+            assertHeld(h)
+            f.up()
+        }.takenFromThePage()
         h.awaitOpen()
         assertEquals(Route.Reader, h.a.nav.top)
+        assertEquals(start, h.pos())
+    }
+
+    /** A swipe down from the top brings the bars back with the controls; they hide again together on a tap. */
+    @Test fun a_top_swipe_brings_the_bars_back_and_they_hide_again_with_the_controls() = run(nav = GESTURAL) { h ->
+        h.awaitBars(false)
+        val start = h.midChapter()
+        dev.swipe(w / 2, 1, w / 2, hgt / 3, 20)
+        h.awaitBars(true)
+        val until = SystemClock.uptimeMillis() + 3_000
+        while (!h.a.controller.state.value.chromeVisible) { assertTrue("the controls came with the bars", SystemClock.uptimeMillis() < until); delay(20) }
+        delay(500)
+        assertTrue("the bars stay", h.barsVisible())
+        assertEquals("no page turn", start, h.pos())
+        dev.click(w / 2, hgt / 2)
+        withTimeout(3_000) { while (h.a.controller.state.value.chromeVisible) delay(20) }
+        h.awaitBars(false)
+        assertEquals(start, h.pos())
+    }
+
+    /** The app reserves no edge from Back while reading: no view in the window asks for a gesture exclusion. */
+    @Test fun no_gesture_exclusion_while_reading() = run(nav = GESTURAL) { h ->
+        h.midChapter()
+        h.sc.onActivity { it.controller.showToc() }
+        h.awaitOpen()
+        h.sc.onActivity { it.controller.hideToc() }
+        awaitPanelGone()
+        var found = emptyList<String>()
+        h.sc.onActivity { a ->
+            val seen = mutableListOf<String>()
+            fun walk(v: android.view.View) {
+                if (v.systemGestureExclusionRects.isNotEmpty()) seen += "${v.javaClass.simpleName}: ${v.systemGestureExclusionRects}"
+                if (v is android.view.ViewGroup) for (i in 0 until v.childCount) walk(v.getChildAt(i))
+            }
+            walk(a.window.decorView)
+            found = seen
+        }
+        assertEquals(emptyList<String>(), found)
     }
 
     private companion object {
