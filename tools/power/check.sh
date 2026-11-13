@@ -56,16 +56,21 @@ source "$D/scenarios.sh"
 $A shell ls "$BOOK" >/dev/null 2>&1 || { echo "$BOOK is not on the device: run bench/push_corpus.sh" >&2; exit 3; }
 
 idle_now() { vmstat 5 7 | tail -6 | awk '{s+=$15} END {printf "%d", s/NR}'; }   # mean idle % over 30 s
-echo "== waiting for an idle host (>= 80 % CPU idle over 30 s, at most ${IDLE_WAIT:-600} s)"
-deadline=$(( $(date +%s) + ${IDLE_WAIT:-600} ))
+# Wait for an idle host, then for the device lock; when the lock was busy, check idle again (the other run may have
+# been the load). The lock is never held while waiting. IDLE_WAIT counts only time spent waiting for idle.
+LOCK=/tmp/epub-reader-device.lock
+echo "== waiting for an idle host (>= 80 % CPU idle over 30 s) and the device lock"
+waited=0
 while :; do
   idle=$(idle_now); echo "   host idle $idle %"
-  [ "$idle" -ge 80 ] && break
-  [ "$(date +%s)" -ge $deadline ] && { echo "RESULT: ENVIRONMENT INVALID (host busy: $idle % idle; a build or another device run?)"; exit 2; }
+  if [ "$idle" -lt 80 ]; then
+    waited=$((waited + 35))
+    [ $waited -ge "${IDLE_WAIT:-600}" ] && { echo "RESULT: ENVIRONMENT INVALID (host busy: $idle % idle for ${IDLE_WAIT:-600} s; a build or another device run?)"; exit 2; }
+    continue
+  fi
+  mkdir $LOCK 2>/dev/null && break
+  echo "   device lock held by: $(cat $LOCK/owner 2>/dev/null)"; sleep 30
 done
-
-LOCK=/tmp/epub-reader-device.lock
-until mkdir $LOCK 2>/dev/null; do echo "   device lock held by: $(cat $LOCK/owner 2>/dev/null)"; sleep 30; done
 echo "${OWNER:-power-check (C-114)} $(date '+%F %T')" > $LOCK/owner
 VMSTAT=
 cleanup() {
