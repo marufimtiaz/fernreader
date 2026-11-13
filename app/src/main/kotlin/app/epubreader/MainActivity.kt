@@ -182,6 +182,7 @@ class MainActivity : ComponentActivity() {
             screenBrightness = app.epubreader.reader.SystemBrightness(contentResolver), // C-109
             bookFile = { watch?.unchanged() ?: true },
             closeScope = graph.appScope, // onDestroy's close-out must not run on the already-cancelled lifecycleScope
+            background = graph.background, // C-113 (b): the stored screen-page counts
         )
         // F-060: our selection menu items act on the selection the controller last heard of.
         reader.selectionLabels = { a ->
@@ -592,6 +593,7 @@ class MainActivity : ComponentActivity() {
         androidx.core.content.ContextCompat.registerReceiver(this, powerSaveReceiver,
             android.content.IntentFilter(android.os.PowerManager.ACTION_POWER_SAVE_MODE_CHANGED), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
         readPowerSave()
+        reader.setForeground(true) // C-113 (a)
     }
 
     override fun onResume() {
@@ -625,6 +627,9 @@ class MainActivity : ComponentActivity() {
         barsReveal.away() // C-108 (h): the bars shown on the return are the system's, not the user's swipe
         controller.flushNote()
         controller.flushPosition() // C-108 (e): positions are otherwise written at most every 5 s
+        // C-113 (a): the reader page does no work in the background. After the flushes above, which use only what the
+        // controller already holds (the last position, the open note), never the page.
+        reader.setForeground(false)
         super.onStop()
     }
 

@@ -62,7 +62,26 @@ class ReaderEngine(private val context: Context, private val server: BookContent
         main.post { evaluate(js) }
     }
 
-    fun destroy() { view?.destroy(); view = null }
+    /** C-113 (a): true while the page is paused (the activity stopped). */
+    var paused = false
+        private set
+
+    /**
+     * C-113 (a): with the activity stopped the reader page does no work: [WebView.onPause] hides it and stops what
+     * the page itself runs, and [WebView.pauseTimers] stops its JS timers, layout and parsing (process-wide: this is
+     * the app's only WebView). Nothing is unloaded, so it resumes exactly where it was: same document, same page,
+     * and a page counter or turn left mid-way continues. Messages sent meanwhile ([send]) run on the return. Not yet
+     * created (before the pre-warm): nothing to pause. Main thread.
+     */
+    fun setForeground(foreground: Boolean) {
+        val w = view ?: return
+        if (foreground == !paused) return
+        paused = !foreground
+        if (foreground) { w.onResume(); w.resumeTimers() } else { w.onPause(); w.pauseTimers() }
+    }
+
+    /** pauseTimers is process-wide: a WebView created later (a new activity) must not start with them paused. */
+    fun destroy() { if (paused) view?.resumeTimers(); paused = false; view?.destroy(); view = null }
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun create(): ReaderWebView {
