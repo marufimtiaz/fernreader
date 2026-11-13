@@ -35,6 +35,8 @@ import app.epubreader.reader.bridge.WebAnnotation
 import app.epubreader.reader.bridge.WebTexts
 import app.epubreader.reader.search.ReaderSearch
 import app.epubreader.reader.search.SearchBookRef
+import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.EmptyCoroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
@@ -153,6 +155,11 @@ class ReaderController(
     val screenBrightness: app.epubreader.reader.display.ScreenBrightness = app.epubreader.reader.display.ScreenBrightness.Unknown,
     /** R-008 / C-108 (b): the open book's file, checked before a write that depends on it; null: not watched. */
     private val bookFile: BookFileCheck? = null,
+    /**
+     * C-113 (b): where work the reader is not waiting on runs (the stored screen-page counts, read and written); the app
+     * passes its background-priority threads. Empty: the calling coroutine's dispatcher.
+     */
+    private val background: CoroutineContext = EmptyCoroutineContext,
 ) {
     /**
      * [map] is the opened book's (M8: its ChunkMap when a huge document was split): every CFI, section index and text
@@ -487,7 +494,9 @@ class ReaderController(
         val bookId = s.bookId ?: return
         scope.launch {
             val stored = try {
-                library.cached(bookId, countsKind(s.map, key), s.cdDigest)?.let { runCatching { BridgeJson.decodeFromString(StoredCounts.serializer(), it) }.getOrNull() }
+                withContext(background) {
+                    library.cached(bookId, countsKind(s.map, key), s.cdDigest)?.let { runCatching { BridgeJson.decodeFromString(StoredCounts.serializer(), it) }.getOrNull() }
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -514,10 +523,10 @@ class ReaderController(
         val linear = s.countLinear ?: return
         val bookId = s.bookId ?: return
         if (!linear.all { it in s.countAcc }) return
-        val json = BridgeJson.encodeToString(StoredCounts.serializer(), StoredCounts(linear, linear.map { listOf(it, s.countAcc.getValue(it)) }))
+        val counts = StoredCounts(linear, linear.map { listOf(it, s.countAcc.getValue(it)) })
         val kind = countsKind(s.map, s.countKey ?: return)
-        closeScope.launch {
-            try { library.storeCache(bookId, kind, s.cdDigest, json) } catch (e: CancellationException) { throw e } catch (e: Exception) { failed("storing page counts", e, showIfOpen = false) }
+        closeScope.launch(background) {
+            try { library.storeCache(bookId, kind, s.cdDigest, BridgeJson.encodeToString(StoredCounts.serializer(), counts)) } catch (e: CancellationException) { throw e } catch (e: Exception) { failed("storing page counts", e, showIfOpen = false) }
         }
     }
 

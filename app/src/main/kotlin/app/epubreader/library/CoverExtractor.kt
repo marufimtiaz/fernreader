@@ -9,12 +9,12 @@ import app.epubreader.core.epub.openFileSource
 import app.epubreader.core.epub.pkg.LoadResult
 import app.epubreader.core.epub.pkg.PackageLoader
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
@@ -82,13 +82,12 @@ object ThumbFiles {
 }
 
 /**
- * Fills in missing covers after each scan, off the scan path (M0 S3), two at a time. Requests while it runs
+ * Fills in missing covers after each scan, off the scan path (M0 S3), two at a time on [work] (C-113 b: the app's
+ * background-priority threads; the user is not waiting on a cover). Requests while it runs
  * collapse into one more pass. A book with no usable cover is marked "" so it is not tried again.
  */
-@OptIn(ExperimentalCoroutinesApi::class)
-class CoverQueue(private val repo: LibraryRepository, private val extractor: CoverExtractor, scope: CoroutineScope) {
+class CoverQueue(private val repo: LibraryRepository, private val extractor: CoverExtractor, scope: CoroutineScope, private val work: CoroutineDispatcher) {
     private val requests = Channel<Unit>(Channel.CONFLATED)
-    private val work = Dispatchers.IO.limitedParallelism(2)
     private val paused = MutableStateFlow(false)
 
     /** While a book is open the queue waits: decoding covers must not compete with the reader (P-060, R-005). */
@@ -104,7 +103,7 @@ class CoverQueue(private val repo: LibraryRepository, private val extractor: Cov
                         try { repo.setCover(job.bookId, extractor.extract(job.bookId, job.path) ?: "") } catch (e: CoverExtractor.Retry) { Log.w("EPR", "cover later: ${job.path}") }
                     }
                 }
-                extractor.sweep(repo.coverPaths())
+                withContext(work) { extractor.sweep(repo.coverPaths()) }
             }.onFailure { Log.w("EPR", "cover queue: $it") }
         }
     }
