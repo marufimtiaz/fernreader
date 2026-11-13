@@ -14,6 +14,9 @@ import app.epubreader.reader.bridge.FromWeb
 import app.epubreader.reader.bridge.ToWeb
 import app.epubreader.reader.bridge.WebTexts
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.EmptyCoroutineContext
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
@@ -66,10 +69,16 @@ class ScreenPageCountTest {
     @AfterTest fun cancelScope() { scope.cancel(); appScope.cancel(); assertEquals(emptyList(), crashes) }
     private val ref = SourceRef.File("/books/a.epub")
 
-    private suspend fun controller() = ReaderController(
+    private suspend fun controller(background: CoroutineContext = EmptyCoroutineContext) = ReaderController(
         reader, opener, library, CompletableDeferred(PositionWriter.create(db, clock, appScope)), scope, WebTexts("missing"),
-        closeScope = appScope, settingsStore = MemSettings(),
+        closeScope = appScope, settingsStore = MemSettings(), background = background,
     )
+
+    /** Counts the work handed to it (the app's background-priority threads in the app). */
+    private class Recording(private val inner: CoroutineDispatcher) : CoroutineDispatcher() {
+        var dispatched = 0
+        override fun dispatch(context: CoroutineContext, block: Runnable) { dispatched++; inner.dispatch(context, block) }
+    }
     private val opened = FromWeb.Opened(sessionId = "s-1", identifier = "urn:x", title = "A", authors = emptyList(), dir = "ltr", fixedLayout = false, sections = 3, toc = emptyList(), sizes = listOf(3000, 0, 500))
     private val counts = listOf(listOf(0, 7), listOf(1, 1), listOf(2, 2))
 
@@ -140,5 +149,20 @@ class ScreenPageCountTest {
         c.close(); advanceUntilIdle(); reader.sent.clear()
         openPainted(c); ready(1)
         assertTrue(asked().isNotEmpty(), "nothing complete was stored for k1")
+    }
+
+    @Test fun stored_counts_are_read_and_written_on_the_background_context() = runTest(dispatcher) {
+        val bg = Recording(dispatcher)
+        val c = controller(bg)
+        openPainted(c); ready(1)
+        assertEquals(0, bg.dispatched, "Book pages shown: no count work at all")
+        c.updateSettings { it.copy(pageNumbers = PageNumbers.SCREEN_BOOK) }; advanceUntilIdle()
+        val afterRead = bg.dispatched
+        assertTrue(afterRead > 0, "the stored counts are looked up on the background context")
+        counted(1)
+        assertTrue(bg.dispatched > afterRead, "the finished counts are stored on the background context")
+        c.close(); advanceUntilIdle(); reader.sent.clear()
+        openPainted(c); ready(1)
+        assertEquals(emptyList(), asked()) // what the background store wrote is read back: no count
     }
 }

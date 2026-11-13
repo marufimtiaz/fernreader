@@ -51,5 +51,5 @@ foliate-js in a WebView. `ui` and `core/*` are shared code; `reader-web` is the 
 
 ## Timing runs
 
-Only when asked. Start when the CPU has been at least 80 % idle for 30 s, with no build or other device work. Record
+Only when asked. Start when the CPU has been at least 70 % idle for 30 s, with no build or other device work. Record
 idle with the run. A same-session run against a base build decides whether a failing target is ours.

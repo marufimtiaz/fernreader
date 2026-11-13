@@ -322,3 +322,59 @@ Per item:
   from the launcher (`InsetsAnimation: statusBars navigationBars`, 1.5 s, 85 `insets_animation` steps in `atrace`). It
   runs on the app's main thread, one redraw per step, because Compose registers WindowInsets animation callbacks, which
   C-103/C-104's bar tracking and the screens' insets padding need. It is a needed one-off per return and was left as it is.
+
+## After C-113
+
+C-113 on `v1.2-c113`, measured against its branch point `d0eb0e5` (v1.2-dev) in one session on the emulator
+(`Medium_Phone`, API 37, host GPU, 60 Hz only), the two builds one after the other. Host CPU idle before the runs:
+69–72 % (vmstat; two unrelated root processes held about one host core throughout). `tools/power/run.sh` with the
+always-run scenarios (a0–d); the base run also reached (e). CPU in ticks of 10 ms.
+
+| Scenario | Length | App CPU before → after | Renderer CPU before → after | Frames before → after |
+|----------|--------|-----------------------|-----------------------------|-----------------------|
+| a0 first open of Moby-Dick, untouched | 60 s | 0.91 → 0.95 s | 0.20 → 0.21 s | 89 → 89 |
+| **(a) still reader page** | 60 s | **0.00 → 0.00 s** | 0.00 → 0.00 s | 0 → 0 |
+| (b) 20 turns, one per 3 s | 67 s | 2.74 → 2.68 s | 0.96 → 0.96 s | 261 → 260 |
+| (c) library, first 60 s after Back | 60 s | 0.36 → 0.31 s | 0.00 → 0.00 s | 32 → 32 |
+| (c) library idle | 60 s | 0.00 → 0.01 s | 0.00 → 0.02 s | 0 → 0 |
+| **(d) background after reading (Home)** | 180 s | **0.10 → 0.07 s** | **0.10 → 0.03 s** | — |
+
+(d), app plus renderer: **0.20 s → 0.10 s**. The C-113 target (under 0.03 s) is **not met** on the emulator. Where the
+rest goes (C-113 build, per thread, `/proc/<pid>/task/*`, a book open, then Home): in the first 5 s, the app's main
+thread and `HeapTaskDaemon` one tick each and the renderer's `CrRendererMain` one tick; from 5 s to 180 s, the app's main
+thread and `RenderThread` one tick each, and in the renderer `ThreadPoolForeground` 2, `CrRendererMain`, `Compositor` and
+`Chrome_ChildIOThread` one each. No app thread (`DefaultDispatcher`, the background pool, `file-watch`) ran at all, and
+no JS timer runs (BackgroundPauseTest: a 100 ms page interval does not fire once in 3 s stopped). What is left is ART
+and Chromium housekeeping spread as single ticks until the system freezes the process; `WebView.onPause` and
+`pauseTimers` do not stop it, and the app has nothing more to pause. 0.03 s is 3 ticks, so the measurement is also at
+its resolution here.
+
+Per item:
+
+- (a) `ReaderEngine.setForeground`: `onStop` (after C-108's position and note flushes, which use only what the
+  controller holds) calls `WebView.onPause()` and `pauseTimers()`; `onStart` resumes both. Nothing is unloaded: the
+  page, its location and a count or turn left mid-way go on where they were. `pauseTimers` is process-wide, so
+  `destroy` resumes them for a later activity's WebView. BackgroundPauseTest: same location and page after the return.
+- (b) Kotlin: `BackgroundThreads` (each thread sets `THREAD_PRIORITY_BACKGROUND`, which also puts it in the background
+  scheduling group) runs library scans (the scanner's loaders), cover extraction and encoding (two at a time), the
+  search index build (its own single thread, as before) and the stored screen-page counts (read and written; Room's own
+  queries still run on its query dispatcher). Opening a book, turns, searches the user started, the Contents panel and
+  the book-pages/section-stats pass stay at normal priority. Idle pool threads end after 10 s.
+- (b) Web page counter: each step (one batch document, its self-check, one section counted alone) starts as a
+  background-priority renderer task (`scheduler.postTask(…, {priority: 'background'})`), so input, rendering and every
+  other task go first. Idle callbacks were tried first and dropped: while the counter's hidden frames load, this
+  WebView gives no idle periods. A War and Peace recount (measured over DevTools on the debug build, same page, same
+  session) took 35 s with idle callbacks (32 of 49 waits ran out the 1 s timeout), 3.0 s with background tasks and
+  2.9 s with no yielding at all. Older WebViews without `scheduler.postTask` fall back to idle callbacks with a 100 ms
+  timeout. Device runs: Moby-Dick self-check exact total 4.5 s, jlreq 6.8 s; PageCountAgreementTest and
+  PageIndicatorTest within their limits.
+
+Timing benches, same session, benchmark builds (`bench/run_all.sh`; the device panel closed for `start`):
+
+| Bench | Base `d0eb0e5` | C-113 |
+|-------|----------------|-------|
+| P-002 hot start, two alternating rounds of 3 | median 42 ms, 44 ms | median 36 ms, 44 ms |
+| P-015 tap → reader frame, 12 opens (4 books × 3) | median 30.5 ms (19–46) | median 33.5 ms (25–42) |
+
+P-010/P-011 (video) were above 1.5 s on both builds in this session (base 1583/1949 ms, C-113 1696/1863 ms medians): the
+emulator's slow WebView state, not this change; the open path is unchanged.
