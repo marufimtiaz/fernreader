@@ -30,7 +30,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import app.epubreader.core.data.PageAnimation
 import app.epubreader.core.data.SourceRef
 import app.epubreader.reader.display.ReadingTheme
 import app.epubreader.reader.search.SearchPanel
@@ -132,7 +131,7 @@ fun ReaderScreen(
         }
         // The panel is got ready ahead while the reader stands still with a book shown: what it would show is the key.
         val prepare = if (s.open && !s.loading && s.error == null) listOf(s.toc, s.currentTocHref, s.title, s.contentsTab) else null
-        ContentsSlide(s.tocVisible, c.contentsDrag, shown.pageAnimation != PageAnimation.NONE, c::dragContents, c::releaseContents, prepare, quiet = s.fraction) {
+        ContentsSlide(s.tocVisible, c.contentsDrag, c::dragContents, c::releaseContents, prepare, quiet = s.fraction) {
             ContentsPanel(
                 s.title, s.contentsTab, c::selectContentsTab, s.toc, s.currentTocHref, c::onTocSelected,
                 s.bookmarks, page, formatDate, c::onBookmarkSelected, c::removeBookmark, c::hideToc, probe,

@@ -1,6 +1,7 @@
 package app.epubreader.reader
 
 import android.os.ParcelFileDescriptor
+import android.os.PowerManager
 import android.os.SystemClock
 import android.view.InputDevice
 import android.view.MotionEvent
@@ -494,17 +495,62 @@ class EdgeContentsTest {
         awaitPanelGone()
     }
 
-    @Test fun with_animations_off_the_panel_just_appears_and_opens_on_release() = run(settings = { it.copy(pageAnimation = PageAnimation.NONE) }) { h ->
+    /**
+     * C-115: the page-turn animation, and Battery Saver's "no animation", are for page turns only. The panel follows the finger,
+     * opens past a third and slides back short of it, as with animations on.
+     */
+    private suspend fun ReaderHarness.followsTheFingerAndSlides() {
+        val start = midChapter()
         slowDrag(w / 2) {
-            assertNull("nothing follows the finger", h.held)
-            assertNull(panelLeft())
+            assertEquals("the panel's edge is under the finger", 0.5f, assertHeld(this), 0.05f)
+            val left = withTimeout(2_000) { var l = panelLeft(); while (l == null) { delay(30); l = panelLeft() }; l }
+            assertTrue("the panel is where the finger is: $left of $w", abs(left - w / 2) < w / 6)
         }
-        val seen = sampleLeft(300).filterNotNull()
-        assertTrue("it appears open: $seen", seen.isNotEmpty() && seen.all { it < w / 8 })
-        assertTrue(h.tocOpen)
-        h.sc.onActivity { it.controller.hideToc() }
-        delay(150)
-        assertNull(panelLeft())
+        awaitOpen()
+        val scale = shell("settings get global animator_duration_scale")
+        try {
+            shell("settings put global animator_duration_scale 10") // as button_close_and_back_slide: a slide long enough to see
+            delay(500)
+            sc.onActivity { it.controller.hideToc() }
+            val out = sampleLeft(3_300)
+            assertTrue("it slides out to the right: $out", out.inBetween())
+        } finally {
+            shell("settings put global animator_duration_scale ${scale.takeUnless { it == "null" } ?: "1"}")
+        }
+        closed()
+        slowDrag(w * 8 / 10) {
+            assertEquals(0.2f, assertHeld(this), 0.05f)
+            assertTrue("the panel is at the finger", panelLeft()?.let { abs(it - w * 8 / 10) < w / 6 } == true)
+        }
+        delay(400)
+        closed()
+        assertEquals(start, pos())
+    }
+
+    @Test fun with_page_animation_none_the_panel_still_follows_the_finger() = run(settings = { it.copy(pageAnimation = PageAnimation.NONE) }) { h ->
+        h.followsTheFingerAndSlides()
+    }
+
+    /** As FollowBatterySaverTest: the system keeps Battery Saver off while the phone charges, so the battery is unplugged. */
+    @Test fun under_battery_saver_the_panel_still_follows_the_finger() {
+        val pm = inst.targetContext.getSystemService(PowerManager::class.java)
+        fun powerSave(on: Boolean) {
+            shell("cmd power set-mode ${if (on) 1 else 0}")
+            val end = SystemClock.uptimeMillis() + 5_000
+            while (pm.isPowerSaveMode != on && SystemClock.uptimeMillis() < end) Thread.sleep(50)
+            assertEquals("the phone's power save mode", on, pm.isPowerSaveMode)
+        }
+        shell("dumpsys battery unplug")
+        try {
+            run { h ->
+                powerSave(true)
+                withTimeout(5_000) { while (h.a.controller.shownSettings.value.pageAnimation != PageAnimation.NONE) delay(50) }
+                h.followsTheFingerAndSlides()
+            }
+        } finally {
+            powerSave(false)
+            shell("dumpsys battery reset")
+        }
     }
 
     // ---- gesture navigation: what the Back detector does with injected events ----
