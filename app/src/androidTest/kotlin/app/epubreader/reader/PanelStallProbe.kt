@@ -16,6 +16,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import org.junit.Assume.assumeTrue
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
@@ -29,11 +31,15 @@ import java.io.File
  * (atrace/Perfetto) taken around it shows the app's sections (Contents:compose, Toc:tree, ...).
  *
  * Books: War and Peace (a long contents list, 380 entries) and Alice (12), from the pushed corpus.
+ *
+ * It checks nothing, so the suite skips it: run it with `-e probe 1`.
  */
 @RunWith(AndroidJUnit4::class)
 class PanelStallProbe {
     private val inst = InstrumentationRegistry.getInstrumentation()
     private val dev = UiDevice.getInstance(inst)
+
+    @Before fun onlyWhenAsked() = assumeTrue("a measurement: -e probe 1", InstrumentationRegistry.getArguments().getString("probe") == "1")
 
     private fun shell(cmd: String): String =
         ParcelFileDescriptor.AutoCloseInputStream(inst.uiAutomation.executeShellCommand(cmd)).use { it.readBytes().decodeToString() }.trim()
