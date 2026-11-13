@@ -378,3 +378,155 @@ Timing benches, same session, benchmark builds (`bench/run_all.sh`; the device p
 
 P-010/P-011 (video) were above 1.5 s on both builds in this session (base 1583/1949 ms, C-113 1696/1863 ms medians): the
 emulator's slow WebView state, not this change; the open path is unchanged.
+
+## Power check (C-114)
+
+A pre-release check that the battery work above stays done: `tools/power/check.sh` runs scenarios (a)–(d) on the
+emulator and compares them with `tools/power/limits.tsv`. The release checklist names it (section 1).
+
+```fish
+bash tools/power/check.sh                 # build, install, run once, compare: about 12 min
+bash tools/power/check.sh --no-build      # with the APKs already built
+bash tools/power/check.sh --runs 3        # gate on the median of 3 runs and print the spread
+```
+
+On the shared dev host build through the queue: `env GRADLE=$HOME/.cache/trackA/gw.sh bash tools/power/check.sh`.
+The script takes the device lock only for the device part (not while building) and releases it on any exit.
+
+### What it does
+
+1. Builds `:app:assemblePlayBenchmark :app:assemblePlayDebug` (unless `--no-build`).
+2. Checks the environment: an emulator, GPU mode `host` (`bench/emulator.sh check`), the corpus book on the device,
+   and an idle host (at least 80 % CPU idle over 30 s; it waits up to `IDLE_WAIT`, default 600 s).
+3. Takes the device lock, installs the benchmark build, `pm clear`, grants all-files access, waits for the first scan,
+   and opens Moby-Dick (`moby-dick-epub2-noimages.epub`) in the default settings.
+4. **Redraw probe**: three turns, then the median frame time from `dumpsys gfxinfo`. Above 80 ms the run stops at once
+   as *environment invalid* (below).
+5. Scenarios on the benchmark build (`tools/power/scenarios.sh`, shared with the energy run):
+   (a) still page 60 s; (b) 20 swipes 3 s apart; (c1) Back to the library, first 60 s (one scan); (c2) library idle
+   60 s; (d) reopen, 5 turns, Home, 180 s in the background.
+6. Disk writes: the debug build (installed over it, `pm clear`) opens the same book and repeats (b)'s 20 turns, reading
+   `write_bytes` from `/proc/<pid>/io` through `run-as` (a user build's shell cannot read another app's `io`).
+7. `tools/power/check.py` turns the snapshots into metrics, checks the environment and prints the table. Raw snapshots
+   stay in `tools/power/check-results/<time>/run<N>/` (ignored by git).
+
+Exit status: **0** pass; **1** a metric is over its limit (or missing); **2** environment invalid: no verdict, fix the
+environment and run again; **3** setup error (no APK, no corpus, not an emulator).
+
+### Metrics
+
+CPU is utime + stime from `/proc/<pid>/stat` (10 ms ticks): "app" is the `app.fernreader` process, which includes
+WebView's in-process GPU and render threads; "renderer" is WebView's sandboxed renderer process. Frames are
+`dumpsys gfxinfo` "Total frames rendered", reset at the start of each scenario. Wakeups are voluntary context switches
+per thread (`/proc/<pid>/task/*/status`): **app threads** are every thread of the app process except the runtime's,
+the framework's and WebView's (Chromium, `RenderThread`, binder, `HeapTaskDaemon`, ...; the list is
+`PLATFORM_THREAD` in `check.py`), so a new app thread (a kotlinx worker, `file-watch`, `search-index`, a C-113
+background thread) is counted without a change here. The main thread runs both app code and WebView/Choreographer
+work, so it has its own row.
+
+| Metric | What |
+|--------|------|
+| `a.app_cpu_s`, `a.renderer_cpu_s` | still page 60 s: CPU |
+| `a.frames` | still page 60 s: frames (C-108: 0) |
+| `a.app_thread_wakeups`, `a.main_thread_wakeups` | still page 60 s: wakeups |
+| `b.app_cpu_s_per_turn`, `b.renderer_cpu_s_per_turn`, `b.frames_per_turn` | 20 turns: per turn |
+| `b.disk_write_kb_per_turn` | 20 turns, debug build: bytes written to storage per turn |
+| `c1.app_cpu_s`, `c1.frames` | library, first 60 s after Back (includes the view-shown scan) |
+| `c2.*` | library idle 60 s: CPU, frames, wakeups |
+| `d.cpu_s` | 180 s in the background: app + renderer CPU (C-113 target 0.03 s); `d.app_cpu_s`, `d.renderer_cpu_s` report only |
+| `d.app_thread_wakeups` | 180 s in the background: app-thread wakeups |
+
+### Environment invalid
+
+The check reports *environment invalid* (exit 2) instead of a fail when the numbers would say nothing about the app:
+
+- **The slow-WebView state.** On this emulator (host GPU, Intel UHD with Mesa) an app process sometimes starts in a
+  state where every WebView draw (`WebViewFunctor::drawGl` on the RenderThread) takes about 115–270 ms instead of under
+  1 ms. It is all or nothing per app process, happens on base code too, and once stuck for a whole session (found in
+  v1.2-stall: Contents slides got about 3 frames and the EdgeContentsTest slide tests failed on base). In that state a
+  turn draws a few slow frames instead of about 12 fast ones, which changes frames, CPU and wakeups. The redraw probe
+  (step 4) catches it before the 10 minutes of scenarios; the median frame of (b)'s turns is checked again afterwards.
+  Normal turns here have a median frame of 16 ms. To confirm by hand: `adb shell atrace -t 5 gfx view` during a
+  turn and look at the app's RenderThread `drawGl` slices.
+- GPU mode not `host` (software rendering after a host reboot, `bench/emulator.sh`).
+- A busy host: mean CPU idle under 70 % while measuring (`vmstat` every 5 s; the emulator's own qemu counts too). For a
+  known steady outside load that is not the emulator's, lower the bars: `START_IDLE` (to start, default 80) and
+  `RUN_IDLE` (while measuring, default 70). The value used is kept in the run's `env` file.
+- The app process changed during (a)–(d) (a crash or a kill: look at logcat).
+
+### Limits and how to update them
+
+`tools/power/limits.tsv`: one row per metric with `limit`, and the headroom rule `mult`/`add`. A limit of `-` means
+report only. The limits were set from 3 runs of v1.2-dev 7a4270f (C-113 merged) as (max over the runs) × mult + add, rounded up
+(seconds to 0.01, KB and frames per turn to 0.1).
+
+- **Tighten** after a change that lowers a number (C-113 lowers `d.cpu_s`): on the release candidate, run
+  `bash tools/power/check.sh --runs 3 --write-limits`. It applies the same rule to the new runs and only lowers limits;
+  commit `limits.tsv` with the run's table in the message.
+- **Loosen** only for a change that needs the cost (say which spec item): `--write-limits --loosen`, or edit the row.
+- **Headroom**: change `mult`/`add` in the row if a metric proves noisier than the noise below.
+
+### Noise (v1.2-dev 7a4270f (C-113 merged), 3 runs)
+
+Three runs of `bash tools/power/check.sh --runs 3 --write-limits` on the merged build (C-113 in), one after the other on
+the emulator (`Medium_Phone`, API 37, host GPU). An outside job held two of the host's eight cores throughout, so
+the host was 62–64 % idle while measuring (run with `START_IDLE=65 RUN_IDLE=55`). Redraw probe and (b) turns: median frame 16 ms
+in every run. A fourth run (same build, earlier) is in brackets where it widens the range.
+
+| Metric | Runs (min–max) | Limit | Stability |
+|--------|----------------|-------|-----------|
+| `a.app_cpu_s` | 0.02–0.03 (0.06) s | 0.09 | ±1–3 ticks: at the 10 ms resolution |
+| `a.renderer_cpu_s` | 0.01–0.03 s | 0.08 | ±2 ticks |
+| `a.frames`, `c2.frames` | 0 | 0 | exact |
+| `a.app_thread_wakeups` | 4–5 | 18 | stable: kotlinx idle workers only (`DefaultDispatcher`) |
+| `a.main_thread_wakeups` | 68–75 | 100 | ±5 %; a 1 Hz main-thread timer (+60) fails it |
+| `b.app_cpu_s_per_turn` | 0.120–0.122 s | 0.18 | ±1 % |
+| `b.renderer_cpu_s_per_turn` | 0.042 s | 0.08 | ±0 |
+| `b.frames_per_turn` | 12.6–12.9 | 16.5 | ±1 % |
+| `b.disk_write_kb_per_turn` | 12–14 KB | 17 | ±10 %. At one turn per 3 s, C-108's 5 s batching saves little here (16 KB per turn before it), so this row catches larger write regressions only |
+| `c1.app_cpu_s` | 0.36–0.37 s | 0.59 | ±2 % |
+| `c1.frames` | 32 | 43 | exact |
+| `c2.app_cpu_s`, `c2.renderer_cpu_s` | 0–0.01 s | 0.05, 0.04 | at the resolution |
+| `c2.app_thread_wakeups` | 4–5 | 18 | stable |
+| `c2.main_thread_wakeups` | 39–40 (43) | 58 | ±5 % |
+| `d.cpu_s` | 0.08–0.11 s | 0.16 | ±1.5 ticks; the C-113 base (0.20 s) fails it |
+| `d.app_thread_wakeups` | 12–14 | 41 | stable: `DefaultDispatcher` 10–12, `FileObserver` 1, `file-watch` 1 |
+
+The most stable rows are the busy ones (turns, the scan, frames): they vary by about 1–2 %. The idle CPU rows
+are a few 10 ms ticks, so their noise is the tick itself, and their limits leave a few ticks of headroom rather than a
+percentage. Before C-108 they were 0.2–0.3 s, so a ticker coming back still fails them. Wakeup counts vary by about
+5–15 %. One check run takes about 12 minutes on the device (setup, 15 s settle, probe, a 60 s, b 67 s, c 120 s,
+reopen, d 180 s, then the debug build's install and 20 turns), plus the build and any wait for the host or the lock.
+
+### Energy run on a phone (optional, not gated)
+
+`tools/power/energy.sh` runs the same scenarios on a real phone while Perfetto records the phone's power rails
+(per-component energy counters: display, CPU clusters, GPU, memory, ... on Pixel 6 and later and some other phones)
+and the battery counters, then prints the energy per rail and scenario. It reports only; the emulator check gates.
+It uses Perfetto's `android.power` data source rather than androidx.benchmark's `PowerMetric` (which reads the same
+rails) because the project has no Macrobenchmark module. Measure over wireless adb: over USB the phone charges.
+
+Once per computer, a Python with the `perfetto` package (it downloads `trace_processor` on first use):
+
+```fish
+python3 -m venv ~/.venvs/perfetto
+~/.venvs/perfetto/bin/pip install perfetto
+```
+
+Each run (fish), from the repo root with the corpus present. Unplug the phone, and keep brightness fixed so the display
+rail compares between runs:
+
+```fish
+tools/phone.sh connect 192.168.1.20:41234          # the address under Wireless debugging; tools/phone.sh pair first
+adb devices                                         # the phone's serial is that address
+adb shell settings put system screen_brightness_mode 0
+adb shell settings put system screen_brightness 128
+env ANDROID_SERIAL=192.168.1.20:41234 PY=$HOME/.venvs/perfetto/bin/python bash tools/power/energy.sh
+adb shell settings put system screen_brightness_mode 1
+```
+
+It installs the benchmark build (`app.fernreader`, debug-signed). If a FernReader signed with another key is on the
+phone, the install fails: uninstall it first (`adb uninstall app.fernreader`; its library data goes with it).
+The app's data is kept unless `CLEAR=1`. The book is pushed to `/sdcard/Download/fern-power/`. The trace and the
+scenario windows stay in `tools/power/energy-results/<time>/`; open the trace at https://ui.perfetto.dev to see the
+rails over time. A phone without power rails gets the battery counters only (and a warning at the start).

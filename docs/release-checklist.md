@@ -15,6 +15,13 @@ judgement or a real phone. Spec references are clarification ids in the spec rep
       outputs into the milestone note.
 - [ ] Release-only checks green (M9 part B): P-014, P-023, P-044, P-061, P-062 in the release runs; P-063 scroll and
       the corpus-wide page-count check (`CorpusPageCountTest`) recorded.
+- [ ] **Power check green** on the release candidate commit (C-114): `bash tools/power/check.sh` on the emulator, quiet
+      host, device lock free (`docs/power-audit.md` → "Power check"). Exit 0 = pass; 1 = a number is over its limit
+      (find the cause before release, or loosen that limit with the spec item that needs it); 2 = environment invalid
+      (slow-WebView state, software GPU, busy host): fix it and run again. Paste the table into the milestone note.
+      If a release lowered a number, tighten: `--runs 3 --write-limits` and commit `tools/power/limits.tsv`.
+- [ ] Optional (user): the energy run on a phone with power rails (`tools/power/energy.sh`, same doc → "Energy run on
+      a phone"); it reports, it does not gate.
 - [ ] The exact page total ships (C-022), not only "≈ N".
 - [ ] Baseline Profile: only if P-001/P-002 fail on a quiet host after a same-session A/B (C-039). Record the decision.
 
