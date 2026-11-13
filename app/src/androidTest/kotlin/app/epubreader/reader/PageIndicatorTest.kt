@@ -3,22 +3,71 @@ package app.epubreader.reader
 import android.util.Log
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.uiautomator.By
+import androidx.test.uiautomator.UiDevice
+import androidx.test.uiautomator.Until
 import app.epubreader.MainActivity
+import app.epubreader.core.data.Flow
 import app.epubreader.core.data.ReaderSettings
+import app.epubreader.ui.Copy
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.util.regex.Pattern
 import kotlin.math.abs
 
-/** F-034 / C-016 / C-017: after a text-size change, "page N", then "page N of ≈ M" (within 5 %), then the exact total. */
+/**
+ * F-034 / C-016 / C-017: after a text-size change, "page N", then "page N of ≈ M" (within 5 %), then the exact total.
+ * C-112: the page shows no page number while the controls are hidden; the controls' bottom bar does.
+ */
 @RunWith(AndroidJUnit4::class)
 class PageIndicatorTest {
+    private val dev = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+
+    /** Anything on screen that reads as the page indicator: its spoken "Page …" or its short text. */
+    private fun pageNumbersOnScreen(short: String): List<String> {
+        InstrumentationRegistry.getInstrumentation().uiAutomation.clearCache()
+        return (dev.findObjects(By.desc(Pattern.compile("^Page .*"))).map { "desc ${it.contentDescription}" } +
+            dev.findObjects(By.text(short)).map { "text ${it.text}" })
+    }
+
+    /** C-112: in Pages and in Scroll, no page number on the page with the controls hidden; the controls show it. */
+    @Test fun page_number_only_in_the_controls(): Unit = runBlocking {
+        val wp = warAndPeace()
+        ActivityScenario.launch(MainActivity::class.java).use { sc ->
+            val h = ReaderHarness(sc, this)
+            try {
+                h.ready(); h.open(wp)
+                h.tocJump("BOOK ONE: 1805")
+                for (flow in listOf(Flow.PAGED, Flow.SCROLLED)) {
+                    h.change { it.copy(flow = flow) }
+                    h.a.settingsStored()
+                    h.quiet()
+                    assertEquals("$flow: controls hidden", false, h.a.controller.state.value.chromeVisible)
+                    val short = withTimeout(15_000) { h.a.controller.shownPage.first { Copy.pageLabelShort(it) != null } }.let { Copy.pageLabelShort(it)!! }
+                    delay(500) // a line drawn with the page would be on screen by now
+                    assertEquals("$flow: no page number on the page ($short)", emptyList<String>(), pageNumbersOnScreen(short))
+                    sc.onActivity { it.controller.toggleChrome() }
+                    val now = Copy.pageLabelShort(h.a.controller.shownPage.value)!!
+                    assertNotNull("$flow: the controls show the page number $now", dev.wait(Until.findObject(By.text(now)), 5_000))
+                    val spoken = Copy.pageLabel(h.a.controller.shownPage.value)!!
+                    assertTrue("$flow: and say it ($spoken)", dev.hasObject(By.descContains(spoken)))
+                    sc.onActivity { it.controller.toggleChrome() }
+                    assertTrue("$flow: controls hidden again", dev.wait(Until.gone(By.text(now)), 5_000))
+                }
+            } finally { h.change { ReaderSettings() }; h.a.settingsStored(); h.stop() }
+        }
+    }
+
     @Test fun font_change_shows_page_then_estimate_then_exact(): Unit = runBlocking {
         val wp = warAndPeace()
         ActivityScenario.launch(MainActivity::class.java).use { sc ->

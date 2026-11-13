@@ -10,8 +10,6 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.uiautomator.By
-import androidx.test.uiautomator.StaleObjectException
 import androidx.test.uiautomator.UiDevice
 import app.epubreader.MainActivity
 import app.epubreader.core.data.Flow
@@ -27,13 +25,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
-import java.util.regex.Pattern
 import kotlin.math.abs
 
 /**
- * C-111: in the fullscreen reader the system bars showing or hiding moves nothing: the page-number line and the first and
- * last text lines keep their places on screen, the bars draw over a band the page keeps free (their size whether shown or
- * not), and no text shows under the bars or below the page-number line. On gesture and on button navigation (set before the
+ * C-111: in the fullscreen reader the system bars showing or hiding moves nothing: the page's edges and the first and last
+ * text lines keep their places on screen, the bars draw over a band the page keeps free (their size whether shown or not),
+ * and no text shows under the bars. C-112: there is no page-number line; the page (paged flow's text area included) runs
+ * down to that fixed bottom inset. On gesture and on button navigation (set before the
  * activity starts and put back afterwards, as in EdgeContentsTest), with the bars brought in by a top swipe (C-104) and
  * while Contents is being pulled in from the right edge (the owner's case: the bars appear during the swipe; the test brings
  * them in there as the system does, since the emulator's system doesn't on its own).
@@ -123,40 +121,50 @@ class FullscreenBarsTest {
         while (barsVisible() != visible) { assertTrue("the bars ${if (visible) "shown" else "hidden"}", SystemClock.uptimeMillis() < until); delay(30) }
     }
 
-    /** Where things are on screen (px): the page-number line, the first and last text lines on the page, and the bars when shown. */
-    private data class Layout(val labelTop: Int, val labelBottom: Int, val stripBottom: Int, val textTop: Int, val textBottom: Int, val lines: Int, val barsTop: Int, val barsBottom: Int)
+    /**
+     * Where things are on screen (px): the page (the WebView) and paged flow's text area in it, the first and last text lines
+     * on the page, the bars when shown, and the fixed bottom inset (the navigation bar's size whether shown or not, C-111).
+     */
+    private data class Layout(
+        val pageTop: Int, val pageBottom: Int, val areaBottom: Int, val textTop: Int, val textBottom: Int, val lines: Int,
+        val barsTop: Int, val barsBottom: Int, val fixedBottom: Int,
+    )
 
     private suspend fun ReaderHarness.layout(): Layout {
-        var label: android.graphics.Rect? = null
-        val until = SystemClock.uptimeMillis() + 5_000
-        while (label == null && SystemClock.uptimeMillis() < until) {
-            inst.uiAutomation.clearCache()
-            label = try { dev.findObject(By.desc(Pattern.compile("^Page .*")))?.visibleBounds } catch (_: StaleObjectException) { null }
-            if (label == null) delay(100)
+        val web = IntArray(2); var webHeight = 0; var rootBottom = 0
+        sc.onActivity { a ->
+            a.reader.webView.getLocationOnScreen(web); webHeight = a.reader.webView.height
+            val root = IntArray(2).also(a.window.decorView::getLocationOnScreen)
+            rootBottom = root[1] + a.window.decorView.height
         }
-        assertNotNull("the page-number line is on screen", label)
-        var webTop = 0
-        sc.onActivity { a -> IntArray(2).also(a.reader.webView::getLocationOnScreen).let { webTop = it[1] } }
         val t = JSONObject(JSONTokener(sc.js(TEXT_EXTENT)).nextValue() as String)
         val dpr = t.getDouble("dpr")
-        val bars = insets()!!.getInsets(WindowInsetsCompat.Type.systemBars())
-        // The line is centred on its 32 dp strip of page colour (F-034), under which scrolling text passes.
-        val stripBottom = (label!!.top + label.bottom) / 2 + Math.round(16 * inst.targetContext.resources.displayMetrics.density)
+        fun px(css: Double) = web[1] + Math.round(css * dpr).toInt()
+        val i = insets()!!
+        val bars = i.getInsets(WindowInsetsCompat.Type.systemBars())
+        val fixed = i.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
         return Layout(
-            label.top, label.bottom, stripBottom, webTop + Math.round(t.getDouble("top") * dpr).toInt(), webTop + Math.round(t.getDouble("bottom") * dpr).toInt(),
-            t.getInt("n"), bars.top, hgt - bars.bottom,
+            web[1], web[1] + webHeight, px(t.getDouble("area")), px(t.getDouble("top")), px(t.getDouble("bottom")),
+            t.getInt("n"), bars.top, hgt - bars.bottom, rootBottom - fixed.bottom,
         )
     }
 
-    /** With the bars shown after [hidden] was taken: nothing moved, and no text under the bars or below the page-number line. */
+    /**
+     * With the bars shown after [hidden] was taken: nothing moved, the page reaches down to the fixed bottom inset and no
+     * further (C-112: no band is kept for a page-number line), and no text under the bars.
+     */
     private fun assertSame(how: String, hidden: Layout, shown: Layout, paged: Boolean = true) {
         val msg = "$how\nhidden $hidden\nshown  $shown"
         assertTrue("text on the page: $msg", hidden.lines > 0 && shown.lines > 0)
         assertTrue("the bars were shown: $msg", shown.barsTop > 0 && shown.barsBottom < hgt)
-        assertEquals("the page-number line's top: $msg", hidden.labelTop, shown.labelTop)
-        assertEquals("the page-number line's bottom: $msg", hidden.labelBottom, shown.labelBottom)
-        // Paged: the text ends above the line; Scroll: it passes under the line's strip and never shows below it.
-        for (l in listOf(hidden, shown)) assertTrue("no text below the page-number line: $msg", l.textBottom <= if (paged) l.labelTop else l.stripBottom)
+        assertEquals("the page's top: $msg", hidden.pageTop, shown.pageTop)
+        assertEquals("the page's bottom: $msg", hidden.pageBottom, shown.pageBottom)
+        for (l in listOf(hidden, shown)) {
+            assertEquals("the page ends at the fixed bottom inset: $msg", l.fixedBottom, l.pageBottom)
+            assertTrue("no text below the page: $msg", l.textBottom <= l.pageBottom)
+            // Paged flow's text area (foliate's paged container) takes the room the line had: down to the page's end.
+            if (paged) assertTrue("the text area runs down to the fixed bottom inset: $msg", abs(l.areaBottom - l.pageBottom) <= 1)
+        }
         assertTrue("no text under the navigation bar: $msg", shown.textBottom <= shown.barsBottom)
         if (!paged) return
         assertTrue("the first text line kept its place: $msg", abs(hidden.textTop - shown.textTop) <= 1)
@@ -184,7 +192,7 @@ class FullscreenBarsTest {
             if (angled) f.move(w * 2 / 5, hgt * 4 / 5, steps = 30) else f.move(w / 2, hgt * 2 / 5, steps = 30) // angled: as EdgeContentsTest
             delay(250)
             assertNotNull("a finger holds the Contents panel", h.a.controller.contentsDrag.value)
-            f.move(w * 4 / 5, f.y, steps = 12) // the panel follows the finger back, leaving the page-number line in view
+            f.move(w * 4 / 5, f.y, steps = 12) // the panel follows the finger back, leaving most of the page in view
             delay(250)
             assertNotNull("a finger still holds the panel", h.a.controller.contentsDrag.value)
             h.sc.onActivity { a -> WindowCompat.getInsetsController(a.window, a.window.decorView).show(WindowInsetsCompat.Type.systemBars()) }
@@ -202,15 +210,18 @@ class FullscreenBarsTest {
 
     @Test fun button_navigation_the_contents_swipe_moves_nothing() = run(THREE_BUTTON) { contentsSwipe(it, angled = false) }
 
-    /** Scroll: text passes under the page-number line's strip but never shows below it (C-099 keeps the top as it is). */
-    @Test fun scroll_on_gesture_navigation_no_text_below_the_page_number_line() = run(GESTURAL, Flow.SCROLLED) { topSwipe(it, Flow.SCROLLED) }
+    /** Scroll: the text runs down to the fixed bottom inset and never under the bar (C-099 keeps the top as it is). */
+    @Test fun scroll_on_gesture_navigation_no_text_under_the_bar() = run(GESTURAL, Flow.SCROLLED) { topSwipe(it, Flow.SCROLLED) }
 
     private companion object {
         const val GESTURAL = "gestural"
         const val THREE_BUTTON = "threebutton"
         /** The bars' insets animation (about 300 ms) and the page's answer to any resize have ended. */
         const val SETTLE_MS = 800L
-        /** The extent (host CSS px, clipped to the viewport) of the text lines on screen in the loaded sections, with their count. */
+        /**
+         * The extent (host CSS px, clipped to the viewport) of the text lines on screen in the loaded sections, with their
+         * count, and the bottom of foliate's paged container (the text area in paged flow).
+         */
         val TEXT_EXTENT = """(() => {
           const r = document.querySelector('foliate-view')?.renderer
           let top = Infinity, bottom = -Infinity, n = 0
@@ -229,7 +240,7 @@ class FullscreenBarsTest {
               }
             }
           }
-          return JSON.stringify({ top, bottom, n, dpr: devicePixelRatio })
+          return JSON.stringify({ top, bottom, n, area: r?.containerRect?.bottom ?? -1, dpr: devicePixelRatio })
         })()"""
     }
 }
