@@ -16,7 +16,9 @@
 # Exit: 0 pass, 1 a metric over its limit (or missing), 2 environment invalid (slow-WebView state, software GPU,
 # busy host, the app restarted): no verdict, fix the environment and run again; 3 setup error.
 # Env: GRADLE (default "./gradlew -Dorg.gradle.jvmargs=-Xmx2g"; on the shared dev host use ~/.cache/trackA/gw.sh),
-#      ADB, ANDROID_SERIAL (default emulator-5554), IDLE_WAIT (s to wait for an idle host, default 600), OWNER.
+#      ADB, ANDROID_SERIAL (default emulator-5554), IDLE_WAIT (s to wait for an idle host, default 600), OWNER,
+#      START_IDLE (host idle % to start, default 80) and RUN_IDLE (mean idle % while measuring, default 70): lower
+#      them only for a known steady load that is not the emulator's (the value is kept in the run's env file).
 # Takes /tmp/epub-reader-device.lock for the device part only (not while building) and releases it on any exit.
 set -u
 D=$(cd "$(dirname "$0")" && pwd)
@@ -59,11 +61,12 @@ idle_now() { vmstat 5 7 | tail -6 | awk '{s+=$15} END {printf "%d", s/NR}'; }   
 # Wait for an idle host, then for the device lock; when the lock was busy, check idle again (the other run may have
 # been the load). The lock is never held while waiting. IDLE_WAIT counts only time spent waiting for idle.
 LOCK=/tmp/epub-reader-device.lock
-echo "== waiting for an idle host (>= 80 % CPU idle over 30 s) and the device lock"
+START_IDLE=${START_IDLE:-80}
+echo "== waiting for an idle host (>= $START_IDLE % CPU idle over 30 s) and the device lock"
 waited=0
 while :; do
   idle=$(idle_now); echo "   host idle $idle %"
-  if [ "$idle" -lt 80 ]; then
+  if [ "$idle" -lt "$START_IDLE" ]; then
     waited=$((waited + 35))
     [ $waited -ge "${IDLE_WAIT:-600}" ] && { echo "RESULT: ENVIRONMENT INVALID (host busy: $idle % idle for ${IDLE_WAIT:-600} s; a build or another device run?)"; exit 2; }
     continue
@@ -124,6 +127,7 @@ for i in $(seq "$RUNS"); do
   RUN=$OUTDIR/run$i; mkdir -p "$RUN"; RUNDIRS+=("$RUN"); FIRST_PID=; IO=
   echo "== run $i/$RUNS -> $RUN"
   echo "gpu_mode ${GPU:-?}" > "$RUN/env"
+  [ -n "${RUN_IDLE:-}" ] && echo "min_idle_pct $RUN_IDLE" >> "$RUN/env"
   app_setup "$BENCH_APK" || exit 3
   vmstat 5 > "$RUN/vmstat" & VMSTAT=$!       # host idle while measuring (installs excluded)
   $A shell dumpsys battery unplug

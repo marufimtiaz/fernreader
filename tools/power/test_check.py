@@ -99,6 +99,11 @@ class Environment(unittest.TestCase):
         p = check.env_problems({"gpu_mode": "lavapipe", "host_idle_pct": "40", "pid_changed": "1"})
         self.assertEqual(len(p), 4, p)
 
+    def test_run_idle_threshold_can_be_lowered_and_is_recorded(self):
+        env = {"gpu_mode": "host", "probe_p50_ms": "14", "host_idle_pct": "62"}
+        self.assertEqual(len(check.env_problems(env)), 1)
+        self.assertEqual(check.env_problems(dict(env, min_idle_pct="60")), [])
+
     def test_aborted_run_reason_is_reported(self):
         p = check.env_problems({"gpu_mode": "host", "probe_p50_ms": "10", "host_idle_pct": "90", "abort": "no_painted"})
         self.assertTrue(any("no_painted" in x for x in p), p)

@@ -144,8 +144,9 @@ def env_problems(env):
     for key, what in (("probe_p50_ms", "redraw probe"), ("b_p50_ms", "turns in b")):
         if key in env and float(env[key]) > SLOW_FRAME_MS:
             probs.append(f"slow WebView state: median frame {env[key]} ms in the {what} (> {SLOW_FRAME_MS} ms)")
-    if float(env.get("host_idle_pct", 0)) < MIN_HOST_IDLE:
-        probs.append(f"host busy: mean CPU idle {env.get('host_idle_pct', '?')} % (< {MIN_HOST_IDLE} %)")
+    min_idle = float(env.get("min_idle_pct", MIN_HOST_IDLE))
+    if float(env.get("host_idle_pct", 0)) < min_idle:
+        probs.append(f"host busy: mean CPU idle {env.get('host_idle_pct', '?')} % (< {min_idle:g} %)")
     if env.get("pid_changed", "0") != "0":
         probs.append("the app process restarted during the scenarios (crash or kill: look at logcat)")
     return probs
