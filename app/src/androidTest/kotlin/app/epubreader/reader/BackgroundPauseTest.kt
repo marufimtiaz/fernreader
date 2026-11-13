@@ -74,7 +74,8 @@ class BackgroundPauseTest {
 
     /** (b): the background dispatcher's threads, and a library scan's loaders on them, run at background priority. */
     @Test fun scans_and_background_work_run_at_background_priority(): Unit = runBlocking {
-        inst.uiAutomation.executeShellCommand("appops set ${ctx.packageName} MANAGE_EXTERNAL_STORAGE allow").close()
+        // All-files access; reading the output to its end waits until the command has run.
+        android.os.ParcelFileDescriptor.AutoCloseInputStream(inst.uiAutomation.executeShellCommand("appops set ${ctx.packageName} MANAGE_EXTERNAL_STORAGE allow")).use { it.readBytes() }
         assertEquals(Process.THREAD_PRIORITY_BACKGROUND, withContext(graph.background) { Process.getThreadPriority(Process.myTid()) })
         val dir = File(Environment.getExternalStorageDirectory(), "Download/r-priority")
         try {
@@ -87,8 +88,7 @@ class BackgroundPauseTest {
             assertEquals("scan threads: $seen", setOf(Process.THREAD_PRIORITY_BACKGROUND), seen.values.toSet())
             assertTrue(seen.keys.containsAll(listOf(ScanEvent.Started::class.simpleName, ScanEvent.Complete::class.simpleName)))
         } finally {
-            dir.deleteRecursively()
-            graph.scanner.scan(ScanScope.Folder(dir.path)) // prune its rows
+            if (dir.exists()) { dir.deleteRecursively(); graph.scanner.scan(ScanScope.Folder(dir.parent!!)) } // prune its rows
         }
     }
 }
