@@ -1534,12 +1534,30 @@ class ReaderControllerTest {
         assertNull(c.contentsDrag.value)
     }
 
-    @Test fun with_page_animation_off_the_gesture_only_opens_on_release() = runTest(dispatcher) {
+    /** C-115: the page-turn animation is for page turns only; the panel follows the finger whatever it is. */
+    @Test fun with_page_animation_none_the_panel_still_follows_the_finger() = runTest(dispatcher) {
         val c = controller(); openBook(c)
         c.updateSettings { it.copy(pageAnimation = PageAnimation.NONE) }; advanceUntilIdle()
-        c.dragContents(0.1f); c.dragContents(0.5f)
-        assertNull(c.contentsDrag.value)
+        c.dragContents(0.1f); assertEquals(0.1f, c.contentsDrag.value)
+        c.dragContents(0.5f); assertEquals(0.5f, c.contentsDrag.value)
         c.releaseEdge(open = true)
+        assertTrue(c.state.value.tocVisible)
+        assertNull(c.contentsDrag.value)
+        c.dragContents(0.7f); assertEquals(0.7f, c.contentsDrag.value, "a swipe on the panel holds it too")
+        c.releaseContents(close = true)
+        assertFalse(c.state.value.tocVisible)
+    }
+
+    /** C-115: Battery Saver's "no animation" is for page turns only; the panel follows the finger. */
+    @Test fun under_battery_saver_the_panel_still_follows_the_finger() = runTest(dispatcher) {
+        val c = controller(); openBook(c)
+        c.setPowerSave(true); advanceUntilIdle()
+        assertEquals(PageAnimation.NONE, c.shownSettings.value.pageAnimation, "page turns lose their animation")
+        c.dragContents(0.2f); assertEquals(0.2f, c.contentsDrag.value)
+        c.releaseEdge(open = false)
+        assertFalse(c.state.value.tocVisible)
+        assertNull(c.contentsDrag.value)
+        edge(c, 0.1f, 0.5f, open = true)
         assertTrue(c.state.value.tocVisible)
     }
 

@@ -100,7 +100,7 @@ fun panelSwipeCloses(travelDp: Float, widthDp: Float, speedDpPerMs: Float): Bool
  * C-102: the gesture from the right edge (always the right one, also in right-to-left books) that opens the Contents panel,
  * for the page's parent, above the reader's WebView: recognised by the app as the library's drawer is ([edgeSwipe]), so the
  * page gets every touch until the sideways part starts and a cancel then, and turns nothing. The panel follows the finger
- * (not with page animation off: it opens on release) and opens past a third of the width or with a flick. [active]: the
+ * (C-115: whatever the page-turn animation and Battery Saver) and opens past a third of the width or with a flick. [active]: the
  * reader is the screen shown.
  */
 fun Modifier.contentsEdgeSwipe(c: ReaderController, active: () -> Boolean): Modifier = edgeSwipe(
@@ -161,7 +161,7 @@ private const val SLOT = "contents"
  * C-097: the Contents panel's way on and off the screen, from and to the right. [open] is where it is going, [drag] where a
  * finger holds it (0..1, null when none does): the edge gesture ([contentsEdgeSwipe]) or, through [onDrag] and [onRelease], a rightward
  * swipe on the panel. The position changes the layer only, so nothing recomposes while it moves. It stays composed until
- * it has left. With [animated] false it just appears and goes.
+ * it has left. C-115: it always slides, whatever the page-turn animation and Battery Saver (those are for page turns only).
  *
  * C-100: a finger takes hold through a [FingerHold], so the panel comes from where it was and never jumps to the finger.
  * Nothing is done at a touch-down in the strip (C-100b: composing the panel there put that work on the main thread while
@@ -177,14 +177,13 @@ private const val SLOT = "contents"
  */
 @Composable
 fun ContentsSlide(
-    open: Boolean, drag: StateFlow<Float?>, animated: Boolean,
+    open: Boolean, drag: StateFlow<Float?>,
     onDrag: (Float) -> Unit, onRelease: (close: Boolean) -> Unit,
     prepare: Any? = null, quiet: Any? = null,
     content: @Composable () -> Unit,
 ) {
     val shown = remember { Animatable(0f) }
     val openNow by rememberUpdatedState(open)
-    val animatedNow by rememberUpdatedState(animated)
     LaunchedEffect(drag) {
         var hold: FingerHold? = null
         combine(snapshotFlow { openNow }, drag) { o, d -> o to d }.collectLatest { (o, d) ->
@@ -192,8 +191,7 @@ fun ContentsSlide(
             if (d == null) hold = null
             when {
                 d != null -> shown.follow(d, hold ?: FingerHold(d, shown.value).also { hold = it })
-                animatedNow -> shown.animateTo(to, tween(contentsSlideMs(shown.value, to), easing = FastOutSlowInEasing))
-                else -> shown.snapTo(to)
+                else -> shown.animateTo(to, tween(contentsSlideMs(shown.value, to), easing = FastOutSlowInEasing))
             }
         }
     }

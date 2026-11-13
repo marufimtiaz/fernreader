@@ -740,8 +740,11 @@ class ReaderController(
         _contentsDrag.value = null
     }
 
-    /** C-097: a finger holds the panel at [fraction]. */
-    fun dragContents(fraction: Float) { if (_settings.value.effective(_powerSave.value).pageAnimation != PageAnimation.NONE) _contentsDrag.value = fraction }
+    /**
+     * C-097: a finger holds the panel at [fraction]. C-115: always, whatever the page-turn animation and Battery Saver: those
+     * apply to page turns only.
+     */
+    fun dragContents(fraction: Float) { _contentsDrag.value = fraction }
 
     /** C-097: the finger left the panel, after a rightward swipe on it. */
     fun releaseContents(close: Boolean) {
