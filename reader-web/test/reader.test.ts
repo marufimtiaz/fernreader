@@ -1119,6 +1119,19 @@ describe('Reader top inset (C-099)', () => {
   })
 })
 
+// C-112: no page-number line under the page, so the paginator keeps no bottom band: the text runs down to the app's
+// fixed bottom inset. The top band stays.
+describe('Reader page bands (C-112)', () => {
+  const settings = { fontScale: 1, fontFamily: 'publisher', lineHeight: 1.5, marginPercent: 5, align: 'publisher', theme: 'light', swipeDirection: 'auto', pageAnimation: 'slide' } as const
+  for (const flow of ['paginated', 'scrolled'] as const) it(`${flow}: no bottom band, the top band kept`, async () => {
+    send({ v: 1, type: 'open', sessionId: 's1', position: null, texts: { missingPart: 'missing' }, settings: { ...settings, flow } } as ToWeb)
+    await settle(); await settle()
+    const r = FakeView.all.at(-1)!.renderer as HTMLElement
+    expect(r.getAttribute('margin-bottom')).toBe('0px')
+    expect(r.getAttribute('margin')).toBe('32px')
+  })
+})
+
 // C-110 Extra dim: a paint-only change. The paper takes the theme colour scaled, the section frames a brightness filter
 // (index.html's ::part(filter) rule reads --er-page-filter); the section documents are not restyled, nothing relayouts.
 describe('Reader Extra dim (C-110)', () => {
