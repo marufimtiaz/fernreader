@@ -20,6 +20,9 @@ class EpubReaderApp : Application(), SingletonImageLoader.Factory, Configuration
     override fun onCreate() {
         super.onCreate()
         BenchHooks.install(this)
+        // Trace sections for Perfetto/atrace; Trace.beginSection costs next to nothing while no trace records.
+        app.epubreader.ui.Sections.begin = { android.os.Trace.beginSection(it) }
+        app.epubreader.ui.Sections.end = { android.os.Trace.endSection() }
     }
 
     /**

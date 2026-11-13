@@ -28,13 +28,14 @@ import androidx.compose.ui.unit.dp
 import app.epubreader.reader.EventProbe
 import app.epubreader.reader.bridge.TocItem
 import app.epubreader.ui.Copy
+import app.epubreader.ui.traced
 
 /** The Contents tab's list. The tree is built when the tab opens (O(n), well inside P-031 for 2000 entries). */
 @Composable
 fun TocList(items: List<TocItem>, currentHref: String?, onSelect: (TocItem) -> Unit, probe: EventProbe) {
-    val tree = remember(items) { TocTreeState(items) }
+    val tree = remember(items) { traced("Toc:tree") { TocTreeState(items) } }
     val current = remember(tree) { tree.indexOfHref(currentHref)?.also(tree::reveal) }
-    val rows = tree.visibleRows()
+    val rows = traced("Toc:rows") { tree.visibleRows() }
     val list = rememberLazyListState(initialFirstVisibleItemIndex = current?.let { rows.indexOf(it).coerceAtLeast(0) } ?: 0)
     LaunchedEffect(Unit) { withFrameNanos { }; probe.ev("toc_shown", "") }
     LazyColumn(state = list, modifier = Modifier.fillMaxSize()) {

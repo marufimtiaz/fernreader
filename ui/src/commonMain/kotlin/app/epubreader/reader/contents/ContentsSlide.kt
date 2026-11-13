@@ -23,6 +23,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import app.epubreader.reader.ReaderController
 import app.epubreader.ui.edgeSwipe
+import app.epubreader.ui.sectionEnd
+import app.epubreader.ui.sectionStart
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
@@ -156,7 +158,7 @@ fun ContentsSlide(
                     translationX = size.width * (1f - shown.value)
                     SlideTrace.sink?.invoke("contents", shown.value, size.width)
                 },
-            ) { content() }
+            ) { sectionStart("Contents:compose"); content(); sectionEnd() }
         }
     }
 }

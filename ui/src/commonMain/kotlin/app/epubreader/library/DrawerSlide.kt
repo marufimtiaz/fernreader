@@ -1,5 +1,7 @@
 package app.epubreader.library
 
+import app.epubreader.ui.sectionEnd
+import app.epubreader.ui.sectionStart
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -116,6 +118,6 @@ fun DrawerSlide(open: Boolean, edgeGesture: Boolean, onOpen: (Boolean) -> Unit, 
                     paneTitle = Copy.navigationMenu
                     if (open) dismiss { onOpenNow(false); true }
                 },
-        ) { drawer() }
+        ) { sectionStart("Drawer:compose"); drawer(); sectionEnd() }
     }
 }

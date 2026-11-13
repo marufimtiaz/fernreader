@@ -17,9 +17,11 @@ import app.epubreader.reader.display.ScreenBrightness
  *   system slider starts there.
  */
 class SystemBrightness(private val resolver: ContentResolver) : ScreenBrightness {
-    override val min: Double by lazy { (configMin() ?: DEFAULT_MIN).coerceIn(ReaderSettings.MIN_BRIGHTNESS, 0.5) }
+    override val min: Double by lazy { app.epubreader.ui.traced("Brightness:min") { (configMin() ?: DEFAULT_MIN).coerceIn(ReaderSettings.MIN_BRIGHTNESS, 0.5) } }
 
-    override fun current(): Double? = runCatching {
+    override fun current(): Double? = app.epubreader.ui.traced("Brightness:current") { currentNow() }
+
+    private fun currentNow(): Double? = runCatching {
         floatSetting() ?: Settings.System.getInt(resolver, Settings.System.SCREEN_BRIGHTNESS).let(::fromInt)
     }.getOrNull()?.coerceIn(min, 1.0)
 
