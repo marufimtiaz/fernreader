@@ -130,7 +130,9 @@ fun ReaderScreen(
             LaunchedEffect(Unit) { withFrameNanos { }; probe.ev("display_shown", "") }
             ReaderSheet(settings, fonts, onChange = c::updateSettings, onTab = c::selectSheetTab, modifier = Modifier.align(Alignment.BottomCenter), landscape = landscape, brightness = c.screenBrightness)
         }
-        ContentsSlide(s.tocVisible, c.contentsDrag, shown.pageAnimation != PageAnimation.NONE, c::dragContents, c::releaseContents) {
+        // The panel is got ready ahead while the reader stands still with a book shown: what it would show is the key.
+        val prepare = if (s.open && !s.loading && s.error == null) listOf(s.toc, s.currentTocHref, s.title, s.contentsTab) else null
+        ContentsSlide(s.tocVisible, c.contentsDrag, shown.pageAnimation != PageAnimation.NONE, c::dragContents, c::releaseContents, prepare, quiet = s.fraction) {
             ContentsPanel(
                 s.title, s.contentsTab, c::selectContentsTab, s.toc, s.currentTocHref, c::onTocSelected,
                 s.bookmarks, page, formatDate, c::onBookmarkSelected, c::removeBookmark, c::hideToc, probe,

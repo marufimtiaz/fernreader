@@ -27,16 +27,22 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.epubreader.reader.EventProbe
 import app.epubreader.reader.bridge.TocItem
+import app.epubreader.reader.contents.LocalContentsShown
 import app.epubreader.ui.Copy
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.first
+import app.epubreader.ui.traced
 
 /** The Contents tab's list. The tree is built when the tab opens (O(n), well inside P-031 for 2000 entries). */
 @Composable
 fun TocList(items: List<TocItem>, currentHref: String?, onSelect: (TocItem) -> Unit, probe: EventProbe) {
-    val tree = remember(items) { TocTreeState(items) }
+    val tree = remember(items) { traced("Toc:tree") { TocTreeState(items) } }
     val current = remember(tree) { tree.indexOfHref(currentHref)?.also(tree::reveal) }
-    val rows = tree.visibleRows()
+    val rows = traced("Toc:rows") { tree.visibleRows() }
     val list = rememberLazyListState(initialFirstVisibleItemIndex = current?.let { rows.indexOf(it).coerceAtLeast(0) } ?: 0)
-    LaunchedEffect(Unit) { withFrameNanos { }; probe.ev("toc_shown", "") }
+    // P-031: shown, not composed: a panel got ready ahead (ContentsSlide) says so at the frame after it comes on screen.
+    val shown = LocalContentsShown.current
+    LaunchedEffect(Unit) { snapshotFlow { shown() }.first { it }; withFrameNanos { }; probe.ev("toc_shown", "") }
     LazyColumn(state = list, modifier = Modifier.fillMaxSize()) {
         items(rows, key = { it }) { i ->
             val item = tree.items[i]

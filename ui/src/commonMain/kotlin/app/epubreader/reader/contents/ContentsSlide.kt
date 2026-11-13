@@ -11,18 +11,29 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.SubcomposeLayout
+import androidx.compose.ui.layout.SubcomposeLayoutState
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Constraints
 import app.epubreader.reader.ReaderController
 import app.epubreader.ui.edgeSwipe
+import app.epubreader.ui.sectionEnd
+import app.epubreader.ui.sectionStart
+import app.epubreader.ui.traced
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
@@ -103,19 +114,72 @@ fun Modifier.contentsEdgeSwipe(c: ReaderController, active: () -> Boolean): Modi
 fun edgeSwipeOpens(travelDp: Float, widthDp: Float, speedDpPerMs: Float): Boolean = panelSwipeCloses(travelDp, widthDp, speedDpPerMs)
 
 /**
+ * How long the reader must have stood still (no page turn, no chapter change, nothing over the page) before the Contents
+ * panel is got ready ahead of showing. A reader reads a page for far longer; a quick run of turns never pays for it.
+ */
+const val PREPARE_QUIET_MS = 700L
+
+/**
+ * The Contents panel got ready ahead of showing ([ContentsSlide]): which handle holds it and for what [key] (the content's
+ * identity: contents list, current entry, title, tab). Kept apart from Compose so the rule can be tested on the host.
+ */
+class PanelAhead<H : Any>(private val dispose: (H) -> Unit) {
+    var handle: H? = null
+        private set
+    var key: Any? = null
+        private set
+
+    /**
+     * The panel's state changed: [key] what it would show (null: nothing to get ready, e.g. no book or loading), [visible]
+     * whether it is on screen or going there. Returns whether a preparation is due (the caller waits for quiet first). A
+     * visible panel belongs to the layout, which took the prepared one over: it is forgotten, not disposed. A stale one
+     * (another key) is disposed.
+     */
+    fun update(key: Any?, visible: Boolean): Boolean {
+        if (visible) { handle = null; this.key = null; return false }
+        if (handle != null && this.key == key) return false
+        handle?.let(dispose)
+        handle = null; this.key = null
+        return key != null
+    }
+
+    fun prepared(key: Any?, h: H) { handle = h; this.key = key }
+}
+
+/** For the tests on the device: how many times the Contents panel was composed afresh, and how many of those ahead of showing. */
+object ContentsPanelTrace {
+    @kotlin.concurrent.Volatile var fresh = 0
+    @kotlin.concurrent.Volatile var ahead = 0
+}
+
+/** Whether the Contents panel is on screen (or going there); read by what should happen only once it shows (P-031's probe). */
+val LocalContentsShown = staticCompositionLocalOf<() -> Boolean> { { true } }
+
+private const val SLOT = "contents"
+
+/**
  * C-097: the Contents panel's way on and off the screen, from and to the right. [open] is where it is going, [drag] where a
  * finger holds it (0..1, null when none does): the edge gesture ([contentsEdgeSwipe]) or, through [onDrag] and [onRelease], a rightward
  * swipe on the panel. The position changes the layer only, so nothing recomposes while it moves. It stays composed until
  * it has left. With [animated] false it just appears and goes.
  *
  * C-100: a finger takes hold through a [FingerHold], so the panel comes from where it was and never jumps to the finger.
- * The panel is composed only when it is to show, not ahead of it: composing it at the touch-down in the strip put that
- * work on the main thread while the gesture was still being judged, and the edge swipe got harder to start.
+ * Nothing is done at a touch-down in the strip (C-100b: composing the panel there put that work on the main thread while
+ * the gesture was still being judged, and the edge swipe got harder to start).
+ *
+ * The panel's first composition and measure (its tabs and the list's visible rows: about 150 ms on the emulator's debug
+ * build) used to run in the frame it first showed, so the finger's moves of that time came batched and the panel stood
+ * still, then jumped on. Now, while nothing shows and the reader has stood still for [PREPARE_QUIET_MS] ([prepare] the
+ * content's identity, null when there's nothing to get ready; [quiet] changes at each turn), the panel is composed and
+ * measured ahead in a slot of this layout, unplaced and undrawn; its first frame only places it. A change of [prepare]
+ * (another chapter, contents list or tab) gets it ready again; a turn of the page doesn't. Once it has left, it is
+ * disposed as before and got ready again at the next quiet moment.
  */
 @Composable
 fun ContentsSlide(
     open: Boolean, drag: StateFlow<Float?>, animated: Boolean,
     onDrag: (Float) -> Unit, onRelease: (close: Boolean) -> Unit,
+    prepare: Any? = null, quiet: Any? = null,
     content: @Composable () -> Unit,
 ) {
     val shown = remember { Animatable(0f) }
@@ -134,7 +198,51 @@ fun ContentsSlide(
         }
     }
     val onScreen by remember { derivedStateOf { shown.value > 0f } }
-    if (!open && !onScreen) return
+    val onDragNow by rememberUpdatedState(onDrag)
+    val onReleaseNow by rememberUpdatedState(onRelease)
+    // The slot's content: the panel as [content] gives it now. While it waits unplaced it keeps the content it was got ready
+    // with (no recomposition at each turn); the layout hands it the current one when it shows.
+    val live: @Composable () -> Unit = remember(content) {
+        {
+            remember { Snapshot.withoutReadObservation { ContentsPanelTrace.fresh++; if (!(openNow || onScreen)) ContentsPanelTrace.ahead++ } }
+            SlideBody(shown, { openNow }, { openNow || onScreen }, { onDragNow(it) }, { onReleaseNow(it) }, content)
+        }
+    }
+    val liveNow by rememberUpdatedState(live)
+    val prepareNow by rememberUpdatedState(prepare)
+    val quietNow by rememberUpdatedState(quiet)
+    val sub = remember { SubcomposeLayoutState() }
+    val last = remember { LastConstraints() }
+    val ahead = remember { PanelAhead<SubcomposeLayoutState.PrecomposedSlotHandle> { it.dispose() } }
+    LaunchedEffect(sub) {
+        snapshotFlow { Triple(prepareNow, quietNow, openNow || onScreen) }.collectLatest { (key, _, visible) ->
+            if (!ahead.update(key, visible)) return@collectLatest
+            delay(PREPARE_QUIET_MS)
+            withFrameNanos { } // just after a frame: the most time until the next one
+            traced("Contents:prepare") {
+                val h = sub.precompose(SLOT, liveNow)
+                last.constraints?.let { if (h.placeablesCount > 0) h.premeasure(0, it) }
+                ahead.prepared(key, h)
+            }
+        }
+    }
+    DisposableEffect(sub) { onDispose { ahead.update(null, false) } }
+    SubcomposeLayout(sub, Modifier.fillMaxSize()) { constraints ->
+        last.constraints = constraints
+        if (!(openNow || onScreen)) return@SubcomposeLayout layout(constraints.maxWidth, constraints.maxHeight) {}
+        val placeables = subcompose(SLOT, liveNow).map { it.measure(constraints) }
+        layout(constraints.maxWidth, constraints.maxHeight) { placeables.forEach { it.place(0, 0) } }
+    }
+}
+
+private class LastConstraints { var constraints: Constraints? = null }
+
+/** The panel in its moving layer, with the rightward swipe that closes it. [open]: where it is going; [shownNow]: whether it is on screen. */
+@Composable
+private fun SlideBody(
+    shown: Animatable<Float, AnimationVector1D>, open: () -> Boolean, shownNow: () -> Boolean,
+    onDrag: (Float) -> Unit, onRelease: (close: Boolean) -> Unit, content: @Composable () -> Unit,
+) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val width = constraints.maxWidth.toFloat()
         val density = LocalDensity.current.density
@@ -146,7 +254,7 @@ fun ContentsSlide(
         }
         Box(
             Modifier.fillMaxSize().draggable(
-                swipe, Orientation.Horizontal, enabled = open,
+                swipe, Orientation.Horizontal, enabled = open(),
                 onDragStarted = { travel[0] = 0f },
                 onDragStopped = { velocity -> onRelease(panelSwipeCloses(travel[0] / density, width / density, velocity / density / 1000f)) },
             ),
@@ -156,7 +264,11 @@ fun ContentsSlide(
                     translationX = size.width * (1f - shown.value)
                     SlideTrace.sink?.invoke("contents", shown.value, size.width)
                 },
-            ) { content() }
+            ) {
+                CompositionLocalProvider(LocalContentsShown provides shownNow) {
+                    sectionStart("Contents:compose"); content(); sectionEnd()
+                }
+            }
         }
     }
 }
