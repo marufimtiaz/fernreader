@@ -55,4 +55,5 @@ run_scenarios() {
   sleep 3
   $A logcat -c
   sc_begin d; $A shell input keyevent 3; sleep 180; sc_end d
+  return 0
 }

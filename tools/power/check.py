@@ -25,7 +25,8 @@ PLATFORM_THREAD = re.compile(
     r"HeapTaskDaemon|FinalizerDaemon|FinalizerWatchd|ReferenceQueueD|Signal_Catcher|Profile_Saver|"
     r"Jit_thread_pool|perfetto_hprof_|ADB-JDWP_Connec|CleanupReferenc|GpuMemoryThread|VizCompositorTh|"
     r"AudioThread|CookieMonster.*|queued-work-loo|RenderThread|GLThread.*|Binder:.*|android\.bg|"
-    r"process_reaper)$")
+    r"process_reaper|NetworkService|VizWebView|MemoryInfra|TracingMuxer|PerfettoTrace|ProtoLogConfigL|"
+    r"SurfaceSyncGrou|VideoCaptureThr|GoogleApiHandle|AudioPortEventH|CameraAvailabil|allocateBuffers)$")
 
 
 def is_app_thread(comm):
@@ -63,6 +64,27 @@ def wakeups(before, after):
         elif is_app_thread(comm):
             app += d
     return main, app
+
+
+def woke_app_threads(before, after):
+    """{comm: wakeups} of app threads that woke in the window, for the report."""
+    out = {}
+    for tid, (comm, vol, _nv, _t) in after["threads"].items():
+        d = vol - before["threads"].get(tid, (comm, 0, 0, 0))[1]
+        if tid != after.get("pid") and is_app_thread(comm) and d > 0:
+            out[comm] = out.get(comm, 0) + d
+    return out
+
+
+def woke_report(dirs):
+    lines = []
+    for d in dirs:
+        for sc in ("a", "c2", "d"):
+            p = _pair(d, sc)
+            if p:
+                w = woke_app_threads(*p)
+                lines.append(f"  {os.path.basename(d)} {sc}: " + (", ".join(f"{k} {v}" for k, v in sorted(w.items(), key=lambda x: -x[1])) or "none"))
+    return "app threads that woke (wakeups):\n" + "\n".join(lines)
 
 
 def _read(path):
@@ -283,6 +305,7 @@ def main(argv):
         return 0
     rows = evaluate(runs, limits)
     print(table(rows))
+    print(woke_report([d for d, _ in valid]))
     code = exit_code(rows, True)
     print(f"RESULT: {'PASS' if code == 0 else 'FAIL'} ({len(runs)} run(s){', median' if len(runs) > 1 else ''})")
     return code

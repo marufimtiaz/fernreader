@@ -23,12 +23,13 @@ class ParseAndThreads(unittest.TestCase):
                      "HwBinder:4242_1", "HeapTaskDaemon", "Signal_Catcher", "Profile_Saver", "Jit_thread_pool",
                      "hwuiTask1", "FinalizerDaemon", "ReferenceQueueD", "FinalizerWatchd", "perfetto_hprof_",
                      "ADB-JDWP_Connec", "CleanupReferenc", "GpuMemoryThread", "VizCompositorTh",
-                     "AudioThread", "CookieMonsterCl", "CookieMonsterBa", "queued-work-loo", "RenderThread"]:
+                     "AudioThread", "CookieMonsterCl", "CookieMonsterBa", "queued-work-loo", "RenderThread",
+                     "NetworkService", "VizWebView", "MemoryInfra", "CameraAvailabil", "AudioPortEventH"]:
             self.assertFalse(check.is_app_thread(comm), comm)
 
     def test_kotlin_and_app_threads_are_app_threads(self):
         for comm in ["DefaultDispatch", "DefaultExecutor", "file-watch", "search-index", "arch_disk_io_0",
-                     "WM.task-1", "pool-3-thread-1", "FileObserver", "bg-pages"]:
+                     "WM.task-1", "pool-3-thread-1", "FileObserver", "bg-pages", "fern-bg-3"]:
             self.assertTrue(check.is_app_thread(comm), comm)
 
     def test_wakeups_split_main_and_app_threads_and_count_new_threads(self):
@@ -38,6 +39,7 @@ class ParseAndThreads(unittest.TestCase):
             (100, "app.fernreader", 40, 2, 0), (101, "DefaultDispatch", 9, 0, 0), (102, "Chrome_IOThread", 99, 0, 0),
             (103, "DefaultExecutor", 3, 0, 0)]))
         self.assertEqual(check.wakeups(before, after), (30, 4 + 3))
+        self.assertEqual(check.woke_app_threads(before, after), {"DefaultDispatch": 4, "DefaultExecutor": 3})
 
 
 class Metrics(unittest.TestCase):

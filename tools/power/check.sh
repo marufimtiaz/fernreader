@@ -108,7 +108,7 @@ sc_begin() { echo "   $1 ..."; $A shell dumpsys gfxinfo $PKG reset >/dev/null; s
 sc_end() {
   snap "$RUN/$1.after" $IO
   echo "frames $(gfx_frames)" >> "$RUN/$1.after"
-  [ "$1" = b ] && echo "b_p50_ms $(gfx_p50)" >> "$RUN/env"
+  [ "$1" != b ] || echo "b_p50_ms $(gfx_p50)" >> "$RUN/env"
 }
 SLOW_MS=$($PY const SLOW_FRAME_MS)
 # Time a known redraw first: three turns; the median frame tells the slow-WebView state (every WebView draw 115-270 ms
