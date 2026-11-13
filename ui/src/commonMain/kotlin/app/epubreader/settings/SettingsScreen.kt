@@ -53,7 +53,9 @@ sealed interface SettingItem {
 
     data class Choice(override val id: String, val title: String, val options: List<Pair<String, String>>, val selected: String,
                       val onSelect: (String) -> Unit, val summary: String? = null, val enabled: Boolean = true,
-                      override val icon: ImageVector? = null) : SettingItem
+                      override val icon: ImageVector? = null,
+                      /** C-116: why the row is greyed out, under its value (kept readable). */
+                      val note: String? = null) : SettingItem
     data class Toggle(override val id: String, val title: String, val summary: String?, val checked: Boolean, val onChange: (Boolean) -> Unit,
                       override val icon: ImageVector? = null) : SettingItem
     data class Action(override val id: String, val title: String, val summary: String?, val onClick: () -> Unit,
@@ -89,7 +91,7 @@ fun SettingsScreen(sections: List<SettingsSection>, onBack: () -> Unit) {
                 }
                 items(s.items, key = { it.id }) { item ->
                     when (item) {
-                        is SettingItem.Choice -> Row2(item.icon, item.title, item.summary ?: item.options.firstOrNull { it.first == item.selected }?.second, item.enabled) { choosing = item }
+                        is SettingItem.Choice -> Row2(item.icon, item.title, item.summary ?: item.options.firstOrNull { it.first == item.selected }?.second, item.enabled, item.note) { choosing = item }
                         is SettingItem.Action -> Row2(item.icon, item.title, item.summary, onClick = item.onClick)
                         is SettingItem.Toggle -> Row(
                             Modifier.fillMaxWidth().clickable { item.onChange(!item.checked) }.padding(horizontal = 16.dp, vertical = 12.dp),
@@ -129,15 +131,17 @@ fun SettingsScreen(sections: List<SettingsSection>, onBack: () -> Unit) {
 }
 
 @Composable
-private fun Row2(icon: ImageVector?, title: String, summary: String?, enabled: Boolean = true, onClick: () -> Unit) {
+private fun Row2(icon: ImageVector?, title: String, summary: String?, enabled: Boolean = true, note: String? = null, onClick: () -> Unit) {
+    val dim = Modifier.alpha(if (enabled) 1f else 0.38f)
     Row(
-        Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick).alpha(if (enabled) 1f else 0.38f).padding(horizontal = 16.dp, vertical = 12.dp),
+        Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        LeadingIcon(icon)
+        Row(dim) { LeadingIcon(icon) }
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge)
-            summary?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            Text(title, dim, style = MaterialTheme.typography.bodyLarge)
+            summary?.let { Text(it, dim, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) } // C-116: readable
         }
     }
 }

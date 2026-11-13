@@ -30,6 +30,8 @@ class SettingsInputs(
      * its own Reader settings sheet does (one source for both).
      */
     val onReader: ((ReaderSettings) -> ReaderSettings) -> Unit,
+    /** C-107/C-116: Battery Saver applies now (`ReaderController.batterySaving`): the settings it overrides are greyed out. */
+    val batterySaving: Boolean = false,
     val onBackUp: () -> Unit,
     val onRestore: () -> Unit,
     val onAbout: () -> Unit,
@@ -60,10 +62,12 @@ fun settingsSections(i: SettingsInputs): List<SettingsSection> = listOf(
     )),
     SettingsSection(Copy.sectionReading, listOf(
         SettingItem.Choice("reader.pageScope", Copy.pageNumbers, PageNumbers.entries.map { it.name to Copy.pageNumbersName(it) },
-            i.reader.pageNumbers.name, { v -> i.onReader { it.copy(pageNumbers = PageNumbers.valueOf(v)) } }, icon = AppIcons.PageNumbers),
+            i.reader.pageNumbers.name, { v -> i.onReader { it.copy(pageNumbers = PageNumbers.valueOf(v)) } }, icon = AppIcons.PageNumbers,
+            enabled = !i.batterySaving, note = Copy.saverPageNumbers.takeIf { i.batterySaving }),
         SettingItem.Choice("reader.pageAnimation", Copy.pageAnimation, listOf(PageAnimation.SLIDE.name to Copy.animSlide, PageAnimation.NONE.name to Copy.animNone),
             i.reader.pageAnimation.name, { v -> i.onReader { it.copy(pageAnimation = PageAnimation.valueOf(v)) } },
-            summary = Copy.appliesToPageMode.takeUnless { i.reader.pageAnimationApplies }, enabled = i.reader.pageAnimationApplies, icon = AppIcons.PageAnimation),
+            summary = Copy.appliesToPageMode.takeUnless { i.reader.pageAnimationApplies }, enabled = i.reader.pageAnimationApplies && !i.batterySaving,
+            icon = AppIcons.PageAnimation, note = Copy.saverPageAnimation.takeIf { i.batterySaving }),
         SettingItem.Choice("reader.swipeDirection", Copy.swipeDirection,
             listOf(SwipeDirection.AUTO.name to Copy.swipeAuto, SwipeDirection.LTR.name to Copy.swipeLtr, SwipeDirection.RTL.name to Copy.swipeRtl),
             i.reader.swipeDirection.name, { v -> i.onReader { it.copy(swipeDirection = SwipeDirection.valueOf(v)) } }, icon = AppIcons.SwipeDirection),

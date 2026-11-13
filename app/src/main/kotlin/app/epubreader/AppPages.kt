@@ -33,13 +33,14 @@ fun AppPages(route: Route, nav: Navigator, graph: AppGraph, settings: SettingsSt
             val theme by graph.prefs.theme.collectAsState()
             val folderView by graph.prefs.folderView.collectAsState()
             val rs by reader.settings.collectAsState()
+            val saving by reader.batterySaving.collectAsState() // C-116
             SettingsScreen(
                 settingsSections(SettingsInputs(
                     theme = theme, onTheme = graph.prefs::setTheme,
                     folderView = folderView, onFolderView = graph.prefs::setFolderView,
                     folder = ui.folder, onEverywhere = settings::useEverywhere, onPickFolder = actions.pickFolder,
                     hiddenCount = ui.hidden.size, onHiddenBooks = { nav.push(Route.HiddenBooks) },
-                    reader = rs, onReader = reader::updateSettings,
+                    reader = rs, onReader = reader::updateSettings, batterySaving = saving,
                     onBackUp = actions.backUp, onRestore = actions.restore, onAbout = { nav.push(Route.About) },
                 )),
                 onBack = back,

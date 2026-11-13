@@ -30,7 +30,7 @@ import app.epubreader.settings.pageAnimationApplies
  * through [onChange] (applied and stored at once). The page-number scope and Reading mode (C-084) live in the Display tab.
  */
 @Composable
-fun GeneralTab(s: ReaderSettings, onChange: ((ReaderSettings) -> ReaderSettings) -> Unit, scroll: ScrollState) {
+fun GeneralTab(s: ReaderSettings, onChange: ((ReaderSettings) -> ReaderSettings) -> Unit, scroll: ScrollState, saving: Boolean = false) {
     Column(
         Modifier.fillMaxSize().verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -38,7 +38,9 @@ fun GeneralTab(s: ReaderSettings, onChange: ((ReaderSettings) -> ReaderSettings)
         Header(Copy.settingsPageTurning)
         Segments(
             Copy.pageAnimation, listOf(PageAnimation.SLIDE to Copy.animSlide, PageAnimation.NONE to Copy.animNone), s.pageAnimation,
-            enabled = s.pageAnimationApplies, hint = Copy.appliesToPageMode.takeUnless { s.pageAnimationApplies },
+            // C-116: greyed out while Battery Saver turns pages without animation, the saved choice still marked.
+            enabled = s.pageAnimationApplies && !saving,
+            hint = if (saving) Copy.saverPageAnimation else Copy.appliesToPageMode.takeUnless { s.pageAnimationApplies },
         ) { v -> onChange { it.copy(pageAnimation = v) } }
         Segments(
             Copy.swipeDirection,
