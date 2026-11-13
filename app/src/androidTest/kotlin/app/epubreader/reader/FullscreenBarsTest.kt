@@ -181,9 +181,12 @@ class FullscreenBarsTest {
         val hidden = h.layout()
         val f = Finger(w - 12, hgt * 2 / 5)
         try {
-            f.move(w / 2, if (angled) hgt * 3 / 5 else hgt * 2 / 5, steps = 30)
+            if (angled) f.move(w * 2 / 5, hgt * 4 / 5, steps = 30) else f.move(w / 2, hgt * 2 / 5, steps = 30) // angled: as EdgeContentsTest
             delay(250)
             assertNotNull("a finger holds the Contents panel", h.a.controller.contentsDrag.value)
+            f.move(w * 4 / 5, f.y, steps = 12) // the panel follows the finger back, leaving the page-number line in view
+            delay(250)
+            assertNotNull("a finger still holds the panel", h.a.controller.contentsDrag.value)
             h.sc.onActivity { a -> WindowCompat.getInsetsController(a.window, a.window.decorView).show(WindowInsetsCompat.Type.systemBars()) }
             h.awaitBars(true)
             delay(SETTLE_MS)
