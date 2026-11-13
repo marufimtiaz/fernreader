@@ -13,6 +13,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -106,11 +109,14 @@ fun ReaderScreen(
             ReaderTopBar(s.title, s.bookmarked, actions, Modifier.align(Alignment.TopStart))
         }
         if (bookInfo && s.error == null) BookInfoDialog(s.title, s.authors, onDismiss = { bookInfo = false })
+        // C-111: the page's own fixed insets, so the marker and the page-number line stay put when the bars show or hide.
+        val pageInsets = LocalPageInsets.current
         // F-041: the page marker, over the page's top-right corner; visible without the controls, never moves the text.
         if (s.bookmarked && !s.chromeVisible && !s.loading && s.error == null) {
             Icon(
                 AppIcons.Bookmarked, Copy.bookmarkedPage,
-                Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(end = 12.dp).size(36.dp).offset(y = (-6).dp),
+                Modifier.align(Alignment.TopEnd).then(pageInsets?.let { Modifier.windowInsetsPadding(it.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)) } ?: Modifier.statusBarsPadding())
+                    .padding(end = 12.dp).size(36.dp).offset(y = (-6).dp),
                 tint = MaterialTheme.colorScheme.primary,
             )
         }
@@ -119,7 +125,9 @@ fun ReaderScreen(
         if (!s.loading && s.error == null) Copy.pageLabelShort(page)?.let { label ->
             val spoken = Copy.pageLabel(page) ?: label
             Box(
-                Modifier.align(Alignment.BottomCenter).navigationBarsPadding().fillMaxWidth().height(32.dp)
+                Modifier.align(Alignment.BottomCenter)
+                    .then(pageInsets?.let { Modifier.windowInsetsPadding(it.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal)) } ?: Modifier.navigationBarsPadding())
+                    .fillMaxWidth().height(32.dp)
                     .background(MaterialTheme.colorScheme.background),
                 contentAlignment = Alignment.Center,
             ) {

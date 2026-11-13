@@ -26,6 +26,7 @@ import app.epubreader.reader.ReaderWindowInputs
 import app.epubreader.reader.WindowApplier
 import app.epubreader.reader.WindowLook
 import app.epubreader.reader.preferredRate
+import app.epubreader.reader.readerPageInsets
 import app.epubreader.reader.readerWindowState
 import app.epubreader.reader.rememberReaderShown
 import android.view.WindowManager
@@ -259,6 +260,8 @@ class MainActivity : ComponentActivity() {
             BarsVisibility(::barsVisibilityChanged)
             // C-102: kept across recompositions, so a recomposition never restarts a gesture in progress.
             val pageGestures = remember { Modifier.contentsEdgeSwipe(controller) { nav.top == Route.Reader } }
+            // C-111: the page's fixed insets, for the page (ReaderSurface) and its furniture (ReaderScreen) alike.
+            androidx.compose.runtime.CompositionLocalProvider(app.epubreader.reader.LocalPageInsets provides readerPageInsets(rs.fullscreen)) {
             Box {
                 App(
                     dark = dark, webViewTooOld = webViewTooOld, nav = nav, library = library, reader = controller, probe = probe,
@@ -279,6 +282,7 @@ class MainActivity : ComponentActivity() {
                     },
                 )
                 if (Probe.enabled) BenchMarker.Draw()
+            }
             }
         }
         if (savedInstanceState == null) openFromIntent(intent, cold = true)
