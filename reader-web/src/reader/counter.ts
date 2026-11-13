@@ -7,7 +7,8 @@ import { polyfillMfenced } from './mathml'
  * paginator's exact column CSS, the same injected style sheet and the same settings, and their pages counted the way
  * foliate's View counts them. The first batch is a stratified sample (for the "≈ N" estimate); the rest follows in
  * reading order. Each shared batch is self-checked against one section counted alone (C-003, [selfCheck]). Runs on the
- * main thread between tasks; a newer layout generation cancels it.
+ * main thread in small steps, each in an idle period of the renderer ([idle], C-113 b): a page turn, input or painting
+ * always goes first. A newer layout generation cancels it.
  */
 
 /** [k] linear sections spread evenly over the book (the middle of each of k equal strata), in reading order. */
@@ -130,6 +131,19 @@ export function batches(order: number[], sampleLen: number, size: (i: number) =>
 }
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
+
+/** At most this long without an idle period before a step runs anyway, so a busy page still gets its count. */
+export const IDLE_TIMEOUT_MS = 1000
+
+/**
+ * C-113 (b): resolves in the renderer's next idle period (requestIdleCallback), when no input, animation frame or
+ * paint is waiting, or after [timeout] ms. The counter is work the reader is not waiting on: each of its steps (one
+ * batch document, one section counted alone) starts only then. Without requestIdleCallback: the next task.
+ */
+export function idle(timeout = IDLE_TIMEOUT_MS): Promise<void> {
+  const ric = (globalThis as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback
+  return new Promise(r => { if (typeof ric === 'function') ric(() => r(), { timeout }); else setTimeout(r, 0) })
+}
 const imagesSettled = (doc: Document) => Promise.all([...doc.images].filter(i => !i.complete)
   .map(i => new Promise(r => { i.addEventListener('load', r, { once: true }); i.addEventListener('error', r, { once: true }) })))
 
@@ -190,6 +204,7 @@ export class PageCounter {
     const viaBatch: number[] = [] // sections this layout counted in a batch document (C-003: recounted on a mismatch)
     for (const batch of batches(order, sample.length, i => this.sections[i]?.size)) {
       if (!live()) return
+      await idle(); if (!live()) return
       while (this.renderer()?.busy) { await sleep(40); if (!live()) return } // never during a page turn
       const counts = this.opts.alone || this.bookAlone ? await this.countEachAlone(batch, live) : await this.countBatch(batch, live, viaBatch)
       if (!counts || !live()) return
@@ -200,7 +215,6 @@ export class PageCounter {
         pending = []
       }
       if (at >= order.length) { this.host?.remove(); this.host = null} // the last batch document goes too
-      await sleep(0) // let input and painting run between batches
     }
   }
 
@@ -208,6 +222,7 @@ export class PageCounter {
   private async countEachAlone(batch: number[], live: () => boolean): Promise<[number, number][] | null> {
     const out: [number, number][] = []
     for (const i of batch) {
+      await idle(); if (!live()) return null
       while (this.renderer()?.busy) { await sleep(40); if (!live()) return null }
       const r = this.renderer()
       if (!r || !live()) return null
@@ -215,7 +230,6 @@ export class PageCounter {
       if (!layout || !(layout.width > 0 && layout.height > 0)) return null
       out.push([i, await this.countAlone(i, r)])
       if (!live()) return null
-      await sleep(0)
     }
     return out
   }
@@ -245,6 +259,7 @@ export class PageCounter {
         if (!counted) return null
         // C-003 self-check: one section of the batch also counted alone, as the paginator lays it out
         const ci = checkSection(plan.batched, i => this.sections[i]?.size)
+        await idle()
         while (this.renderer()?.busy) { await sleep(40); if (!live()) return null }
         if (!live()) return null
         const check = selfCheck(counted, [ci, await this.countAlone(ci, r)], viaBatch)
@@ -260,6 +275,7 @@ export class PageCounter {
         }
       }
       for (const i of plan.alone) {
+        await idle()
         if (!live()) return null
         out.push([i, await this.countAlone(i, r)])
       }
@@ -298,6 +314,7 @@ html,body{margin:0!important;padding:0!important}
       // (auto ones stay) as on screen
       for (const box of doc.querySelectorAll('.er-box')) markWrappers(doc, box)
       await Promise.all([doc.fonts?.ready, imagesSettled(doc)])
+      await idle() // the batch document's layout (the measuring below forces it) is the largest single step
       if (!live()) return null
       const range = doc.createRange()
       const out: [number, number][] = []
