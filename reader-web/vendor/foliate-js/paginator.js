@@ -673,6 +673,7 @@ export class Paginator extends HTMLElement {
         'max-inline-size', 'max-block-size', 'max-column-count',
         'chapter-stop', // local patch (C-085)
         'top-inset', // local patch (C-099)
+        'margin-bottom', // local patch (C-112)
     ]
     #root = this.attachShadow({ mode: 'closed' })
     #observer = new ResizeObserver(() => this.render())
@@ -1179,6 +1180,7 @@ export class Paginator extends HTMLElement {
             --_max-width: calc(var(--_max-inline-size) * var(--_max-column-count-spread));
             --_max-height: var(--_max-block-size);
             --_top-inset: 0px;
+            --_margin-bottom: var(--_margin); /* local patch (C-112): the band below the page, foliate's margin unless set */
             display: grid;
             grid-template-columns:
                 minmax(var(--_half-gap), 1fr)
@@ -1190,7 +1192,7 @@ export class Paginator extends HTMLElement {
                 var(--_top-inset)
                 minmax(var(--_margin), 1fr)
                 minmax(0, var(--_max-height))
-                minmax(var(--_margin), 1fr);
+                minmax(var(--_margin-bottom), 1fr);
             &.vertical {
                 --_max-column-count-spread: var(--_max-column-count-portrait);
                 --_max-width: var(--_max-block-size);
@@ -1240,6 +1242,7 @@ export class Paginator extends HTMLElement {
             grid-column: 3 / 4;
             grid-row: 4;
             align-self: end;
+            height: var(--_margin-bottom) !important; /* local patch (C-112) */
         }
         #header, #footer {
             display: grid;
@@ -1409,6 +1412,7 @@ export class Paginator extends HTMLElement {
                 if (this.scrolled) this.render()
                 break
             case 'margin':
+            case 'margin-bottom': // local patch (C-112)
             case 'max-block-size':
             case 'max-column-count':
                 this.#top.style.setProperty('--_' + name, value)

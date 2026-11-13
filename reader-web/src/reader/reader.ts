@@ -710,7 +710,8 @@ export class Reader {
   }
 
   /**
-   * Side margins, the flow mode, and the vertical margins (page indicator room). F-072, C-082: m % is the real distance
+   * Side margins, the flow mode, and the vertical margins (C-112: a top band only; the text runs down to the app's fixed
+   * bottom inset, as no page-number line sits under it). F-072, C-082: m % is the real distance
    * from the screen edge to the text on each side. Foliate's text inset in paged flow is its half-gap grid column plus
    * half its column gap, g × width per side for a gap of g, so the gap attribute is m % (it was 2m %, twice the
    * setting); scrolled flow uses the same inset (C-072), and book CSS cannot add to it (styles.ts).
@@ -719,6 +720,7 @@ export class Reader {
     const s = this.settings
     const set = (k: string, v: string) => { if (r.getAttribute(k) !== v) r.setAttribute(k, v) }
     set('margin', '32px')
+    set('margin-bottom', '0px') // C-112
     set('gap', `${s.marginPercent}%`)
     // C-085: before `flow`, so switching to Scroll lays out the chosen chapter mode once (each change re-renders)
     if (s.chapters === 'one-at-a-time') set('chapter-stop', '')

@@ -2,8 +2,6 @@ package app.epubreader.reader
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -47,8 +45,6 @@ import androidx.compose.material3.Slider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import app.epubreader.ui.Copy
 import app.epubreader.reader.controls.BookInfoDialog
 import app.epubreader.reader.controls.ControlActions
@@ -109,7 +105,8 @@ fun ReaderScreen(
             ReaderTopBar(s.title, s.bookmarked, actions, Modifier.align(Alignment.TopStart))
         }
         if (bookInfo && s.error == null) BookInfoDialog(s.title, s.authors, onDismiss = { bookInfo = false })
-        // C-111: the page's own fixed insets, so the marker and the page-number line stay put when the bars show or hide.
+        // C-111: the page's own fixed insets, so the marker stays put when the bars show or hide. C-112: no page number on
+        // the page itself; the progress indicator is in the controls' bottom bar and the seek preview (F-034).
         val pageInsets = LocalPageInsets.current
         // F-041: the page marker, over the page's top-right corner; visible without the controls, never moves the text.
         if (s.bookmarked && !s.chromeVisible && !s.loading && s.error == null) {
@@ -119,20 +116,6 @@ fun ReaderScreen(
                     .padding(end = 12.dp).size(36.dp).offset(y = (-6).dp),
                 tint = MaterialTheme.colorScheme.primary,
             )
-        }
-        // F-034: always visible, in the page's bottom margin (32 px). Paged mode keeps that margin free of text; in scroll
-        // mode text scrolls through it, so the label sits on a strip of page colour and the text passes under it.
-        if (!s.loading && s.error == null) Copy.pageLabelShort(page)?.let { label ->
-            val spoken = Copy.pageLabel(page) ?: label
-            Box(
-                Modifier.align(Alignment.BottomCenter)
-                    .then(pageInsets?.let { Modifier.windowInsetsPadding(it.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal)) } ?: Modifier.navigationBarsPadding())
-                    .fillMaxWidth().height(32.dp)
-                    .background(MaterialTheme.colorScheme.background),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(label, Modifier.semantics { contentDescription = spoken }, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f))
-            }
         }
         if (s.chromeVisible && s.error == null) {
             // C-073: while the slider is dragged (and until its seek lands) the row shows the target's chapter and page.
