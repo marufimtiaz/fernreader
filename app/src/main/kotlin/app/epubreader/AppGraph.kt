@@ -14,10 +14,7 @@ import app.epubreader.core.search.SearchIndexes
 import app.epubreader.reader.BookRemoval
 import app.epubreader.reader.BookSearch
 import app.epubreader.reader.SearchIndexWorker
-import android.os.Process
 import java.io.File
-import java.util.concurrent.Executors
-import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.launch
 import app.epubreader.core.library.FileStorageWalker
 import app.epubreader.core.library.ScanController
@@ -38,6 +35,7 @@ import app.epubreader.reader.BookSources
 import app.epubreader.reader.ChunkDirs
 import android.os.storage.StorageManager
 import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import android.util.Log
 import kotlinx.coroutines.CoroutineStart
@@ -52,6 +50,11 @@ class AppGraph(app: Application) {
     private val io = CoroutineScope(SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, e -> Log.e("EPR", "background work failed", e) })
     /** Outlives activities: work that must finish after onDestroy (the reader's close-out) runs here. */
     val appScope: CoroutineScope get() = io
+    /**
+     * C-113 (b): work the user is not waiting on (scans, covers, stored page counts), on background-priority threads
+     * ([BackgroundThreads]). Four threads: the scanner's four loaders; covers take two of them.
+     */
+    val background: CoroutineDispatcher = BackgroundThreads.dispatcher("background", 4)
     val db = buildDatabase(androidDatabaseBuilder(app))
     val clock = HybridClock(System::currentTimeMillis)
     /** M8 chunk caches, one cache group per book file and policy (trimmed whole by the system, rebuilt when needed). */
@@ -91,15 +94,10 @@ class AppGraph(app: Application) {
     val bookmarks = BookmarkStore(db, clock)
     val annotations = AnnotationStore(db, clock)
     /**
-     * F-050 indexes. Builds run on one thread at background priority (the plan's "Dispatchers.IO at low priority"), so
-     * they never compete with reading for CPU; queries run on Dispatchers.IO at normal priority.
+     * F-050 indexes. Builds run on one thread at background priority (the plan's "Dispatchers.IO at low priority", C-113 b), so
+     * they never compete with reading for CPU; queries (a search the user started) run on Dispatchers.IO at normal priority.
      */
-    val search: SearchIndexes by lazy {
-        val thread = Executors.newSingleThreadExecutor { r ->
-            Thread({ Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND); r.run() }, "search-index").apply { isDaemon = true }
-        }
-        SearchIndexes(File(app.filesDir, "search").path, thread.asCoroutineDispatcher())
-    }
+    val search: SearchIndexes by lazy { SearchIndexes(File(app.filesDir, "search").path, BackgroundThreads.dispatcher("search-index", 1)) }
     /** Removing a book also drops its search data (F-018 remove, F-025 delete). */
     val removal: BookRemoval by lazy { BookRemoval(library::removeBook, searchHistory) { search.delete(it) } }
     val bookSearch: BookSearch by lazy {
@@ -108,7 +106,7 @@ class AppGraph(app: Application) {
     }
     /** F-074/F-017 app settings; the theme starts from a small preferences copy so the first frame is right. */
     val prefs = AppPrefs(settings, io, initialTheme = AppThemeCache.read(app))
-    val scanner = Scanner(db, clock, FileStorageWalker(Environment.getExternalStorageDirectory().path))
+    val scanner = Scanner(db, clock, FileStorageWalker(Environment.getExternalStorageDirectory().path), io = background) // C-113 (b)
     /** F-003/F-012: scans run on IO, never before the first frame (MainActivity calls onAppStart after it). */
     val scans = ScanController(
         scan = scanner::scan, scope = io, access = { StorageAccess.hasAccess(app) },
@@ -119,5 +117,5 @@ class AppGraph(app: Application) {
     )
     /** F-090: a discovery folder from a backup is restored only if it exists on this device. */
     val backup = Backup(db, clock, folderExists = { java.io.File(it).isDirectory })
-    val covers: CoverQueue by lazy { CoverQueue(library, CoverExtractor(java.io.File(app.filesDir, "thumbs")), io) }
+    val covers: CoverQueue by lazy { CoverQueue(library, CoverExtractor(java.io.File(app.filesDir, "thumbs")), io, background.limitedParallelism(2)) }
 }

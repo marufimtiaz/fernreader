@@ -218,3 +218,78 @@ describe('PageCounter alone mode (C-032: vertical books counted one section at a
     expect(busyAt).toEqual([false, false])
   })
 })
+
+describe('PageCounter yields to the page (C-113 b: each step a background-priority task)', () => {
+  const layout = { width: 400, height: 800, gap: 28, columnWidth: 372, margin: 32 }
+  /** A stub task scheduler: counts the background tasks run so far; any other priority fails the test. */
+  const withScheduler = async (run: (tasks: () => number) => Promise<void>) => {
+    const g = globalThis as any
+    let n = 0
+    const priorities: string[] = []
+    g.scheduler = { postTask: (cb: () => void, o: { priority: string }) => { priorities.push(o.priority); return new Promise(r => setTimeout(() => { n++; r(cb()) }, 1)) } }
+    try { await run(() => n) } finally { delete g.scheduler }
+    expect(new Set(priorities)).toEqual(new Set(['background']))
+  }
+
+  it('every section counted alone starts in its own background task', () =>
+    withScheduler(async tasks => {
+      const { PageCounter } = await import('../src/reader/counter')
+      const sections = Array.from({ length: 15 }, (_, i) => ({ load: async () => `blob:${i}` }))
+      const renderer = { pagedLayout: layout, styles: '', busy: false }
+      const counter = new PageCounter(sections, () => renderer, () => ({}) as any, 'ja', '', () => {}, { alone: true })
+      const at: number[] = []
+      ;(counter as any).countAlone = async (i: number) => { at.push(tasks()); return i + 1 }
+      await counter.start(1)
+      expect(at).toHaveLength(15)
+      at.forEach((n, k) => expect(n).toBeGreaterThan(k === 0 ? 0 : at[k - 1])) // a new task before each
+    }))
+
+  it('a shared batch: the batch document and its self-check count each start in a later background task', () =>
+    withScheduler(async tasks => {
+      const { PageCounter } = await import('../src/reader/counter')
+      const sections = Array.from({ length: 3 }, (_, i) => ({ load: async () => `blob:${i}`, size: 100 * (i + 1) }))
+      const renderer = { pagedLayout: layout, styles: '', busy: false }
+      const counter = new PageCounter(sections, () => renderer, () => ({}) as any, 'en', 'ltr', () => {})
+      const steps: [string, number][] = []
+      ;(counter as any).layoutBatch = async (items: [number][]) => { steps.push(['batch', tasks()]); return items.map(([i]) => [i, 4]) }
+      ;(counter as any).countAlone = async () => { steps.push(['check', tasks()]); return 4 }
+      const realFetch = globalThis.fetch
+      globalThis.fetch = (async () => ({ text: async () => '<html><body><p>x</p></body></html>' })) as any
+      try { await counter.start(1) } finally { globalThis.fetch = realFetch }
+      expect(steps.map(s => s[0])).toEqual(['batch', 'check'])
+      expect(steps[0][1]).toBeGreaterThan(0)
+      expect(steps[1][1]).toBeGreaterThan(steps[0][1])
+    }))
+
+  it('without the task scheduler: an idle callback with a short timeout (a busy page still gets its count soon)', async () => {
+    const g = globalThis as any
+    const timeouts: number[] = []
+    g.requestIdleCallback = (cb: () => void, o: { timeout: number }) => { timeouts.push(o.timeout); return setTimeout(cb, 1) }
+    try {
+      const { PageCounter, IDLE_TIMEOUT_MS } = await import('../src/reader/counter')
+      const sections = [{ load: async () => 'a' }, { load: async () => 'b' }]
+      const renderer = { pagedLayout: layout, styles: '', busy: false }
+      const msgs: any[] = []
+      const counter = new PageCounter(sections, () => renderer, () => ({}) as any, 'ja', '', m => msgs.push(m), { alone: true })
+      ;(counter as any).countAlone = async () => 2
+      await counter.start(1)
+      expect(msgs.at(-1).done).toBe(true)
+      expect(timeouts.length).toBeGreaterThanOrEqual(2)
+      expect(timeouts.every(t => t === IDLE_TIMEOUT_MS)).toBe(true)
+      expect(IDLE_TIMEOUT_MS).toBeLessThanOrEqual(100)
+    } finally { delete g.requestIdleCallback }
+  })
+
+  it('without either the count still runs (next task)', async () => {
+    const { PageCounter } = await import('../src/reader/counter')
+    expect((globalThis as any).requestIdleCallback).toBeUndefined()
+    expect((globalThis as any).scheduler).toBeUndefined()
+    const sections = [{ load: async () => 'a' }, { load: async () => 'b' }]
+    const renderer = { pagedLayout: layout, styles: '', busy: false }
+    const msgs: any[] = []
+    const counter = new PageCounter(sections, () => renderer, () => ({}) as any, 'ja', '', m => msgs.push(m), { alone: true })
+    ;(counter as any).countAlone = async () => 2
+    await counter.start(1)
+    expect(msgs.at(-1).done).toBe(true)
+  })
+})
