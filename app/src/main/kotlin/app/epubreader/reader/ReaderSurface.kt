@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.systemBarsIgnoringVisibility
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -51,7 +52,8 @@ import kotlin.math.ceil
  * Checked before every draw against the controller's current state, which the loading screen's composition never runs
  * ahead of: the page is drawn no later than the frame that removes the loading screen (no blank frame).
  *
- * C-099: in fullscreen the WebView reaches the top of the screen in both flows and the page keeps the cutout's band itself
+ * C-099: in fullscreen the WebView reaches the top of the screen in both flows and the page keeps the top band itself (the
+ * cutout's, or the status bar's if taller, C-111)
  * ([onTopInset], CSS px, a whole number so scroll offsets stay whole): Pages stay below it, Scroll runs under it and comes to
  * rest below it. Its size doesn't depend on the flow, so a mode switch resizes nothing and the page count doesn't change.
  */
@@ -61,7 +63,8 @@ fun ReaderSurface(engine: ReaderEngine, covered: Boolean, background: Color, ful
     val created by engine.created.collectAsState()
     if (!created) return
     val density = LocalDensity.current
-    val topInset = if (fullscreen) ceil(WindowInsets.displayCutout.getTop(density) / density.density).toInt() else 0
+    val insets = readerPageInsets(fullscreen)
+    val topInset = if (fullscreen) ceil(insets.getTop(density) / density.density).toInt() else 0
     val reportTopInset by rememberUpdatedState(onTopInset)
     LaunchedEffect(topInset) { reportTopInset(topInset) }
     val coveredNow by rememberUpdatedState(covered)
@@ -92,12 +95,11 @@ fun ReaderSurface(engine: ReaderEngine, covered: Boolean, background: Color, ful
     // The strips around the inset page (status and navigation bar areas) take the page colour (M2 note, F-074).
     Box(Modifier.fillMaxSize().background(background)) {
     // C-102: [pageGestures] (the Contents edge swipe) watch every touch on the page from its parent, ahead of the WebView.
-    // The inset is stable: it never follows the bars showing or hiding (with the controls, F-035), so the page does not
-    // reflow. Fullscreen: only the display cutout (bars swiped back in draw over the page, C-103), whose top the page keeps itself
-    // (C-099); otherwise the bars' size.
+    // The inset is stable: it never follows the bars showing or hiding (with the controls, F-035; swiped back in, C-103), so
+    // the page does not reflow or move (C-111): [readerPageInsets]. Fullscreen: its top the page keeps itself (C-099).
     Box(
         Modifier.fillMaxSize().windowInsetsPadding(
-            if (fullscreen) WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom) else WindowInsets.systemBarsIgnoringVisibility,
+            if (fullscreen) insets.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom) else insets,
         ).then(pageGestures),
     ) {
     AndroidView(
@@ -115,6 +117,16 @@ fun ReaderSurface(engine: ReaderEngine, covered: Boolean, background: Color, ful
     }
     }
 }
+
+/**
+ * C-111: the fixed insets of the reader's page, the same for the page and its furniture ([LocalPageInsets]): the bars' size
+ * whether they show or not, so the bars showing or hiding move nothing and no text lies under them. Fullscreen adds the
+ * display cutout (C-099). The bars' size ignoring visibility is the platform's stable inset (API 26-29 included).
+ */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+fun readerPageInsets(fullscreen: Boolean): WindowInsets =
+    if (fullscreen) WindowInsets.systemBarsIgnoringVisibility.union(WindowInsets.displayCutout) else WindowInsets.systemBarsIgnoringVisibility
 
 /** Suspends until the window draws its next frame (this view's tree). */
 private suspend fun View.awaitDraw() = suspendCancellableCoroutine { c ->
