@@ -71,12 +71,20 @@ fun DisplayTab(
     landscape: Boolean = false,
     /** C-109: the phone's brightness, which the slider's scale and its start when leaving "follow system" match. */
     brightness: ScreenBrightness = ScreenBrightness.Unknown,
+    /**
+     * C-116: Battery Saver applies now (C-107): the theme and Page numbers are greyed out, the saved choice still marked,
+     * with a line under each saying why. Nothing else changes.
+     */
+    saving: Boolean = false,
 ) {
     Column(
         Modifier.fillMaxSize().verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        ThemeRow(s.theme) { id -> onChange { it.copy(theme = id) } }
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            ThemeRow(s.theme, enabled = !saving) { id -> onChange { it.copy(theme = id) } }
+            if (saving) Note(Copy.saverTheme)
+        }
         TextSizeRow(s.fontScale, onStep = { d -> onChange { it.stepFont(d) } })
         FontRow(s.fontFamily, fonts) { f -> onChange { it.copy(fontFamily = f) } }
         SliderRow(Copy.lineSpacing, s.lineHeight.toString(), s.lineHeight.toFloat(), 1.3f..2.0f, steps = 6) { v ->
@@ -95,7 +103,8 @@ fun DisplayTab(
             onChange { it.copy(scrollChapters = v) }
         }
         // C-083: book pages (the default) or screen pages, for the whole book or the chapter.
-        Segments(Copy.pageNumbers, PageNumberOptions, s.pageNumbers, hint = Copy.pageNumbersHint(s.pageNumbers)) { p ->
+        Segments(Copy.pageNumbers, PageNumberOptions, s.pageNumbers, enabled = !saving,
+            hint = if (saving) Copy.saverPageNumbers else Copy.pageNumbersHint(s.pageNumbers)) { p ->
             onChange { it.copy(pageNumbers = p) }
         }
         BrightnessRow(s.brightness, brightness) { b -> onChange { it.copy(brightness = b) } }
@@ -111,12 +120,12 @@ internal fun Label(text: String, modifier: Modifier = Modifier) =
     Text(text, modifier, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
 @Composable
-private fun ThemeRow(current: ReadingThemeId, onPick: (ReadingThemeId) -> Unit) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+private fun ThemeRow(current: ReadingThemeId, enabled: Boolean, onPick: (ReadingThemeId) -> Unit) {
+    Row(Modifier.fillMaxWidth().alpha(if (enabled) 1f else 0.38f), horizontalArrangement = Arrangement.SpaceEvenly) {
         for (id in ReadingThemeId.entries) { // C-105: System first, then the four themes
             val selected = id == current
             Column(
-                Modifier.clip(RoundedCornerShape(12.dp)).clickable(role = Role.RadioButton) { onPick(id) }
+                Modifier.clip(RoundedCornerShape(12.dp)).clickable(enabled = enabled, role = Role.RadioButton) { onPick(id) }
                     .semantics { this.selected = selected }.padding(4.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
@@ -208,6 +217,10 @@ internal val FlowOptions = listOf(Flow.PAGED to Copy.flowPaged, Flow.SCROLLED to
 
 /** C-083: the Page numbers choices in the display panel (short; the hint under them says what the selected one means). */
 internal val PageNumberOptions = listOf(PageNumbers.BOOK_PAGES to Copy.segmentBookPages, PageNumbers.SCREEN_BOOK to Copy.segmentScreenPages, PageNumbers.SCREEN_CHAPTER to Copy.segmentChapterPages)
+
+/** A line under a row, e.g. why it is greyed out. */
+@Composable
+private fun Note(text: String) = Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
 /** [enabled] false greys the row out and ignores taps; [hint] is shown under it (e.g. why it is off). */
 @Composable

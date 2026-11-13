@@ -366,6 +366,10 @@ object Copy {
     // C-107
     const val followBatterySaver = "Follow Battery Saver"
     const val followBatterySaverHint = "While Battery Saver is on: black page, no page-turn animation, position in percent instead of screen pages"
+    /** C-116: the line under a setting Battery Saver overrides, greyed out while it applies. */
+    const val saverTheme = "Battery Saver is on: using Black theme"
+    const val saverPageAnimation = "Battery Saver is on: pages turn without animation"
+    const val saverPageNumbers = "Battery Saver is on: screen pages show as percent"
     const val orientation = "Orientation"
     const val orientSystem = "System"
     const val orientPortrait = "Portrait"

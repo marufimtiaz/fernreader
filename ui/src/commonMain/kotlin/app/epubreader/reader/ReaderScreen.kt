@@ -66,6 +66,7 @@ fun ReaderScreen(
     val s by c.state.collectAsState()
     val settings by c.settings.collectAsState()
     val shown by c.shownSettings.collectAsState() // C-107: Battery Saver's Black and no animation; [settings] as saved
+    val saving by c.batterySaving.collectAsState() // C-116: the settings it overrides are greyed out in the sheet
     val systemDark by c.systemDark.collectAsState() // C-105: the System theme follows the phone's dark mode
     val page by c.shownPage.collectAsState() // C-083: book or screen pages, as the setting says
     val bookPages by c.bookPagesInUse.collectAsState() // the setting, unless the book has none (fixed-layout, unreadable)
@@ -127,7 +128,7 @@ fun ReaderScreen(
         }
         if (s.sheetVisible && s.error == null) {
             LaunchedEffect(Unit) { withFrameNanos { }; probe.ev("display_shown", "") }
-            ReaderSheet(settings, fonts, onChange = c::updateSettings, onTab = c::selectSheetTab, modifier = Modifier.align(Alignment.BottomCenter), landscape = landscape, brightness = c.screenBrightness)
+            ReaderSheet(settings, fonts, onChange = c::updateSettings, onTab = c::selectSheetTab, modifier = Modifier.align(Alignment.BottomCenter), landscape = landscape, brightness = c.screenBrightness, saving = saving)
         }
         // The panel is got ready ahead while the reader stands still with a book shown: what it would show is the key.
         val prepare = if (s.open && !s.loading && s.error == null) listOf(s.toc, s.currentTocHref, s.title, s.contentsTab) else null

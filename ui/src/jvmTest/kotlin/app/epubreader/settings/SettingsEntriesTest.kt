@@ -15,11 +15,12 @@ import kotlin.test.assertTrue
 /** F-100: the M6 reader settings are on the settings screen, show the current values and change the reader's settings. */
 class SettingsEntriesTest {
     private var reader = ReaderSettings()
+    private var saving = false
 
     private fun sections() = settingsSections(SettingsInputs(
         theme = AppThemeMode.SYSTEM, onTheme = {}, folderView = false, onFolderView = {}, folder = null, onEverywhere = {}, onPickFolder = {},
         hiddenCount = 0, onHiddenBooks = {},
-        reader = reader, onReader = { change -> reader = change(reader) },
+        reader = reader, onReader = { change -> reader = change(reader) }, batterySaving = saving,
         onBackUp = {}, onRestore = {}, onAbout = {},
     ))
 
@@ -91,5 +92,27 @@ class SettingsEntriesTest {
             assertEquals(f != Flow.SCROLLED, anim.enabled, "$f")
             assertEquals(if (f == Flow.SCROLLED) Copy.appliesToPageMode else null, anim.summary, "$f")
         }
+    }
+
+    /** C-116: while Battery Saver applies, Page numbers and Page-turn animation are greyed out with the reason; nothing else. */
+    @Test fun battery_saver_greys_out_the_settings_it_overrides_and_nothing_else() {
+        reader = ReaderSettings(pageNumbers = PageNumbers.SCREEN_BOOK, pageAnimation = PageAnimation.SLIDE)
+        saving = true
+        val overridden = mapOf("reader.pageScope" to Copy.saverPageNumbers, "reader.pageAnimation" to Copy.saverPageAnimation)
+        for ((id, note) in overridden) {
+            assertEquals(false, choice(id).enabled, id)
+            assertEquals(note, choice(id).note, id)
+        }
+        // the saved choice stays marked
+        assertEquals("SCREEN_BOOK", choice("reader.pageScope").selected)
+        assertEquals("SLIDE", choice("reader.pageAnimation").selected)
+        val others = sections().flatMap { it.items }.filterIsInstance<SettingItem.Choice>().filter { it.id !in overridden }
+        assertTrue(others.isNotEmpty())
+        for (c in others) { assertEquals(true, c.enabled, c.id); assertEquals(null, c.note, c.id) }
+
+        saving = false // Battery Saver off, or "Follow Battery Saver" off: enabled again, no note, and they work
+        for (id in overridden.keys) { assertEquals(true, choice(id).enabled, id); assertEquals(null, choice(id).note, id) }
+        choice("reader.pageAnimation").onSelect("NONE")
+        assertEquals(PageAnimation.NONE, reader.pageAnimation)
     }
 }

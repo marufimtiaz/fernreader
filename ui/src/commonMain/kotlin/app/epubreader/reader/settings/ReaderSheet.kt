@@ -59,6 +59,8 @@ fun ReaderSheet(
     landscape: Boolean = false,
     /** C-109: the phone's brightness, for the brightness slider. */
     brightness: app.epubreader.reader.display.ScreenBrightness = app.epubreader.reader.display.ScreenBrightness.Unknown,
+    /** C-116: Battery Saver applies now; the settings it overrides are greyed out with a line saying why. */
+    saving: Boolean = false,
 ) {
     val tabs = ReaderSheetTab.entries
     val pager = rememberPagerState(initialPage = s.sheetTab.ordinal) { tabs.size }
@@ -87,8 +89,8 @@ fun ReaderSheet(
             }
             HorizontalPager(pager, Modifier.weight(1f), verticalAlignment = Alignment.Top) { page ->
                 when (tabs[page]) {
-                    ReaderSheetTab.DISPLAY -> DisplayTab(s, fonts, onChange, displayScroll, landscape, brightness)
-                    ReaderSheetTab.GENERAL -> GeneralTab(s, onChange, generalScroll)
+                    ReaderSheetTab.DISPLAY -> DisplayTab(s, fonts, onChange, displayScroll, landscape, brightness, saving)
+                    ReaderSheetTab.GENERAL -> GeneralTab(s, onChange, generalScroll, saving)
                 }
             }
         }
