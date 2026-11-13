@@ -19,6 +19,8 @@ import app.epubreader.core.data.PageAnimation
 import app.epubreader.core.data.ReaderSettings
 import app.epubreader.core.data.ScrollChapters
 import app.epubreader.reader.bridge.FromWeb
+import app.epubreader.reader.contents.ContentsPanelTrace
+import app.epubreader.reader.contents.PREPARE_QUIET_MS
 import app.epubreader.reader.bridge.ToWeb
 import app.epubreader.ui.Copy
 import app.epubreader.ui.Route
@@ -35,6 +37,7 @@ import org.json.JSONArray
 import org.json.JSONTokener
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -234,6 +237,31 @@ class EdgeContentsTest {
         assertEquals("no page drag", drag0, h.lastDrag())
     }
     private fun assertHeld(h: ReaderHarness): Float { val v = h.held; assertNotNull("a finger holds the panel", v); return v!! }
+
+    /**
+     * The panel's first frame only places it: it was composed and measured ahead while the reader stood still, not at the touch
+     * (C-100b) and not in the frame it first shows (that stalled the main thread for 150 ms and more, and the moves came
+     * batched). No fresh composition of the panel from the touch-down until it is open.
+     */
+    @Test fun the_panel_is_ready_before_the_swipe_and_not_composed_during_it() = run { h ->
+        h.quiet()
+        ContentsPanelTrace.fresh = 0; ContentsPanelTrace.ahead = 0
+        // Another chapter than the one shown (the book may reopen where an earlier test left it): the panel is got ready again.
+        val here = h.a.controller.state.value.currentTocHref
+        val other = h.a.controller.state.value.toc.filter { !it.missing && it.index >= 0 && it.href != here }.let { it[it.size / 3] }
+        h.send(ToWeb.GoTo(target = other.href, id = 90_001))
+        h.next(10_000) { e -> (e as? FromWeb.Seeked)?.takeIf { it.id == 90_001 } }
+        h.quiet()
+        assertNotEquals("on another chapter", here, h.a.controller.state.value.currentTocHref)
+        delay(PREPARE_QUIET_MS + 1_500)
+        assertEquals("composed once, ahead", 1 to 1, ContentsPanelTrace.fresh to ContentsPanelTrace.ahead)
+        slowDrag(w / 2) { assertHeld(h) }
+        h.awaitOpen()
+        assertEquals("not composed again from the touch to open", 1, ContentsPanelTrace.fresh)
+        sc(h) { it.controller.hideToc() }
+        h.closed()
+    }
+    private fun sc(h: ReaderHarness, f: (MainActivity) -> Unit) = h.sc.onActivity(f)
 
     @Test fun short_of_a_third_it_slides_back() = run { h ->
         val start = h.midChapter()
