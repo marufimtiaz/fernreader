@@ -7,10 +7,10 @@ plugins {
 }
 
 android {
-    namespace = "app.epubreader"
+    namespace = "app.fernreader"
     compileSdk = 37
     defaultConfig {
-        applicationId = "app.fernreader" // C-054; Kotlin packages and the namespace stay app.epubreader
+        applicationId = "app.fernreader" // C-054; the Kotlin packages and the namespace match it since C-117
         minSdk = 26
         targetSdk = 37
         versionCode = 1

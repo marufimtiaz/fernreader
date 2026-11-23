@@ -5,5 +5,5 @@ cd "$(dirname "$0")/.."
 ./gradlew check
 (cd reader-web && npx vitest run)
 ./gradlew :app:connectedPlayDebugAndroidTest \
-  -Pandroid.testInstrumentationRunnerArguments.class=app.epubreader.SmokeTest
+  -Pandroid.testInstrumentationRunnerArguments.class=app.fernreader.SmokeTest
 echo "smoke: OK"

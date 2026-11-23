@@ -6,7 +6,7 @@ PKG=app.fernreader
 BOOK=${BOOK:-/sdcard/Books/gutenberg/moby-dick-epub2-noimages.epub}
 TURNS=20                       # scenario b; tools/power/check.py divides by it
 
-bench_cmd() { $A shell am broadcast -a app.fernreader.BENCH -n "$PKG/app.epubreader.bench.BenchCommandReceiver" --es cmd "$1" --es arg "'${2:-}'" >/dev/null; }
+bench_cmd() { $A shell am broadcast -a app.fernreader.BENCH -n "$PKG/app.fernreader.bench.BenchCommandReceiver" --es cmd "$1" --es arg "'${2:-}'" >/dev/null; }
 # A forward swipe across the middle of the screen (tap zones are off by default), scaled to the screen size.
 swipe_xy() { $A shell wm size | awk -F'[ x]' '/size/ {w=$(NF-1); h=$NF} END {printf "%d %d %d %d", w*0.83, h*0.54, w*0.14, h*0.54}'; }
 swipe() { $A shell input swipe $SWIPE 120; }
@@ -26,7 +26,7 @@ app_setup() {
   $A shell input keyevent 224   # wake
   $A shell wm dismiss-keyguard
   $A logcat -c
-  $A shell am start -W -n $PKG/app.epubreader.MainActivity >/dev/null
+  $A shell am start -W -n $PKG/app.fernreader.MainActivity >/dev/null
   SWIPE=$(swipe_xy)
   if [ "${EVENTS:-1}" = 1 ]; then wait_ev scan_complete 60 || echo "no scan_complete within 60 s" >&2; sleep 5
   else sleep 20; fi

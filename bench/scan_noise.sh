@@ -7,9 +7,9 @@
 set -u
 [ "${1:-}" = -s ] && { export ANDROID_SERIAL=$2; shift 2; }
 A=${ADB:-$(command -v adb || echo "$HOME/Android/Sdk/platform-tools/adb")}
-PKG=${PKG:-app.fernreader}; ACT=${ACT:-app.epubreader.MainActivity}
+PKG=${PKG:-app.fernreader}; ACT=${ACT:-app.fernreader.MainActivity}
 NOISE=/sdcard/ScanNoise; DIRS=${DIRS:-10}; FILES=${FILES:-50}; RUNS=${RUNS:-5}
-bench_cmd() { $A shell am broadcast -a app.fernreader.BENCH -n "$PKG/app.epubreader.bench.BenchCommandReceiver" --es cmd "$1" --es arg "'${2:-}'" >/dev/null; }
+bench_cmd() { $A shell am broadcast -a app.fernreader.BENCH -n "$PKG/app.fernreader.bench.BenchCommandReceiver" --es cmd "$1" --es arg "'${2:-}'" >/dev/null; }
 wait_complete() { # prints the ms= of the first scan_complete after the logcat was cleared
   for _ in $(seq 1 300); do
     local v; v=$($A logcat -d -s EPR:I | awk '/EVT scan_complete /{ match($0,/ms=[0-9]+/); print substr($0,RSTART+3,RLENGTH-3); exit }')

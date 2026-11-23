@@ -5,7 +5,7 @@ plugins {
 
 kotlin {
     androidLibrary {
-        namespace = "app.epubreader.core.search"
+        namespace = "app.fernreader.core.search"
         compileSdk = 37
         minSdk = 26
         compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) }

@@ -56,7 +56,7 @@ check "devices leaves emulators out" 0 "" -- devices
 PHONE_ADDR=emulator-5554 check "PHONE_ADDR may not be an emulator" 1 "is an emulator" -- run
 printf 'emulator-5554\tdevice\n192.168.1.20:41235\tdevice\n' > "$T/devices"
 check "the only phone is used" 0 "Starting" -- run
-called "with -s, and the right activity" "-s 192.168.1.20:41235 shell am start -n app.fernreader/app.epubreader.MainActivity"
+called "with -s, and the right activity" "-s 192.168.1.20:41235 shell am start -n app.fernreader/app.fernreader.MainActivity"
 printf '192.168.1.20:41235\tdevice\n192.168.1.21:41235\tdevice\n' > "$T/devices"
 check "two phones need a choice" 1 "several phones" -- run
 PHONE_ADDR=192.168.1.21:41235 check "PHONE_ADDR chooses" 0 "Starting" -- run

@@ -2,7 +2,7 @@
 set -u
 A=${ADB:-$HOME/Android/Sdk/platform-tools/adb}
 PKG=${PKG:-app.fernreader}
-ACT=${ACT:-app.epubreader.MainActivity}
+ACT=${ACT:-app.fernreader.MainActivity}
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 SPEC_TOOLS=$ROOT/tools/spec-tools
 RESULTS=${RESULTS:?run through bench/run_all.sh (sets RESULTS)}
@@ -35,7 +35,7 @@ wait_ev() {
     sleep 0.3
   done
 }
-bench_cmd() { $A shell am broadcast -a app.fernreader.BENCH -n "$PKG/app.epubreader.bench.BenchCommandReceiver" --es cmd "$1" --es arg "'${2:-}'" >/dev/null; }
+bench_cmd() { $A shell am broadcast -a app.fernreader.BENCH -n "$PKG/app.fernreader.bench.BenchCommandReceiver" --es cmd "$1" --es arg "'${2:-}'" >/dev/null; }
 video_ms() { bash "$SPEC_TOOLS/summarize_open.sh" "$1" | sed 's/.*open_ms=//'; }
 # video_first_ms <video>: ms from the first visible change (the bench command's marker) to the first large change after it
 # (mean-abs-diff >= 2 over >= 2 % of the pixels: the page starts to move, not a label). NA when the first change is already large (no marker seen). P-026 (C-071): input -> first frame of the boundary slide.

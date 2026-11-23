@@ -4,7 +4,7 @@
 set -euo pipefail
 
 PACKAGE=app.fernreader
-ACTIVITY=app.epubreader.MainActivity
+ACTIVITY=app.fernreader.MainActivity
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 A=${ADB:-$HOME/Android/Sdk/platform-tools/adb}
 APK_DIR=${PHONE_APK_DIR:-$ROOT/app/build/outputs/apk}
