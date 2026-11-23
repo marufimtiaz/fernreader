@@ -6,7 +6,7 @@ A fast, offline-first EPUB reader for Android. Free software under the MIT licen
 - Finds the EPUB books on the device and opens them quickly; no account, no network, no tracking.
 - Kotlin Multiplatform + Compose Multiplatform for the app, [foliate-js](https://github.com/johnfactotum/foliate-js)
   (MIT) in a WebView for rendering.
-- applicationId `app.fernreader` (flavors `play` and `fdroid`); the Kotlin packages are `app.epubreader.*`.
+- applicationId `app.fernreader` (flavors `play` and `fdroid`); the Kotlin packages and the Android namespace are `app.fernreader.*` (C-117; `app.epubreader.*` before).
 
 ## Build
 

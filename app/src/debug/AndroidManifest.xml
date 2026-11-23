@@ -2,7 +2,7 @@
     <application>
         <!-- Debug-only test content provider (see TestBookProvider). Not exported: instrumented tests run in this
              app's process and uid, other apps must not reach it. -->
-        <provider android:name="app.epubreader.TestBookProvider" android:authorities="app.fernreader.test.books"
+        <provider android:name="app.fernreader.TestBookProvider" android:authorities="app.fernreader.test.books"
             android:exported="false" />
     </application>
 </manifest>

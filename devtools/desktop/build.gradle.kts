@@ -20,7 +20,7 @@ kotlin {
 }
 
 compose.desktop {
-    application { mainClass = "app.epubreader.devtools.MainKt" }
+    application { mainClass = "app.fernreader.devtools.MainKt" }
 }
 
 /** Renders the screens to PNGs without a window or a display: `./gradlew :devtools:desktop:screenshots`. */
@@ -29,7 +29,7 @@ tasks.register<JavaExec>("screenshots") {
     val jvm = kotlin.jvm().compilations.getByName("main")
     dependsOn(jvm.compileTaskProvider)
     classpath = files(jvm.output.allOutputs, jvm.runtimeDependencyFiles)
-    mainClass.set("app.epubreader.devtools.MainKt")
+    mainClass.set("app.fernreader.devtools.MainKt")
     jvmArgs("-Djava.awt.headless=true")
     args("--screenshots", layout.buildDirectory.dir("screenshots").get().asFile.path, rootProject.file("docs/licenses.md").path)
 }

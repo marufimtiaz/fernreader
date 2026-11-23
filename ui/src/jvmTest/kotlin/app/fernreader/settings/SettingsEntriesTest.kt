@@ -1,0 +1,118 @@
+package app.fernreader.settings
+
+import app.fernreader.core.data.Flow
+import app.fernreader.core.data.PageNumbers
+import app.fernreader.core.data.OrientationLock
+import app.fernreader.core.data.PageAnimation
+import app.fernreader.core.data.ReaderSettings
+import app.fernreader.core.data.SwipeDirection
+import app.fernreader.core.data.VolumeKeys
+import app.fernreader.ui.Copy
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+
+/** F-100: the M6 reader settings are on the settings screen, show the current values and change the reader's settings. */
+class SettingsEntriesTest {
+    private var reader = ReaderSettings()
+    private var saving = false
+
+    private fun sections() = settingsSections(SettingsInputs(
+        theme = AppThemeMode.SYSTEM, onTheme = {}, folderView = false, onFolderView = {}, folder = null, onEverywhere = {}, onPickFolder = {},
+        hiddenCount = 0, onHiddenBooks = {},
+        reader = reader, onReader = { change -> reader = change(reader) }, batterySaving = saving,
+        onBackUp = {}, onRestore = {}, onAbout = {},
+    ))
+
+    private fun item(id: String) = sections().flatMap { it.items }.single { it.id == id }
+    private fun choice(id: String) = item(id) as SettingItem.Choice
+    private fun toggle(id: String) = item(id) as SettingItem.Toggle
+
+    @Test fun every_m6_reader_setting_is_listed_in_its_section() {
+        val byTitle = sections().associate { s -> s.title to s.items.map { it.id } }
+        assertEquals(listOf("reader.pageScope", "reader.pageAnimation", "reader.swipeDirection", "reader.tapZones", "reader.volumeKeys"), byTitle[Copy.sectionReading])
+        assertEquals(listOf("reader.fullscreen", "reader.keepScreenOn", "reader.orientation"), byTitle[Copy.settingsScreen])
+        assertEquals(listOf("reader.confirmLinks"), byTitle[Copy.settingsLinks])
+        // the sections sit between Library and Backup
+        assertEquals(listOf(Copy.sectionAppearance, Copy.sectionLibrary, Copy.sectionReading, Copy.settingsScreen, Copy.settingsLinks, Copy.sectionBackup, Copy.about),
+            sections().map { it.title })
+        val ids = sections().flatMap { it.items }.map { it.id }
+        assertEquals(ids.size, ids.toSet().size) // lazy-list keys
+    }
+
+    @Test fun items_show_the_current_values() {
+        reader = ReaderSettings(pageNumbers = PageNumbers.SCREEN_CHAPTER, pageAnimation = PageAnimation.NONE, swipeDirection = SwipeDirection.RTL,
+            tapZones = true, volumeKeys = VolumeKeys.REVERSED, fullscreen = false, keepScreenOn = true, orientation = OrientationLock.LANDSCAPE,
+            confirmExternalLinks = false)
+        assertEquals("SCREEN_CHAPTER", choice("reader.pageScope").selected)
+        assertEquals("NONE", choice("reader.pageAnimation").selected)
+        assertEquals("RTL", choice("reader.swipeDirection").selected)
+        assertTrue(toggle("reader.tapZones").checked)
+        assertEquals("REVERSED", choice("reader.volumeKeys").selected)
+        assertEquals(Copy.volumeSummary(VolumeKeys.REVERSED), choice("reader.volumeKeys").summary) // C-005: which key does what
+        assertEquals(false, toggle("reader.fullscreen").checked)
+        assertEquals(true, toggle("reader.keepScreenOn").checked)
+        assertEquals("LANDSCAPE", choice("reader.orientation").selected)
+        assertEquals(false, toggle("reader.confirmLinks").checked)
+        assertEquals(Copy.tapZones, toggle("reader.tapZones").title)
+    }
+
+    @Test fun defaults_are_shown_for_a_fresh_install() {
+        assertEquals(false, toggle("reader.tapZones").checked)
+        assertEquals("OFF", choice("reader.volumeKeys").selected) // C-005
+        assertTrue(Copy.volumeSummary(VolumeKeys.OFF).contains(Copy.volumeHint(VolumeKeys.OFF)))
+        assertEquals(true, toggle("reader.confirmLinks").checked)
+    }
+
+    @Test fun changing_an_item_updates_the_reader_settings() {
+        toggle("reader.tapZones").onChange(true); assertTrue(reader.tapZones)
+        choice("reader.volumeKeys").onSelect("ON"); assertEquals(VolumeKeys.ON, reader.volumeKeys)
+        choice("reader.pageAnimation").onSelect("NONE"); assertEquals(PageAnimation.NONE, reader.pageAnimation)
+        choice("reader.swipeDirection").onSelect("LTR"); assertEquals(SwipeDirection.LTR, reader.swipeDirection)
+        toggle("reader.fullscreen").onChange(false); assertEquals(false, reader.fullscreen)
+        toggle("reader.keepScreenOn").onChange(true); assertEquals(true, reader.keepScreenOn)
+        choice("reader.orientation").onSelect("PORTRAIT"); assertEquals(OrientationLock.PORTRAIT, reader.orientation)
+        toggle("reader.confirmLinks").onChange(false); assertEquals(false, reader.confirmExternalLinks)
+        choice("reader.pageScope").onSelect("SCREEN_BOOK"); assertEquals(PageNumbers.SCREEN_BOOK, reader.pageNumbers)
+        // one field at a time: the others are untouched
+        assertEquals(ReaderSettings().fontScale, reader.fontScale); assertTrue(reader.tapZones)
+    }
+
+    /** C-084: Reading mode is only in the reader's display panel, not in Settings → Reading. */
+    @Test fun reading_mode_is_not_listed() {
+        val items = sections().flatMap { it.items }
+        assertTrue(items.none { it.id == "reader.flow" })
+        assertTrue(items.none { it is SettingItem.Choice && it.title == Copy.layout })
+    }
+
+    @Test fun page_animation_is_off_with_a_hint_in_scroll_mode_only() {
+        for (f in Flow.entries) {
+            reader = ReaderSettings(flow = f)
+            val anim = choice("reader.pageAnimation")
+            assertEquals(f != Flow.SCROLLED, anim.enabled, "$f")
+            assertEquals(if (f == Flow.SCROLLED) Copy.appliesToPageMode else null, anim.summary, "$f")
+        }
+    }
+
+    /** C-116: while Battery Saver applies, Page numbers and Page-turn animation are greyed out with the reason; nothing else. */
+    @Test fun battery_saver_greys_out_the_settings_it_overrides_and_nothing_else() {
+        reader = ReaderSettings(pageNumbers = PageNumbers.SCREEN_BOOK, pageAnimation = PageAnimation.SLIDE)
+        saving = true
+        val overridden = mapOf("reader.pageScope" to Copy.saverPageNumbers, "reader.pageAnimation" to Copy.saverPageAnimation)
+        for ((id, note) in overridden) {
+            assertEquals(false, choice(id).enabled, id)
+            assertEquals(note, choice(id).note, id)
+        }
+        // the saved choice stays marked
+        assertEquals("SCREEN_BOOK", choice("reader.pageScope").selected)
+        assertEquals("SLIDE", choice("reader.pageAnimation").selected)
+        val others = sections().flatMap { it.items }.filterIsInstance<SettingItem.Choice>().filter { it.id !in overridden }
+        assertTrue(others.isNotEmpty())
+        for (c in others) { assertEquals(true, c.enabled, c.id); assertEquals(null, c.note, c.id) }
+
+        saving = false // Battery Saver off, or "Follow Battery Saver" off: enabled again, no note, and they work
+        for (id in overridden.keys) { assertEquals(true, choice(id).enabled, id); assertEquals(null, choice(id).note, id) }
+        choice("reader.pageAnimation").onSelect("NONE")
+        assertEquals(PageAnimation.NONE, reader.pageAnimation)
+    }
+}

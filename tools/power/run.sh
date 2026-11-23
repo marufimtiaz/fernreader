@@ -18,7 +18,7 @@ source $D/power.sh
 
 BOOK=/sdcard/Books/gutenberg/moby-dick-epub2-noimages.epub
 WP=/sdcard/Books/gutenberg/war-and-peace-epub3.epub
-cmd() { adb shell am broadcast -a app.fernreader.BENCH -n "$PKG/app.epubreader.bench.BenchCommandReceiver" --es cmd "$1" --es arg "'${2:-}'" >/dev/null; }
+cmd() { adb shell am broadcast -a app.fernreader.BENCH -n "$PKG/app.fernreader.bench.BenchCommandReceiver" --es cmd "$1" --es arg "'${2:-}'" >/dev/null; }
 swipe() { adb shell input swipe 900 1300 150 1300 120; }
 ev() { adb logcat -d -s EPR:I | grep -E "EVT ($1) " | sed 's/.*EVT //'; }
 wait_ev() { local end=$(( $(date +%s) + ${2:-60} )); until adb logcat -d -s EPR:I | grep -q "EVT $1 "; do [ $(date +%s) -ge $end ] && return 1; sleep 0.5; done; }
@@ -33,7 +33,7 @@ setup() { # setup <apk>
   adb shell input keyevent 224   # wake
   adb shell wm dismiss-keyguard
   adb logcat -c
-  adb shell am start -W -n $PKG/app.epubreader.MainActivity >/dev/null
+  adb shell am start -W -n $PKG/app.fernreader.MainActivity >/dev/null
   wait_ev scan_complete 60; sleep 5
 }
 
@@ -88,7 +88,7 @@ if want e; then
 # e: return to the reader from the background, 30 s (foreground scan)
 adb logcat -c
 sc_begin "e back to the reader from Home, 30 s"
-adb shell am start -n $PKG/app.epubreader.MainActivity >/dev/null
+adb shell am start -n $PKG/app.fernreader.MainActivity >/dev/null
 sleep 30
 sc_end; evlog
 fi
@@ -134,7 +134,7 @@ export RUNAS=1
 setup $APKDIR/debug/app-play-debug.apk
 adb shell dumpsys battery unplug
 
-adb shell am start -W -a android.intent.action.VIEW -d "file://$BOOK" -t application/epub+zip -n $PKG/app.epubreader.MainActivity >/dev/null
+adb shell am start -W -a android.intent.action.VIEW -d "file://$BOOK" -t application/epub+zip -n $PKG/app.fernreader.MainActivity >/dev/null
 sleep 90
 adb logcat -c
 sc_begin "io-a still page 60 s (debug)"

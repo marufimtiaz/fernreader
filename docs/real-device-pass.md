@@ -63,7 +63,7 @@ page or a half-drawn page.
 falls back to top-to-bottom pages with no book total: note the WebView version from `info` if so.
 
 **TOC and library scroll (C-019).** In the app: open *stress-2000-chapters*, open the contents, fling up and down
-for ten seconds. Then in the library run `adb -s $S shell am broadcast -a app.fernreader.BENCH -n app.fernreader/app.epubreader.bench.BenchCommandReceiver --es cmd seedLibrary --es arg 1000`,
+for ten seconds. Then in the library run `adb -s $S shell am broadcast -a app.fernreader.BENCH -n app.fernreader/app.fernreader.bench.BenchCommandReceiver --es cmd seedLibrary --es arg 1000`,
 restart the app, and fling through the grid. No visible stall (a hitch you would notice while reading). Remove the
 seeds afterwards with the same command and `--es arg 0`.
 

@@ -28,14 +28,14 @@ SERIAL=""
 A=${ADB:-$(command -v adb || echo "$HOME/Android/Sdk/platform-tools/adb")}
 export ANDROID_SERIAL=$SERIAL # every adb call below talks to this phone
 PKG=${PKG:-app.fernreader}
-ACT=${ACT:-app.epubreader.MainActivity}
+ACT=${ACT:-app.fernreader.MainActivity}
 OUT=$ROOT/bench/results/device-${SERIAL//[^A-Za-z0-9]/_}-$(date -u +%Y%m%dT%H%M%SZ); mkdir -p "$OUT"
 SUM=$OUT/summary.txt
 B=/sdcard/Books
 WP=$B/gutenberg/war-and-peace-epub3.epub
 
 say() { echo "$*" | tee -a "$SUM"; }
-bench_cmd() { $A shell am broadcast -a app.fernreader.BENCH -n "$PKG/app.epubreader.bench.BenchCommandReceiver" --es cmd "$1" --es arg "'${2:-}'" >/dev/null; }
+bench_cmd() { $A shell am broadcast -a app.fernreader.BENCH -n "$PKG/app.fernreader.bench.BenchCommandReceiver" --es cmd "$1" --es arg "'${2:-}'" >/dev/null; }
 ev_delta() {
   $A logcat -d -s EPR:I | awk -v a="EVT $1 " -v b="EVT $2 " '
     function t() { match($0, /t=[0-9]+/); return substr($0, RSTART+2, RLENGTH-2) }

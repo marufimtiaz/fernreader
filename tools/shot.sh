@@ -8,13 +8,13 @@ set -u
 BOOK=$1; PNG=$2; WAIT=${3:-6}; shift 3 || shift $#
 A=${ADB:-$HOME/Android/Sdk/platform-tools/adb}
 PKG=app.fernreader
-cmd() { $A shell am broadcast -a app.fernreader.BENCH -n "$PKG/app.epubreader.bench.BenchCommandReceiver" --es cmd "$1" --es arg "'${2:-}'" >/dev/null; }
+cmd() { $A shell am broadcast -a app.fernreader.BENCH -n "$PKG/app.fernreader.bench.BenchCommandReceiver" --es cmd "$1" --es arg "'${2:-}'" >/dev/null; }
 $A shell am force-stop $PKG
 # every case starts fresh: no resumed position or settings from the case before
 $A shell pm clear $PKG >/dev/null
 $A shell appops set $PKG MANAGE_EXTERNAL_STORAGE allow
 $A logcat -c
-$A shell am start -W -n "$PKG/app.epubreader.MainActivity" >/dev/null
+$A shell am start -W -n "$PKG/app.fernreader.MainActivity" >/dev/null
 sleep 2.5
 cmd openPath "$BOOK"; n=1
 sleep "$WAIT"

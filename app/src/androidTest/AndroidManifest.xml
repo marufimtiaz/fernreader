@@ -2,6 +2,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <instrumentation android:name="androidx.test.runner.AndroidJUnitRunner" android:targetPackage="app.fernreader">
         <!-- C-049: run-wide test settings for every run, also a plain `am instrument` (SuiteSetup.kt) -->
-        <meta-data android:name="listener" android:value="app.epubreader.SuiteSetup" />
+        <meta-data android:name="listener" android:value="app.fernreader.SuiteSetup" />
     </instrumentation>
 </manifest>

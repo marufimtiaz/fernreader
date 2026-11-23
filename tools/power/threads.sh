@@ -17,7 +17,7 @@ tcpu() { adb shell "for t in /proc/$1/task/*; do echo \$(basename \$t) \$(cat \$
 tio() { adb shell "run-as $PKG sh -c 'for t in /proc/$1/task/*; do echo \$(basename \$t) \$(cat \$t/comm | tr \" \" _) \$(grep -E \"^(wchar|syscw|write_bytes)\" \$t/io | cut -d\" \" -f2 | tr \"\\n\" \" \"); done'" 2>/dev/null; }
 diff_cpu() { join <(sort $1) <(sort $2) | awk '{d=$5-$3; if (d>0) a[$2]+=d} END {for (k in a) printf "  %-28s %6.2f s\n", k, a[k]/100}' | sort -k2 -nr | head -15; }
 diff_io() { join <(sort $1) <(sort $2) | awk '{w=$7-$3; c=$8-$4; b=$9-$5; if (w>0||b>0) {W[$2]+=w; C[$2]+=c; B[$2]+=b}} END {for (k in W) printf "  %-28s wchar=%9d syscw=%6d write_bytes=%8d\n", k, W[k], C[k], B[k]}' | sort -t= -k2 -nr | head -12; }
-open_book() { adb shell am start -W -a android.intent.action.VIEW -d "file://$BOOK" -t application/epub+zip -n $PKG/app.epubreader.MainActivity >/dev/null; }
+open_book() { adb shell am start -W -a android.intent.action.VIEW -d "file://$BOOK" -t application/epub+zip -n $PKG/app.fernreader.MainActivity >/dev/null; }
 adb shell input keyevent 224; adb shell wm dismiss-keyguard
 
 # debug build is installed now: write attribution

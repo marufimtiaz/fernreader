@@ -1,0 +1,76 @@
+package app.fernreader.ui
+
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import app.fernreader.core.data.SourceRef
+import app.fernreader.library.LibraryActions
+import app.fernreader.library.LibraryScreen
+import app.fernreader.library.LibraryState
+import app.fernreader.onboarding.OnboardingScreen
+import app.fernreader.reader.EventProbe
+import app.fernreader.reader.ReaderController
+import app.fernreader.reader.ReaderScreen
+import app.fernreader.ui.theme.AppTheme
+
+/**
+ * Root. [readerSurface] (the WebView) is composed first and stays underneath; the library (and onboarding) screen is opaque over it,
+ * the reader route draws chrome only. [webViewTooOld] (no usable WebView): a full-screen message instead.
+ */
+@Composable
+fun App(
+    dark: Boolean,
+    webViewTooOld: Boolean,
+    nav: Navigator,
+    library: LibraryState,
+    reader: ReaderController,
+    probe: EventProbe,
+    readerSurface: @Composable () -> Unit,
+    onOpenPicker: () -> Unit,
+    onGrantAccess: () -> Unit,
+    onLeave: () -> Unit,
+    onOpen: (SourceRef) -> Unit,
+    onRescan: () -> Unit,
+    /** C-075: the library or one of its views came into view. */
+    onLibraryShown: () -> Unit = {},
+    onForget: (SourceRef) -> Unit,
+    onBack: () -> Unit,
+    fonts: Map<String, androidx.compose.ui.text.font.FontFamily> = emptyMap(),
+    /** Settings, about, hidden books, licences, book details (M7): drawn by the app, which owns the system pickers. */
+    pages: @Composable (Route) -> Unit = {},
+    /** Dialogs that may show over any route (backup restore offered from a file manager). */
+    overlay: @Composable () -> Unit = {},
+    formatDate: (Long) -> String = { it.toString() },
+) = AppTheme(dark) {
+    if (webViewTooOld) {
+        Surface(Modifier.fillMaxSize()) {
+            Box(Modifier.fillMaxSize().safeDrawingPadding().padding(24.dp), contentAlignment = Alignment.Center) { Text(Copy.webViewTooOld) }
+        }
+        return@AppTheme
+    }
+    Box(Modifier.fillMaxSize()) {
+        readerSurface()
+        when (nav.top) {
+            Route.Onboarding -> OnboardingScreen(onGrant = onGrantAccess, onOpenPicker = onOpenPicker, onLeave = onLeave)
+            Route.Library -> LibraryScreen(
+                library,
+                LibraryActions(
+                    onOpen = { b -> library.open(b) { onOpen(SourceRef.fromKey(it)) } }, onOpenPicker = onOpenPicker, onRescan = onRescan,
+                    onSettings = { nav.push(Route.Settings) }, onAbout = { nav.push(Route.About) }, onDetails = { nav.push(Route.BookDetails(it)) },
+                    onShown = onLibraryShown,
+                ),
+                probe = probe,
+            )
+            Route.Reader -> ReaderScreen(reader, onBack = onBack, onForget = onForget, probe = probe, fonts = fonts, formatDate = formatDate)
+            else -> pages(nav.top)
+        }
+        overlay()
+    }
+}

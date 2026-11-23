@@ -135,7 +135,7 @@ for i in $(seq "$RUNS"); do
     # disk writes: the debug build (run-as can read /proc/<pid>/io; a user build's shell cannot), same 20 turns
     FIRST_PID=; IO=io
     EVENTS=0 app_setup "$DEBUG_APK" || exit 3
-    $A shell am start -W -a android.intent.action.VIEW -d "file://$BOOK" -t application/epub+zip -n $PKG/app.epubreader.MainActivity >/dev/null
+    $A shell am start -W -a android.intent.action.VIEW -d "file://$BOOK" -t application/epub+zip -n $PKG/app.fernreader.MainActivity >/dev/null
     sleep 30
     sc_begin bio; for _ in $(seq $TURNS); do swipe; sleep 3; done; sleep 7; sc_end bio   # + the 5 s position write
   else
